@@ -1,0 +1,13 @@
+# StarryAI unified dependencies (Python 3.12)
+# 说明：按你的要求，仓库仅保留这一份 requirements 文件。
+
+# Runtime
+fastapi>=0.110.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.6.0
+
+# Development / Testing / Quality
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+ruff>=0.4.0
+mypy>=1.9.0

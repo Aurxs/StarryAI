@@ -1,0 +1,1 @@
+"""StarryAI backend app package."""
