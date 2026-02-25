@@ -1,88 +1,90 @@
 # StarryAI
 
-StarryAI is a modular, node-based AI virtual human workflow engine.
-The product vision is a ComfyUI/Dify-style node graph experience with low-latency audio/video orchestration.
+StarryAI 是一个模块化、节点式 AI 虚拟人工作流引擎。
+当前仓库处于 **Phase A（架构与协议验证阶段）**，核心目标是先验证后端图模型、节点规范和同步语义，再进入可运行调度与前端工作台。
 
-This repository is currently in **Phase A (MVP architecture validation)**.
+## 当前阶段范围（Phase A）
 
-## Current Phase Scope
+已完成：
 
-Phase A focuses on:
+- 后端统一消息协议：`Frame`、`SyncFrame`、`RuntimeEvent`
+- 节点与图规范：`NodeSpec`、`PortSpec`、`SyncConfig`、`GraphSpec`
+- 图静态校验与编译：`GraphBuilder`
+- 内置 mock 节点规范与代码骨架
+- FastAPI 基础接口骨架：节点类型查询、图校验
 
-- Unified backend data protocol (`Frame`, `SyncFrame`, runtime event models)
-- Node type contracts (`NodeSpec`, `PortSpec`, `SyncConfig`)
-- Graph static validation and compilation (`GraphBuilder`)
-- Full project skeleton (backend + frontend folders) for future phases
+暂不包含：
 
-Out of scope in Phase A:
+- 真实模型推理、真实网络调用
+- 真实调度执行（`runs` 相关逻辑在 Phase B 实现）
+- 完整 React Flow 工作台
 
-- Real model/network calls
-- Real scheduler execution
-- Production frontend graph editor implementation
+## 关键设计决策（当前版本）
 
-## Key Design Decisions (Current)
+1. 非同步节点采用非流式语义：输入齐备后执行，执行完成后整体输出。
+2. 同步由专门同步节点处理：上游产出完整结果后，由 `sync.timeline` 统一编排。
+3. 保留 `stream_id`、`seq`、`play_at` 协议字段，为后续流式升级预留兼容性。
 
-- Non-sync nodes use **non-streaming semantics** for now:
-  - node runs only when inputs are ready
-  - output is emitted only after process finishes
-- Sync behavior is isolated in dedicated sync nodes:
-  - use `stream_id` to identify one synchronized business flow
-  - use `seq` to identify ordered sync slices inside one stream
-  - use `play_at` for aligned scheduling timestamps
+## `stream_id` 与 `seq` 语义
 
-## Repository Structure
+- `stream_id`：同一条业务流（例如一次回复/一次播报）的标识。
+- `seq`：该业务流内部的顺序编号。
+- Phase A（非流式）默认可以用 `seq=0`。
+- 后续进入流式/时间片调度时，可扩展为 `seq=0,1,2...`。
 
-```text
-backend/
-  app/
-    core/        # protocol, spec, graph builder, scheduler skeleton
-    nodes/       # built-in mock node skeletons
-    api/         # FastAPI routes (validate/list now, run later)
-    schemas/     # API DTO layer placeholder
-    services/    # service layer placeholder
-  tests/         # backend tests
-frontend/
-  src/
-    app/         # frontend entry shell
-    shared/      # shared UI/client placeholders
-    entities/    # domain entity placeholders
-    features/    # feature module placeholders
-    pages/       # page module placeholders
+## 环境要求
+
+- Python: **3.12.x**
+- Node.js: 建议 20+
+
+## 依赖安装
+
+仓库仅保留一份依赖文件：`requirements.txt`（根目录）。
+
+```bash
+python3.12 -m pip install -r requirements.txt
 ```
 
-## Backend Quick Start
-
-1. Install dependencies (example):
+## 后端启动
 
 ```bash
 cd backend
-pip install -e .
+python3.12 -m uvicorn app.main:app --reload
 ```
 
-2. Run API server:
-
-```bash
-uvicorn app.main:app --reload
-```
-
-3. Useful endpoints:
+可用接口：
 
 - `GET /health`
 - `GET /api/v1/node-types`
 - `POST /api/v1/graphs/validate`
 
-## Test
+## 测试
 
 ```bash
 cd backend
-pytest
+python3.12 -m pytest -q
 ```
 
-## Next Phase (Planned)
+## 目录结构
 
-Phase B will implement real graph runtime scheduling:
+```text
+backend/
+  app/
+    core/        # 协议、规范、图编译、调度骨架
+    nodes/       # 内置 mock 节点实现骨架
+    api/         # FastAPI 路由
+    schemas/     # API DTO 占位
+    services/    # Service 层占位
+  tests/         # 后端测试
+frontend/
+  src/
+    app/         # 前端入口壳
+    shared/      # 通用模块
+    entities/    # 领域实体
+    features/    # 功能模块
+    pages/       # 页面模块
+```
 
-- queue creation and lifecycle
-- node task orchestration
-- run/stop APIs
-- runtime WebSocket event stream
+## 英文文档
+
+英文版说明请查看：`README_EN.md`

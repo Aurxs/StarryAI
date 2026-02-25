@@ -1,4 +1,7 @@
-"""StarryAI core package."""
+"""图引擎核心模块导出。
+
+该文件统一导出阶段 A 的核心协议和图模型，便于上层模块按需导入。
+"""
 
 from .frame import Frame, FrameType, RuntimeEvent, RuntimeEventType, SyncFrame
 from .graph_builder import CompiledGraph, GraphBuildError, GraphBuilder

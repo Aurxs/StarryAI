@@ -8,11 +8,18 @@ from app.core.graph_builder import GraphBuilder
 from app.core.registry import create_default_registry
 from app.core.spec import GraphSpec
 
+# 图配置相关路由。
 router = APIRouter(prefix="/api/v1/graphs", tags=["graphs"])
 
 
 @router.post("/validate")
 async def validate_graph(graph: GraphSpec) -> dict[str, object]:
+    """校验图定义并返回结构化报告。
+
+    使用场景：
+    - 前端保存前预校验。
+    - 后端运行前最终校验。
+    """
     builder = GraphBuilder(create_default_registry())
     report = builder.validate(graph)
     return report.model_dump(mode="json")

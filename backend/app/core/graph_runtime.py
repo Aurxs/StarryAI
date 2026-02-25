@@ -1,4 +1,7 @@
-"""阶段 A: 运行态结构占位。"""
+"""阶段 A：图运行态结构。
+
+当前仅定义状态数据结构，供阶段 B 调度器填充与更新。
+"""
 
 from __future__ import annotations
 
@@ -11,8 +14,11 @@ class RuntimeNodeState:
     """节点运行状态。"""
 
     node_id: str
+    # idle/running/finished/failed 等状态字符串。
     status: str = "idle"
+    # 最近一次错误信息（如果有）。
     last_error: str | None = None
+    # 运行指标（如耗时、处理次数）。
     metrics: dict[str, Any] = field(default_factory=dict)
 
 
@@ -24,12 +30,13 @@ class RuntimeEdgeState:
     source_port: str
     target_node: str
     target_port: str
+    # 边对应队列当前长度。
     queue_size: int = 0
 
 
 @dataclass(slots=True)
 class GraphRuntimeState:
-    """图运行时总状态。"""
+    """整个图运行状态快照。"""
 
     run_id: str
     node_states: dict[str, RuntimeNodeState] = field(default_factory=dict)

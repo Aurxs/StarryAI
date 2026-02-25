@@ -1,5 +1,7 @@
-"""Service layer package.
+"""Service 层包。
 
-阶段 A 暂未引入 service 逻辑；
-阶段 B 将新增 GraphService / RunService。
+阶段 A 说明：
+- 当前业务逻辑较轻，尚未引入独立 service。
+- 阶段 B 将在此增加 GraphService / RunService，
+  承担编译、调度、状态查询等核心业务编排。
 """

@@ -1,4 +1,7 @@
-"""Built-in node implementations."""
+"""内置节点实现导出。
+
+这些节点用于 MVP 阶段演示和测试，不依赖真实模型或外部服务。
+"""
 
 from .mock_input import MockInputNode
 from .mock_llm import MockLLMNode

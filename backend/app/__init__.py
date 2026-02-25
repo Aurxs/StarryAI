@@ -1,1 +1,4 @@
-"""StarryAI backend app package."""
+"""StarryAI 后端应用包。
+
+该包用于组织 FastAPI 应用、图引擎核心模块与内置节点实现。
+"""

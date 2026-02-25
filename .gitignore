@@ -37,3 +37,6 @@ wheels/
 .DS_Store
 Thumbs.db
 
+# Local planning docs (do not commit)
+Plan.md
+description.md

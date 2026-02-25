@@ -9,14 +9,30 @@ from app.core.node_base import NodeContext
 
 
 class MockMotionNode(AsyncNode):
-    """阶段 A: 输入完整文本，输出完整动作时间线。"""
+    """模拟动作时间线生成节点。
+
+    端口约定：
+    - 输入：`text`
+    - 输出：`motion`
+
+    当前行为：
+    - 根据文本长度生成简化的动作轨迹时间线。
+    """
 
     async def process(self, inputs: dict[str, Any], context: NodeContext) -> dict[str, Any]:
+        """生成 mock 动作时间线。"""
         _ = context
+
         text = str(inputs.get("text", ""))
-        steps = [
+
+        # 动作时间线示例：
+        # 1) 初始 idle
+        # 2) 开始说话
+        # 3) 结束说话（时刻与文本长度相关）
+        timeline = [
             {"t": 0, "action": "idle"},
             {"t": 200, "action": "speak_start"},
             {"t": 1200 + len(text) * 15, "action": "speak_end"},
         ]
-        return {"motion": {"timeline": steps, "source_text": text}}
+
+        return {"motion": {"timeline": timeline, "source_text": text}}

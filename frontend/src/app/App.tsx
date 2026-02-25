@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 
 export function App() {
+    // 当前阶段展示标识文本，后续将替换为完整工作台布局。
   const phase = useMemo(() => 'Phase A: Backend protocol and graph modeling', []);
 
   return (
