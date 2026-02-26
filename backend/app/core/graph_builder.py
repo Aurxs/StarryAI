@@ -83,11 +83,11 @@ class GraphBuilder:
             return GraphValidationReport(graph_id=graph.graph_id, valid=False, issues=issues)
 
         node_specs = self._collect_node_specs(graph, issues)
-        outgoing, incoming = self._collect_edges(graph, node_specs, issues)
+        outgoing, incoming, attempted_targets = self._collect_edges(graph, node_specs, issues)
 
         # 只有在节点类型成功解析后，才有意义做进一步校验。
         if node_specs:
-            self._validate_required_inputs(node_specs, incoming, issues)
+            self._validate_required_inputs(node_specs, incoming, attempted_targets, issues)
             self._validate_sync_nodes(node_specs, incoming, issues)
             self._validate_acyclic(node_specs, outgoing, issues)
 
@@ -108,7 +108,7 @@ class GraphBuilder:
         # 重新收集一次，确保 build 结果不依赖 validate 的临时容器。
         issues: list[ValidationIssue] = []
         node_specs = self._collect_node_specs(graph, issues)
-        outgoing, incoming = self._collect_edges(graph, node_specs, issues)
+        outgoing, incoming, _attempted = self._collect_edges(graph, node_specs, issues)
         topo_order = self._topological_sort(list(node_specs.keys()), outgoing)
 
         return CompiledGraph(
@@ -144,11 +144,18 @@ class GraphBuilder:
         graph: GraphSpec,
         node_specs: dict[str, NodeSpec],
         issues: list[ValidationIssue],
-    ) -> tuple[dict[str, list[EdgeSpec]], dict[str, list[EdgeSpec]]]:
-        """校验并收集边信息。"""
+    ) -> tuple[dict[str, list[EdgeSpec]], dict[str, list[EdgeSpec]], set[tuple[str, str]]]:
+        """校验并收集边信息。
+
+        返回值：
+        - outgoing: 节点到其出边列表的映射。
+        - incoming: 节点到其入边列表的映射。
+        - attempted_targets: 所有声明了边连接的目标端口集合（含校验失败的边）。
+        """
         outgoing: dict[str, list[EdgeSpec]] = defaultdict(list)
         incoming: dict[str, list[EdgeSpec]] = defaultdict(list)
         used_target_bindings: set[tuple[str, str]] = set()
+        attempted_targets: set[tuple[str, str]] = set()
 
         for edge in graph.edges:
             src_spec = node_specs.get(edge.source_node)
@@ -202,6 +209,7 @@ class GraphBuilder:
 
             # 端口 schema 不兼容。
             if not self._is_schema_compatible(src_port.frame_schema, dst_port.frame_schema):
+                attempted_targets.add((edge.target_node, edge.target_port))
                 issues.append(
                     ValidationIssue(
                         level="error",
@@ -216,6 +224,7 @@ class GraphBuilder:
                 continue
 
             target_binding = (edge.target_node, edge.target_port)
+            attempted_targets.add(target_binding)
             if target_binding in used_target_bindings:
                 issues.append(
                     ValidationIssue(
@@ -233,19 +242,26 @@ class GraphBuilder:
             outgoing[edge.source_node].append(edge)
             incoming[edge.target_node].append(edge)
 
-        return dict(outgoing), dict(incoming)
+        return dict(outgoing), dict(incoming), attempted_targets
 
     def _validate_required_inputs(
         self,
         node_specs: dict[str, NodeSpec],
         incoming: dict[str, list[EdgeSpec]],
+        attempted_targets: set[tuple[str, str]],
         issues: list[ValidationIssue],
     ) -> None:
-        """检查所有必填输入端口是否连接。"""
+        """检查所有必填输入端口是否连接。
+
+        跳过已有边声明但因其它校验失败（如 schema 不匹配）而被拒绝的端口，
+        避免与上游校验重复报错。
+        """
         for node_id, spec in node_specs.items():
             incoming_ports = {edge.target_port for edge in incoming.get(node_id, [])}
             for port in spec.inputs:
                 if port.required and port.name not in incoming_ports:
+                    if (node_id, port.name) in attempted_targets:
+                        continue
                     issues.append(
                         ValidationIssue(
                             level="error",
