@@ -29,6 +29,9 @@ wheels/
 .installed.cfg
 *.egg
 
+#frontend
+/frontend/node_modules/
+
 # Environment
 .env
 .env.local
@@ -37,6 +40,6 @@ wheels/
 .DS_Store
 Thumbs.db
 
-# Local planning docs (do not commit)
+# Local planning docs
 Plan.md
 description.md
