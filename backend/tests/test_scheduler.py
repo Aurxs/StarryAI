@@ -35,6 +35,15 @@ class FailingNode(AsyncNode):
         raise RuntimeError("boom from failing node")
 
 
+class IncompleteOutputNode(AsyncNode):
+    """返回不完整输出的节点（缺少已连接端口的数据）。"""
+
+    async def process(self, inputs: dict[str, Any], context: NodeContext) -> dict[str, Any]:
+        _ = inputs
+        _ = context
+        return {}
+
+
 def _build_registry_with_custom_nodes() -> GraphBuilder:
     registry = create_default_registry()
     registry.register(
@@ -55,6 +64,15 @@ def _build_registry_with_custom_nodes() -> GraphBuilder:
             description="always failing node",
         )
     )
+    registry.register(
+        NodeSpec(
+            type_name="test.incomplete_output",
+            mode=NodeMode.ASYNC,
+            inputs=[],
+            outputs=[PortSpec(name="text", frame_schema="text.final", required=True)],
+            description="returns empty output despite having connected port",
+        )
+    )
     return GraphBuilder(registry)
 
 
@@ -62,6 +80,7 @@ def _build_factory_with_custom_nodes() -> NodeFactory:
     factory = create_default_node_factory()
     factory.register("test.slow", SlowPassthroughNode)
     factory.register("test.fail", FailingNode)
+    factory.register("test.incomplete_output", IncompleteOutputNode)
     return factory
 
 
@@ -246,5 +265,31 @@ def test_scheduler_rejects_concurrent_run_calls() -> None:
             await scheduler.run(compiled, run_id="run_scheduler_concurrent_2")
         scheduler.stop()
         await running_task
+
+    asyncio.run(_run())
+
+
+def test_scheduler_fails_when_node_omits_connected_output() -> None:
+    """节点未输出已连接端口的数据时，运行应失败而非死锁。"""
+
+    async def _run() -> None:
+        graph = GraphSpec(
+            graph_id="g_scheduler_incomplete",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="test.incomplete_output"),
+                NodeInstanceSpec(node_id="n2", type_name="mock.output"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="in"),
+            ],
+        )
+        builder = _build_registry_with_custom_nodes()
+        compiled = builder.build(graph)
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+
+        state = await scheduler.run(compiled, run_id="run_scheduler_incomplete")
+        assert state.status == "failed"
+        assert state.node_states["n1"].status == "failed"
+        assert "text" in (state.node_states["n1"].last_error or "")
 
     asyncio.run(_run())

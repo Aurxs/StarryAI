@@ -318,7 +318,9 @@ class GraphScheduler:
 
         for edge in self._compiled_graph.outgoing_edges.get(node_id, []):
             if edge.source_port not in outputs:
-                continue
+                raise RuntimeError(
+                    f"节点 {node_id} 未输出已连接端口 {edge.source_port} 的数据"
+                )
 
             edge_key = self._edge_key(edge)
             queue = self._edge_queues[edge_key]
