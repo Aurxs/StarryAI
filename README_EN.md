@@ -62,3 +62,34 @@ Available endpoints:
 cd backend
 python3.12 -m pytest -q
 ```
+
+Notes:
+
+- The current test matrix covers backend core/API/service/node behavior.
+- It also includes a frontend build smoke test (`backend/tests/test_frontend_build.py`) to verify the `frontend` app can
+  build successfully.
+
+## Phase B Incremental Update (2026-02-26, Milestone 1)
+
+Note: this section is appended and does not replace the Phase A history above.
+
+New capabilities:
+
+- Minimal runnable scheduler: `GraphScheduler.run/stop`
+- Node instantiation factory: `backend/app/core/node_factory.py`
+- Run management service: `RunService` (create/stop/status/events)
+- `runs` REST APIs are now implemented
+- Runtime event WebSocket is upgraded from placeholder to minimal usable streaming
+
+Available runtime endpoints:
+
+- `POST /api/v1/runs`
+- `POST /api/v1/runs/{run_id}/stop`
+- `GET /api/v1/runs/{run_id}`
+- `GET /api/v1/runs/{run_id}/events`
+- `WS /api/v1/runs/{run_id}/events`
+
+Notes:
+
+- This is still the non-streaming Phase B MVP runtime.
+- Added dev/test dependency: `httpx>=0.28.0` (required by `fastapi.testclient` integration tests).

@@ -31,6 +31,7 @@ wheels/
 
 #frontend
 /frontend/node_modules/
+*.tsbuildinfo
 
 # Environment
 .env

@@ -109,7 +109,7 @@ class GraphBuilder:
         issues: list[ValidationIssue] = []
         node_specs = self._collect_node_specs(graph, issues)
         outgoing, incoming = self._collect_edges(graph, node_specs, issues)
-        topo_order = self._topological_sort(node_specs.keys(), outgoing)
+        topo_order = self._topological_sort(list(node_specs.keys()), outgoing)
 
         return CompiledGraph(
             graph=graph,
@@ -148,6 +148,7 @@ class GraphBuilder:
         """校验并收集边信息。"""
         outgoing: dict[str, list[EdgeSpec]] = defaultdict(list)
         incoming: dict[str, list[EdgeSpec]] = defaultdict(list)
+        used_target_bindings: set[tuple[str, str]] = set()
 
         for edge in graph.edges:
             src_spec = node_specs.get(edge.source_node)
@@ -214,6 +215,21 @@ class GraphBuilder:
                 )
                 continue
 
+            target_binding = (edge.target_node, edge.target_port)
+            if target_binding in used_target_bindings:
+                issues.append(
+                    ValidationIssue(
+                        level="error",
+                        code="edge.duplicate_target_port_binding",
+                        message=(
+                            "同一输入端口不允许多个来源: "
+                            f"{edge.target_node}.{edge.target_port}"
+                        ),
+                    )
+                )
+                continue
+            used_target_bindings.add(target_binding)
+
             outgoing[edge.source_node].append(edge)
             incoming[edge.target_node].append(edge)
 
@@ -277,7 +293,7 @@ class GraphBuilder:
         issues: list[ValidationIssue],
     ) -> None:
         """检查图是否存在环。"""
-        order = self._topological_sort(node_specs.keys(), outgoing)
+        order = self._topological_sort(list(node_specs.keys()), outgoing)
         if len(order) != len(node_specs):
             issues.append(
                 ValidationIssue(

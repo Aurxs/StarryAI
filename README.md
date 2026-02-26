@@ -65,6 +65,11 @@ cd backend
 python3.12 -m pytest -q
 ```
 
+说明：
+
+- 当前测试矩阵包含后端核心/API/服务/节点测试。
+- 额外包含前端构建烟雾测试（`backend/tests/test_frontend_build.py`），用于验证 `frontend` 可成功构建。
+
 ## 目录结构
 
 ```text
@@ -88,3 +93,28 @@ frontend/
 ## 英文文档
 
 英文版说明请查看：`README_EN.md`
+
+## Phase B 增量更新（2026-02-26，第一里程碑）
+
+说明：本节为追加更新，不替换上方 Phase A 历史说明。
+
+已新增能力：
+
+- 最小可运行调度器：`GraphScheduler.run/stop`
+- 节点实例工厂：`backend/app/core/node_factory.py`
+- 运行管理服务：`RunService`（创建/停止/状态/事件）
+- runs 接口从占位变为可用
+- WS 运行事件从占位变为最小可用推送
+
+新增/可用接口：
+
+- `POST /api/v1/runs`
+- `POST /api/v1/runs/{run_id}/stop`
+- `GET /api/v1/runs/{run_id}`
+- `GET /api/v1/runs/{run_id}/events`
+- `WS /api/v1/runs/{run_id}/events`
+
+说明：
+
+- 当前仍是 Phase B 的非流式最小闭环，不引入复杂 streaming 语义。
+- 本阶段新增开发测试依赖：`httpx>=0.28.0`（用于 `fastapi.testclient` 集成测试）。

@@ -43,3 +43,23 @@ def test_graph_validation_fails_for_schema_mismatch() -> None:
     report = GraphBuilder(create_default_registry()).validate(graph)
     assert report.valid is False
     assert any(issue.code == "edge.schema_mismatch" for issue in report.issues)
+
+
+def test_graph_validation_fails_for_duplicate_target_port_binding() -> None:
+    """验证：同一目标输入口不允许多个来源。"""
+    graph = GraphSpec(
+        graph_id="g3",
+        nodes=[
+            NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+            NodeInstanceSpec(node_id="n2", type_name="mock.input"),
+            NodeInstanceSpec(node_id="n3", type_name="mock.output"),
+        ],
+        edges=[
+            EdgeSpec(source_node="n1", source_port="text", target_node="n3", target_port="in"),
+            EdgeSpec(source_node="n2", source_port="text", target_node="n3", target_port="in"),
+        ],
+    )
+
+    report = GraphBuilder(create_default_registry()).validate(graph)
+    assert report.valid is False
+    assert any(issue.code == "edge.duplicate_target_port_binding" for issue in report.issues)

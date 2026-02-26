@@ -1,7 +1,7 @@
 """FastAPI 应用入口。
 
 本文件负责创建 API 应用并挂载路由。
-阶段 A 仅提供结构验证相关能力（节点类型查询、图校验）。
+Phase B 已提供最小可运行能力（runs create/stop/status/events）。
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ async def root() -> dict[str, str]:
 
     该接口用于快速确认服务已启动，并标识当前开发阶段。
     """
-    return {"name": "StarryAI Backend", "phase": "A"}
+    return {"name": "StarryAI Backend", "phase": "B"}
 
 
 @app.get("/health")

@@ -5,3 +5,19 @@
 - 阶段 B 开始建议在该目录定义 API 专用 DTO，
   避免 core 模型和对外模型强耦合。
 """
+
+from .runs import (
+    CreateRunRequest,
+    CreateRunResponse,
+    RunEventsResponse,
+    RunStatusResponse,
+    StopRunResponse,
+)
+
+__all__ = [
+    "CreateRunRequest",
+    "CreateRunResponse",
+    "StopRunResponse",
+    "RunStatusResponse",
+    "RunEventsResponse",
+]
