@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.core.graph_builder import GraphBuilder
-from app.core.registry import create_default_registry
 from app.core.spec import GraphSpec
+from app.services.run_service import get_run_service
 
 # 图配置相关路由。
 router = APIRouter(prefix="/api/v1/graphs", tags=["graphs"])
@@ -20,6 +19,6 @@ async def validate_graph(graph: GraphSpec) -> dict[str, object]:
     - 前端保存前预校验。
     - 后端运行前最终校验。
     """
-    builder = GraphBuilder(create_default_registry())
-    report = builder.validate(graph)
+    service = get_run_service()
+    report = service.builder.validate(graph)
     return report.model_dump(mode="json")
