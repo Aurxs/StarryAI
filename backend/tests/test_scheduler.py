@@ -127,6 +127,24 @@ class NoneSyncKeyOutputNode(AsyncNode):
         }
 
 
+class ConfigurableSyncOutputNode(AsyncNode):
+    """输出可配置同步 payload，用于验证调度器校验边界。"""
+
+    async def process(self, inputs: dict[str, Any], context: NodeContext) -> dict[str, Any]:
+        _ = inputs
+        _ = context
+        payload: dict[str, Any] = {
+            "play_at": self.config.get("play_at", 0.1),
+            "audio": {},
+            "motion": {},
+        }
+        if "stream_id" in self.config:
+            payload["stream_id"] = self.config["stream_id"]
+        if "seq" in self.config:
+            payload["seq"] = self.config["seq"]
+        return {"sync": payload}
+
+
 class NonDictSyncOutputNode(AsyncNode):
     """输出非 dict 的同步 payload。"""
 
@@ -215,6 +233,16 @@ def _build_registry_with_custom_nodes() -> GraphBuilder:
     )
     registry.register(
         NodeSpec(
+            type_name="test.config_sync_output",
+            mode=NodeMode.SYNC,
+            inputs=[],
+            outputs=[PortSpec(name="sync", frame_schema="sync.timeline", required=True)],
+            sync_config=SyncConfig(required_ports=[]),
+            description="emit configurable sync payload for scheduler validation",
+        )
+    )
+    registry.register(
+        NodeSpec(
             type_name="test.non_dict_sync_output",
             mode=NodeMode.SYNC,
             inputs=[],
@@ -236,6 +264,7 @@ def _build_factory_with_custom_nodes() -> NodeFactory:
     factory.register("test.bad_sync_output", BadSyncOutputNode)
     factory.register("test.no_play_at_sync_output", MissingPlayAtSyncOutputNode)
     factory.register("test.none_sync_key_output", NoneSyncKeyOutputNode)
+    factory.register("test.config_sync_output", ConfigurableSyncOutputNode)
     factory.register("test.non_dict_sync_output", NonDictSyncOutputNode)
     return factory
 
@@ -548,6 +577,103 @@ def test_scheduler_fails_on_invalid_sync_seq_output() -> None:
         assert state.status == "failed"
         assert state.node_states["n1"].status == "failed"
         assert "seq" in (state.node_states["n1"].last_error or "")
+
+    asyncio.run(_run())
+
+
+@pytest.mark.parametrize("bad_stream_id", [None, "   "], ids=["none", "whitespace"])
+def test_scheduler_fails_on_invalid_sync_stream_id_output(bad_stream_id: Any) -> None:
+    """同步输出 stream_id 非法时，调度器应失败并上报错误。"""
+
+    async def _run() -> None:
+        graph = GraphSpec(
+            graph_id="g_scheduler_invalid_sync_stream_id",
+            nodes=[
+                NodeInstanceSpec(
+                    node_id="n1",
+                    type_name="test.config_sync_output",
+                    config={"stream_id": bad_stream_id, "seq": 0, "play_at": 0.1},
+                ),
+                NodeInstanceSpec(node_id="n2", type_name="mock.output"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="sync", target_node="n2", target_port="in"),
+            ],
+        )
+        builder = _build_registry_with_custom_nodes()
+        compiled = builder.build(graph)
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+        state = await scheduler.run(compiled, run_id="run_scheduler_invalid_sync_stream_id")
+        assert state.status == "failed"
+        assert state.node_states["n1"].status == "failed"
+        assert "stream_id" in (state.node_states["n1"].last_error or "")
+
+    asyncio.run(_run())
+
+
+@pytest.mark.parametrize("bad_seq", [1.9, True], ids=["float", "bool"])
+def test_scheduler_fails_on_non_integral_sync_seq_output(bad_seq: Any) -> None:
+    """同步输出 seq 不是有效整数时，调度器应失败。"""
+
+    async def _run() -> None:
+        graph = GraphSpec(
+            graph_id="g_scheduler_non_integral_sync_seq",
+            nodes=[
+                NodeInstanceSpec(
+                    node_id="n1",
+                    type_name="test.config_sync_output",
+                    config={"stream_id": "stream_bad", "seq": bad_seq, "play_at": 0.1},
+                ),
+                NodeInstanceSpec(node_id="n2", type_name="mock.output"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="sync", target_node="n2", target_port="in"),
+            ],
+        )
+        builder = _build_registry_with_custom_nodes()
+        compiled = builder.build(graph)
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+        state = await scheduler.run(compiled, run_id="run_scheduler_non_integral_sync_seq")
+        assert state.status == "failed"
+        assert state.node_states["n1"].status == "failed"
+        assert "seq" in (state.node_states["n1"].last_error or "")
+
+    asyncio.run(_run())
+
+
+def test_scheduler_uses_run_stream_id_when_sync_payload_omits_stream_id() -> None:
+    """同步输出缺失 stream_id 字段时，应回退到 run 级 stream_id。"""
+
+    async def _run() -> None:
+        graph = GraphSpec(
+            graph_id="g_scheduler_sync_stream_id_fallback",
+            nodes=[
+                NodeInstanceSpec(
+                    node_id="n1",
+                    type_name="test.config_sync_output",
+                    config={"seq": 5, "play_at": 0.2},
+                ),
+                NodeInstanceSpec(node_id="n2", type_name="mock.output"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="sync", target_node="n2", target_port="in"),
+            ],
+        )
+        builder = _build_registry_with_custom_nodes()
+        compiled = builder.build(graph)
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+        state = await scheduler.run(
+            compiled,
+            run_id="run_scheduler_sync_stream_id_fallback",
+            stream_id="stream_run_fallback",
+        )
+        assert state.status == "completed"
+
+        events, _ = scheduler.get_events(since=0, limit=100)
+        sync_events = [e for e in events if e.event_type == RuntimeEventType.SYNC_FRAME_EMITTED]
+        assert len(sync_events) >= 1
+        assert sync_events[0].details["stream_id"] == "stream_run_fallback"
+        assert sync_events[0].details["sync_key"] == "stream_run_fallback:5"
 
     asyncio.run(_run())
 

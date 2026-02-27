@@ -145,7 +145,7 @@ class GraphScheduler:
 
         self._compiled_graph = compiled_graph
         self._run_id = run_id or f"run_{uuid.uuid4().hex[:12]}"
-        self._stream_id = stream_id
+        self._stream_id = self._normalize_stream_id(stream_id)
 
         self._events.clear()
         # stop_requested_before_run: 记录 run 入口前是否已经收到 stop 请求。
@@ -177,7 +177,7 @@ class GraphScheduler:
         self._emit_event(
             RuntimeEventType.RUN_STARTED,
             message="Run started",
-            details={"graph_id": compiled_graph.graph.graph_id, "stream_id": stream_id},
+            details={"graph_id": compiled_graph.graph.graph_id, "stream_id": self._stream_id},
         )
 
         try:
@@ -404,15 +404,23 @@ class GraphScheduler:
                 if not isinstance(payload_value, dict):
                     raise TypeError(f"同步节点输出必须是 dict，实际: {type(payload_value)}")
 
-                frame_stream_id = str(payload_value.get("stream_id", self._stream_id))
-                if not frame_stream_id:
-                    raise ValueError("同步帧 stream_id 不能为空")
+                normalized_payload = dict(payload_value)
+                raw_stream_id = payload_value.get("stream_id", self._stream_id)
+                if "stream_id" in payload_value:
+                    frame_stream_id = self._normalize_stream_id(raw_stream_id)
+                else:
+                    frame_stream_id = self._stream_id
                 frame_seq = self._normalize_seq(payload_value.get("seq", 0))
                 frame_play_at = self._normalize_required_play_at(payload_value.get("play_at"))
                 frame_sync_key = self._normalize_sync_key(
                     payload_value.get("sync_key"),
                     fallback=f"{frame_stream_id}:{frame_seq}",
                 )
+                normalized_payload["stream_id"] = frame_stream_id
+                normalized_payload["seq"] = frame_seq
+                normalized_payload["play_at"] = frame_play_at
+                normalized_payload["sync_key"] = frame_sync_key
+                payload_value = normalized_payload
                 event_details.update(
                     {
                         "stream_id": frame_stream_id,
@@ -533,13 +541,24 @@ class GraphScheduler:
     @staticmethod
     def _normalize_seq(raw_value: Any) -> int:
         """规范化 seq 并做边界校验。"""
-        try:
-            seq = int(raw_value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"非法 seq 值: {raw_value!r}") from exc
+        if isinstance(raw_value, bool):
+            raise ValueError(f"非法 seq 值: {raw_value!r}")
+        if not isinstance(raw_value, int):
+            raise ValueError(f"非法 seq 值: {raw_value!r}")
+        seq = raw_value
         if seq < 0:
             raise ValueError(f"seq 不能为负数: {seq}")
         return seq
+
+    @staticmethod
+    def _normalize_stream_id(raw_value: Any) -> str:
+        """规范化 stream_id，并拒绝空白或非字符串值。"""
+        if not isinstance(raw_value, str):
+            raise ValueError(f"非法 stream_id 值: {raw_value!r}")
+        stream_id = raw_value.strip()
+        if not stream_id:
+            raise ValueError("同步帧 stream_id 不能为空")
+        return stream_id
 
     @staticmethod
     def _normalize_play_at(raw_value: Any) -> float | None:
