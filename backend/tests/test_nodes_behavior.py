@@ -115,6 +115,38 @@ def test_timeline_sync_node_rejects_mismatched_seq() -> None:
     asyncio.run(_run())
 
 
+def test_timeline_sync_node_rejects_invalid_stream_id_type() -> None:
+    async def _run() -> None:
+        registry = create_default_registry()
+        node = TimelineSyncNode("n5", registry.get("sync.timeline"))
+        with pytest.raises(ValueError, match="stream_id"):
+            await node.process(
+                inputs={
+                    "audio": {"duration_ms": 1000, "stream_id": None, "seq": 0},
+                    "motion": {"timeline": [], "stream_id": None, "seq": 0},
+                },
+                context=_context(node_id="n5"),
+            )
+
+    asyncio.run(_run())
+
+
+def test_timeline_sync_node_rejects_bool_seq() -> None:
+    async def _run() -> None:
+        registry = create_default_registry()
+        node = TimelineSyncNode("n5", registry.get("sync.timeline"))
+        with pytest.raises(ValueError, match="seq"):
+            await node.process(
+                inputs={
+                    "audio": {"duration_ms": 1000, "stream_id": "stream_test", "seq": True},
+                    "motion": {"timeline": [], "stream_id": "stream_test", "seq": True},
+                },
+                context=_context(node_id="n5"),
+            )
+
+    asyncio.run(_run())
+
+
 def test_timeline_sync_node_late_policy_drop() -> None:
     async def _run() -> None:
         registry = create_default_registry()

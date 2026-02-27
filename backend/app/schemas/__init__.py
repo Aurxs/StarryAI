@@ -9,7 +9,9 @@
 from .runs import (
     CreateRunRequest,
     CreateRunResponse,
+    RunDiagnosticsResponse,
     RunEventsResponse,
+    RunMetricsResponse,
     RunStatusResponse,
     StopRunResponse,
 )
@@ -20,4 +22,6 @@ __all__ = [
     "StopRunResponse",
     "RunStatusResponse",
     "RunEventsResponse",
+    "RunMetricsResponse",
+    "RunDiagnosticsResponse",
 ]

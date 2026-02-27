@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from app.core.frame import RuntimeEvent
+from app.core.frame import RuntimeEvent, RuntimeEventSeverity, RuntimeEventType
 from app.core.graph_builder import GraphBuilder
 from app.core.graph_runtime import GraphRuntimeState
 from app.core.node_factory import NodeFactory, create_default_node_factory
@@ -19,6 +19,10 @@ from app.core.spec import GraphSpec
 
 class RunNotFoundError(KeyError):
     """运行实例不存在。"""
+
+
+class InvalidRunRequestError(ValueError):
+    """运行请求参数非法。"""
 
 
 @dataclass(slots=True)
@@ -75,6 +79,7 @@ class RunService:
 
     async def create_run(self, graph: GraphSpec, *, stream_id: str = "stream_default") -> RunRecord:
         """创建并启动一个运行实例。"""
+        normalized_stream_id = self._normalize_stream_id(stream_id)
         compiled_graph = self.builder.build(graph)
         run_id = f"run_{uuid.uuid4().hex[:12]}"
         scheduler = GraphScheduler(
@@ -82,13 +87,13 @@ class RunService:
             node_factory=self.node_factory_builder(),
         )
         task = asyncio.create_task(
-            scheduler.run(compiled_graph, run_id=run_id, stream_id=stream_id),
+            scheduler.run(compiled_graph, run_id=run_id, stream_id=normalized_stream_id),
             name=f"run:{run_id}",
         )
         record = RunRecord(
             run_id=run_id,
             graph_id=graph.graph_id,
-            stream_id=stream_id,
+            stream_id=normalized_stream_id,
             created_at=time.time(),
             scheduler=scheduler,
             task=task,
@@ -122,13 +127,19 @@ class RunService:
         if runtime is not None:
             data = runtime.to_dict()
         else:
+            last_error: str | None = None
+            if record.task.done() and not record.task.cancelled():
+                exc = record.task.exception()
+                if exc is not None:
+                    last_error = str(exc)
             data = {
                 "run_id": record.run_id,
                 "graph_id": record.graph_id,
                 "status": record.status,
                 "started_at": None,
                 "ended_at": None,
-                "last_error": None,
+                "last_error": last_error,
+                "metrics": {},
                 "node_states": {},
                 "edge_states": [],
             }
@@ -139,11 +150,114 @@ class RunService:
         return data
 
     def get_run_events(
-            self, run_id: str, *, since: int = 0, limit: int = 200
+            self,
+            run_id: str,
+            *,
+            since: int = 0,
+            limit: int = 200,
+            event_type: RuntimeEventType | str | None = None,
+            node_id: str | None = None,
+            severity: RuntimeEventSeverity | str | None = None,
+            error_code: str | None = None,
     ) -> tuple[list[RuntimeEvent], int]:
         """查询运行事件。"""
         record = self._get_or_raise(run_id)
-        return record.scheduler.get_events(since=since, limit=limit)
+        return record.scheduler.get_events_filtered(
+            since=since,
+            limit=limit,
+            event_type=event_type,
+            node_id=node_id,
+            severity=severity,
+            error_code=error_code,
+        )
+
+    def get_run_metrics(self, run_id: str) -> dict[str, Any]:
+        """获取运行指标视图。"""
+        snapshot = self.get_run_snapshot(run_id)
+        edge_metrics = [
+            {
+                "edge": (
+                    f"{edge['source_node']}.{edge['source_port']}"
+                    f"->{edge['target_node']}.{edge['target_port']}"
+                ),
+                "forwarded_frames": edge.get("forwarded_frames", 0),
+                "queue_size": edge.get("queue_size", 0),
+                "queue_peak_size": edge.get("queue_peak_size", 0),
+            }
+            for edge in snapshot["edge_states"]
+        ]
+        node_metrics = {
+            node_id: state.get("metrics", {})
+            for node_id, state in snapshot["node_states"].items()
+        }
+        return {
+            "run_id": snapshot["run_id"],
+            "graph_id": snapshot["graph_id"],
+            "status": snapshot["status"],
+            "created_at": snapshot["created_at"],
+            "started_at": snapshot["started_at"],
+            "ended_at": snapshot["ended_at"],
+            "task_done": snapshot["task_done"],
+            "graph_metrics": snapshot.get("metrics", {}),
+            "node_metrics": node_metrics,
+            "edge_metrics": edge_metrics,
+        }
+
+    def get_run_diagnostics(self, run_id: str) -> dict[str, Any]:
+        """获取运行诊断视图。"""
+        snapshot = self.get_run_snapshot(run_id)
+        failed_nodes: list[dict[str, Any]] = []
+        slow_nodes: list[dict[str, Any]] = []
+
+        for node_id, state in snapshot["node_states"].items():
+            metrics = state.get("metrics", {})
+            if state.get("status") == "failed":
+                failed_nodes.append(
+                    {
+                        "node_id": node_id,
+                        "last_error": state.get("last_error"),
+                        "error_code": metrics.get("last_error_code"),
+                        "retryable": metrics.get("last_error_retryable"),
+                    }
+                )
+
+            duration_ms = metrics.get("duration_ms")
+            if isinstance(duration_ms, int):
+                slow_nodes.append(
+                    {
+                        "node_id": node_id,
+                        "duration_ms": duration_ms,
+                        "retry_count": metrics.get("retry_count", 0),
+                        "timeout_count": metrics.get("timeout_count", 0),
+                    }
+                )
+
+        slow_nodes.sort(key=lambda item: item["duration_ms"], reverse=True)
+
+        edge_hotspots = [
+            {
+                "edge": (
+                    f"{edge['source_node']}.{edge['source_port']}"
+                    f"->{edge['target_node']}.{edge['target_port']}"
+                ),
+                "queue_peak_size": edge.get("queue_peak_size", 0),
+                "forwarded_frames": edge.get("forwarded_frames", 0),
+            }
+            for edge in snapshot["edge_states"]
+            if int(edge.get("queue_peak_size", 0)) > 0
+        ]
+        edge_hotspots.sort(key=lambda item: item["queue_peak_size"], reverse=True)
+
+        return {
+            "run_id": snapshot["run_id"],
+            "graph_id": snapshot["graph_id"],
+            "status": snapshot["status"],
+            "task_done": snapshot["task_done"],
+            "last_error": snapshot.get("last_error"),
+            "failed_nodes": failed_nodes,
+            "slow_nodes_top": slow_nodes[:5],
+            "edge_hotspots_top": edge_hotspots[:5],
+        }
 
     async def stop_all(self) -> None:
         """停止所有运行实例（主要供测试清理使用）。"""
@@ -187,6 +301,16 @@ class RunService:
         for run_id, _record in terminal_records[:overflow]:
             self._runs.pop(run_id, None)
 
+    @staticmethod
+    def _normalize_stream_id(raw_value: Any) -> str:
+        """规范化 stream_id，并拒绝空白或非字符串值。"""
+        if not isinstance(raw_value, str):
+            raise InvalidRunRequestError(f"非法 stream_id 值: {raw_value!r}")
+        stream_id = raw_value.strip()
+        if not stream_id:
+            raise InvalidRunRequestError("stream_id 不能为空")
+        return stream_id
+
 
 _run_service_singleton: RunService | None = None
 
@@ -206,6 +330,7 @@ def reset_run_service_for_testing() -> None:
 
 
 __all__ = [
+    "InvalidRunRequestError",
     "RunNotFoundError",
     "RunRecord",
     "RunService",

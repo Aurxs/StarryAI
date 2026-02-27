@@ -5,7 +5,15 @@ from __future__ import annotations
 from pydantic import ValidationError
 import pytest
 
-from app.core.frame import Frame, FrameType, RuntimeEvent, RuntimeEventType, SyncFrame
+from app.core.frame import (
+    Frame,
+    FrameType,
+    RuntimeEvent,
+    RuntimeEventComponent,
+    RuntimeEventSeverity,
+    RuntimeEventType,
+    SyncFrame,
+)
 from app.core.graph_runtime import GraphRuntimeState, RuntimeEdgeState, RuntimeNodeState
 from app.core.queue_policy import BackpressurePolicy, QueuePolicy
 
@@ -61,6 +69,44 @@ def test_runtime_event_model_dump_contains_type() -> None:
     payload = event.model_dump(mode="json")
     assert payload["event_type"] == "run_started"
     assert payload["message"] == "ok"
+    assert payload["event_seq"] == 0
+    assert payload["event_id"] == "evt_0"
+    assert payload["severity"] == "info"
+    assert payload["component"] == "scheduler"
+
+
+def test_runtime_event_supports_structured_fields() -> None:
+    """RuntimeEvent 应支持结构化可观测字段。"""
+    event = RuntimeEvent(
+        run_id="r2",
+        event_id="r2:9",
+        event_seq=9,
+        event_type=RuntimeEventType.NODE_FAILED,
+        severity=RuntimeEventSeverity.ERROR,
+        component=RuntimeEventComponent.NODE,
+        node_id="n2",
+        edge_key="n1.out->n2.in",
+        error_code="node.execution_failed",
+        attempt=2,
+        details={"reason": "boom"},
+    )
+    payload = event.model_dump(mode="json")
+    assert payload["event_id"] == "r2:9"
+    assert payload["event_seq"] == 9
+    assert payload["severity"] == "error"
+    assert payload["component"] == "node"
+    assert payload["error_code"] == "node.execution_failed"
+    assert payload["attempt"] == 2
+
+
+def test_runtime_event_rejects_invalid_attempt_value() -> None:
+    """RuntimeEvent attempt 必须是正整数。"""
+    with pytest.raises(ValidationError):
+        RuntimeEvent(
+            run_id="r3",
+            event_type=RuntimeEventType.NODE_FAILED,
+            attempt=0,
+        )
 
 
 def test_queue_policy_defaults_and_validation() -> None:
@@ -96,6 +142,7 @@ def test_graph_runtime_to_dict_roundtrip() -> None:
         status="completed",
         started_at=1.0,
         ended_at=2.0,
+        metrics={"event_total": 5},
         node_states={"n1": node_state},
         edge_states=[edge_state],
     )
@@ -104,5 +151,6 @@ def test_graph_runtime_to_dict_roundtrip() -> None:
     assert payload["run_id"] == "r1"
     assert payload["graph_id"] == "g1"
     assert payload["status"] == "completed"
+    assert payload["metrics"]["event_total"] == 5
     assert payload["node_states"]["n1"]["metrics"]["duration_ms"] == 1000
     assert payload["edge_states"][0]["forwarded_frames"] == 3

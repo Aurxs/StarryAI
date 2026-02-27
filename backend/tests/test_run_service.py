@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 import pytest
 
+from app.core.frame import RuntimeEventType
 from app.core.node_async import AsyncNode
 from app.core.node_base import NodeContext
 from app.core.node_factory import NodeFactory, create_default_node_factory
 from app.core.registry import create_default_registry
+from app.core.scheduler import GraphScheduler
 from app.core.spec import EdgeSpec, GraphSpec, NodeInstanceSpec, NodeMode, NodeSpec, PortSpec
-from app.services.run_service import RunNotFoundError, RunService
+from app.services.run_service import RunNotFoundError, RunRecord, RunService
 
 
 class SlowPassNode(AsyncNode):
@@ -22,6 +25,15 @@ class SlowPassNode(AsyncNode):
         _ = context
         await asyncio.sleep(float(self.config.get("delay_s", 0.6)))
         return {"text": str(inputs.get("text", ""))}
+
+
+class AlwaysFailNode(AsyncNode):
+    """用于 continue_on_error 策略测试的失败节点。"""
+
+    async def process(self, inputs: dict[str, Any], context: NodeContext) -> dict[str, Any]:
+        _ = inputs
+        _ = context
+        raise RuntimeError("always fail")
 
 
 def _basic_graph(graph_id: str = "g_service_basic") -> GraphSpec:
@@ -78,6 +90,44 @@ def _sync_graph(graph_id: str = "g_service_sync") -> GraphSpec:
     )
 
 
+def _continue_on_error_graph(graph_id: str = "g_service_continue") -> GraphSpec:
+    return GraphSpec(
+        graph_id=graph_id,
+        nodes=[
+            NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+            NodeInstanceSpec(
+                node_id="n2",
+                type_name="test.fail.service",
+                config={"continue_on_error": True},
+            ),
+            NodeInstanceSpec(node_id="n3", type_name="mock.output"),
+        ],
+        edges=[
+            EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="text"),
+            EdgeSpec(source_node="n1", source_port="text", target_node="n3", target_port="in"),
+        ],
+    )
+
+
+def _critical_fail_fast_graph(graph_id: str = "g_service_critical") -> GraphSpec:
+    return GraphSpec(
+        graph_id=graph_id,
+        nodes=[
+            NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+            NodeInstanceSpec(
+                node_id="n2",
+                type_name="test.fail.service",
+                config={"continue_on_error": True, "critical": True},
+            ),
+            NodeInstanceSpec(node_id="n3", type_name="mock.output"),
+        ],
+        edges=[
+            EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="text"),
+            EdgeSpec(source_node="n1", source_port="text", target_node="n3", target_port="in"),
+        ],
+    )
+
+
 def _build_service_with_slow_node() -> RunService:
     registry = create_default_registry()
     registry.register(
@@ -98,6 +148,26 @@ def _build_service_with_slow_node() -> RunService:
     return RunService(registry=registry, node_factory_builder=node_factory_builder)
 
 
+def _build_service_with_fail_node() -> RunService:
+    registry = create_default_registry()
+    registry.register(
+        NodeSpec(
+            type_name="test.fail.service",
+            mode=NodeMode.ASYNC,
+            inputs=[PortSpec(name="text", frame_schema="text.final", required=True)],
+            outputs=[PortSpec(name="text", frame_schema="text.final", required=True)],
+            description="always failing service node",
+        )
+    )
+
+    def node_factory_builder() -> NodeFactory:
+        factory = create_default_node_factory()
+        factory.register("test.fail.service", AlwaysFailNode)
+        return factory
+
+    return RunService(registry=registry, node_factory_builder=node_factory_builder)
+
+
 def test_run_service_create_and_snapshot_and_events() -> None:
     """create_run 后应能查询状态与事件。"""
 
@@ -110,12 +180,54 @@ def test_run_service_create_and_snapshot_and_events() -> None:
         assert snapshot["status"] == "completed"
         assert snapshot["stream_id"] == "stream_service"
         assert snapshot["task_done"] is True
+        assert snapshot["metrics"]["event_total"] >= 1
 
         page1, cursor1 = service.get_run_events(record.run_id, since=0, limit=2)
         assert len(page1) <= 2
         page2, cursor2 = service.get_run_events(record.run_id, since=cursor1, limit=100)
         assert cursor2 >= cursor1
         assert len(page1) + len(page2) >= 1
+
+    asyncio.run(_run())
+
+
+def test_run_service_rejects_blank_stream_id() -> None:
+    """create_run 应拒绝空白 stream_id。"""
+
+    async def _run() -> None:
+        service = RunService()
+        with pytest.raises(ValueError, match="stream_id"):
+            await service.create_run(_basic_graph("g_service_blank_stream"), stream_id="   ")
+
+    asyncio.run(_run())
+
+
+def test_run_service_snapshot_includes_task_error_without_runtime_state() -> None:
+    """运行任务在 runtime 初始化前失败时，快照应包含 last_error。"""
+
+    async def _run() -> None:
+        service = RunService()
+        scheduler = GraphScheduler()
+
+        async def _boom() -> Any:
+            raise RuntimeError("task exploded before runtime init")
+
+        task = asyncio.create_task(_boom())
+        await asyncio.gather(task, return_exceptions=True)
+
+        record = RunRecord(
+            run_id="run_snapshot_task_error",
+            graph_id="g_snapshot_task_error",
+            stream_id="stream_snapshot",
+            created_at=time.time(),
+            scheduler=scheduler,
+            task=task,
+        )
+        service._runs[record.run_id] = record
+
+        snapshot = service.get_run_snapshot(record.run_id)
+        assert snapshot["status"] == "failed"
+        assert "task exploded before runtime init" in (snapshot["last_error"] or "")
 
     asyncio.run(_run())
 
@@ -174,6 +286,7 @@ def test_run_service_sync_run_exposes_sync_metrics_and_events() -> None:
 
         snapshot = service.get_run_snapshot(record.run_id)
         assert snapshot["status"] == "completed"
+        assert snapshot["metrics"]["edge_forwarded_frames"] >= 1
         assert snapshot["node_states"]["n4"]["metrics"]["sync_emitted"] >= 1
 
         events, _ = service.get_run_events(record.run_id, since=0, limit=300)
@@ -181,6 +294,47 @@ def test_run_service_sync_run_exposes_sync_metrics_and_events() -> None:
         assert len(sync_events) >= 1
         assert sync_events[0].details["stream_id"] == "stream_service_sync"
         assert sync_events[0].details["seq"] == 0
+
+    asyncio.run(_run())
+
+
+def test_run_service_get_run_events_supports_filters() -> None:
+    """事件查询应支持 event_type/node_id/error_code 等过滤参数。"""
+
+    async def _run() -> None:
+        service = RunService()
+        record = await service.create_run(_sync_graph("g_service_sync_filter"), stream_id="stream_filter")
+        await record.task
+
+        all_events, _ = service.get_run_events(record.run_id, since=0, limit=500)
+        assert len(all_events) >= 1
+
+        sync_events, _ = service.get_run_events(
+            record.run_id,
+            since=0,
+            limit=200,
+            event_type=RuntimeEventType.SYNC_FRAME_EMITTED,
+        )
+        assert len(sync_events) >= 1
+        assert all(item.event_type == RuntimeEventType.SYNC_FRAME_EMITTED for item in sync_events)
+
+        node_events, _ = service.get_run_events(
+            record.run_id,
+            since=0,
+            limit=200,
+            node_id="n4",
+        )
+        assert len(node_events) >= 1
+        assert all(item.node_id == "n4" for item in node_events)
+
+        missing_code_events, next_cursor = service.get_run_events(
+            record.run_id,
+            since=0,
+            limit=200,
+            error_code="non.existing.code",
+        )
+        assert missing_code_events == []
+        assert next_cursor == len(all_events)
 
     asyncio.run(_run())
 
@@ -202,5 +356,60 @@ def test_run_service_prunes_completed_runs_when_over_limit() -> None:
             service.get_run(run1.run_id)
         assert service.get_run(run2.run_id).run_id == run2.run_id
         assert service.get_run(run3.run_id).run_id == run3.run_id
+
+    asyncio.run(_run())
+
+
+def test_run_service_continue_on_error_completes_run() -> None:
+    """continue_on_error 非关键节点失败不应拖垮整图。"""
+
+    async def _run() -> None:
+        service = _build_service_with_fail_node()
+        record = await service.create_run(_continue_on_error_graph(), stream_id="stream_continue")
+        await record.task
+
+        snapshot = service.get_run_snapshot(record.run_id)
+        assert snapshot["status"] == "completed"
+        assert snapshot["node_states"]["n2"]["status"] == "failed"
+        assert snapshot["node_states"]["n2"]["metrics"]["continued_on_error"] is True
+        assert snapshot["node_states"]["n3"]["status"] == "finished"
+
+    asyncio.run(_run())
+
+
+def test_run_service_critical_failure_keeps_fail_fast() -> None:
+    """关键节点失败应保持 fail-fast。"""
+
+    async def _run() -> None:
+        service = _build_service_with_fail_node()
+        record = await service.create_run(_critical_fail_fast_graph(), stream_id="stream_critical")
+        await record.task
+
+        snapshot = service.get_run_snapshot(record.run_id)
+        assert snapshot["status"] == "failed"
+        assert snapshot["node_states"]["n2"]["status"] == "failed"
+
+    asyncio.run(_run())
+
+
+def test_run_service_metrics_and_diagnostics_views() -> None:
+    """RunService 应提供独立 metrics/diagnostics 视图。"""
+
+    async def _run() -> None:
+        service = _build_service_with_fail_node()
+        record = await service.create_run(_critical_fail_fast_graph("g_service_diag"), stream_id="stream_diag")
+        await record.task
+
+        metrics = service.get_run_metrics(record.run_id)
+        assert metrics["run_id"] == record.run_id
+        assert "graph_metrics" in metrics
+        assert "node_metrics" in metrics
+        assert "edge_metrics" in metrics
+
+        diagnostics = service.get_run_diagnostics(record.run_id)
+        assert diagnostics["run_id"] == record.run_id
+        assert diagnostics["status"] == "failed"
+        assert len(diagnostics["failed_nodes"]) >= 1
+        assert "edge_hotspots_top" in diagnostics
 
     asyncio.run(_run())

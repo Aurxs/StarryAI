@@ -158,15 +158,13 @@ class TimelineSyncNode(SyncNode):
         if not isinstance(payload, dict):
             return {"stream_id": default_stream_id, "seq": 0, "play_at": None}
 
-        stream_id = str(payload.get("stream_id", default_stream_id))
+        if "stream_id" in payload:
+            stream_id = self._normalize_stream_id(payload.get("stream_id"), port_name=port_name)
+        else:
+            stream_id = default_stream_id
 
         raw_seq = payload.get("seq", 0)
-        try:
-            seq = int(raw_seq)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"sync.timeline 输入 {port_name}.seq 非法: {raw_seq!r}") from exc
-        if seq < 0:
-            raise ValueError(f"sync.timeline 输入 {port_name}.seq 不能为负数: {seq}")
+        seq = self._normalize_seq(raw_seq, port_name=port_name)
 
         raw_play_at = payload.get("play_at")
         if raw_play_at is None:
@@ -184,6 +182,25 @@ class TimelineSyncNode(SyncNode):
                 )
 
         return {"stream_id": stream_id, "seq": seq, "play_at": play_at}
+
+    @staticmethod
+    def _normalize_stream_id(raw_value: Any, *, port_name: str) -> str:
+        """规范化 stream_id，并拒绝空白或非字符串值。"""
+        if not isinstance(raw_value, str):
+            raise ValueError(f"sync.timeline 输入 {port_name}.stream_id 非法: {raw_value!r}")
+        stream_id = raw_value.strip()
+        if not stream_id:
+            raise ValueError(f"sync.timeline 输入 {port_name}.stream_id 不能为空")
+        return stream_id
+
+    @staticmethod
+    def _normalize_seq(raw_value: Any, *, port_name: str) -> int:
+        """规范化 seq 并做边界校验。"""
+        if isinstance(raw_value, bool) or not isinstance(raw_value, int):
+            raise ValueError(f"sync.timeline 输入 {port_name}.seq 非法: {raw_value!r}")
+        if raw_value < 0:
+            raise ValueError(f"sync.timeline 输入 {port_name}.seq 不能为负数: {raw_value}")
+        return raw_value
 
     def _resolve_play_at(
             self,

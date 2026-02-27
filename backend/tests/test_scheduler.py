@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from app.core.errors import ErrorCode
 from app.core.frame import RuntimeEventType
 from app.core.graph_builder import GraphBuilder
 from app.core.node_async import AsyncNode
@@ -303,6 +304,166 @@ def test_scheduler_runs_basic_chain() -> None:
     asyncio.run(_run())
 
 
+def test_scheduler_runtime_metrics_collect_node_and_edge_stats() -> None:
+    """运行结束后应产出图级聚合指标。"""
+
+    async def _run() -> None:
+        graph = GraphSpec(
+            graph_id="g_scheduler_runtime_metrics",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+                NodeInstanceSpec(node_id="n2", type_name="mock.llm"),
+                NodeInstanceSpec(node_id="n3", type_name="mock.output"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="prompt"),
+                EdgeSpec(source_node="n2", source_port="answer", target_node="n3", target_port="in"),
+            ],
+        )
+        compiled = GraphBuilder(create_default_registry()).build(graph)
+        scheduler = GraphScheduler()
+        state = await scheduler.run(compiled, run_id="run_scheduler_runtime_metrics")
+        assert state.status == "completed"
+
+        metrics = state.metrics
+        assert metrics["event_total"] >= 1
+        assert metrics["event_error"] == 0
+        assert metrics["node_finished"] == 3
+        assert metrics["node_failed"] == 0
+        assert metrics["edge_forwarded_frames"] == 2
+        assert metrics["edge_queue_peak_max"] >= 1
+
+        edge_states = state.to_dict()["edge_states"]
+        assert all("queue_peak_size" in edge for edge in edge_states)
+
+    asyncio.run(_run())
+
+
+def test_scheduler_events_have_structured_fields_and_monotonic_seq() -> None:
+    """调度器事件应带结构化字段，且 event_seq 单调递增。"""
+
+    async def _run() -> None:
+        graph = GraphSpec(
+            graph_id="g_scheduler_event_seq",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+                NodeInstanceSpec(node_id="n2", type_name="mock.output"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="in"),
+            ],
+        )
+        compiled = GraphBuilder(create_default_registry()).build(graph)
+        scheduler = GraphScheduler()
+        await scheduler.run(compiled, run_id="run_scheduler_event_seq")
+
+        events, _ = scheduler.get_events(since=0, limit=200)
+        assert len(events) >= 2
+        seqs = [event.event_seq for event in events]
+        assert seqs == list(range(len(events)))
+        for event in events:
+            assert event.event_id == f"run_scheduler_event_seq:{event.event_seq}"
+            assert event.severity.value in {"info", "warning", "error", "debug", "critical"}
+            assert event.component.value in {"scheduler", "node", "edge", "sync", "service", "api"}
+
+    asyncio.run(_run())
+
+
+def test_scheduler_event_seq_resets_between_runs() -> None:
+    """同一调度器执行两次运行时，event_seq 应从 0 重新开始。"""
+
+    async def _run() -> None:
+        graph = GraphSpec(
+            graph_id="g_scheduler_event_reset",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+                NodeInstanceSpec(node_id="n2", type_name="mock.output"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="in"),
+            ],
+        )
+        compiled = GraphBuilder(create_default_registry()).build(graph)
+        scheduler = GraphScheduler()
+
+        await scheduler.run(compiled, run_id="run_scheduler_reset_1")
+        events1, _ = scheduler.get_events(since=0, limit=200)
+        assert len(events1) >= 1
+        assert events1[0].event_seq == 0
+
+        await scheduler.run(compiled, run_id="run_scheduler_reset_2")
+        events2, _ = scheduler.get_events(since=0, limit=200)
+        assert len(events2) >= 1
+        assert events2[0].event_seq == 0
+        assert events2[0].event_id.startswith("run_scheduler_reset_2:")
+
+    asyncio.run(_run())
+
+
+def test_scheduler_get_events_filtered_supports_multi_conditions() -> None:
+    """事件查询应支持多条件过滤，并保持游标语义稳定。"""
+
+    async def _run() -> None:
+        graph = GraphSpec(
+            graph_id="g_scheduler_event_filter",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+                NodeInstanceSpec(node_id="n2", type_name="test.fail"),
+                NodeInstanceSpec(node_id="n3", type_name="mock.output"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="text"),
+                EdgeSpec(source_node="n2", source_port="text", target_node="n3", target_port="in"),
+            ],
+        )
+        builder = _build_registry_with_custom_nodes()
+        compiled = builder.build(graph)
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+        await scheduler.run(compiled, run_id="run_scheduler_event_filter")
+
+        all_events, _ = scheduler.get_events(since=0, limit=300)
+        assert len(all_events) >= 1
+
+        failed_events, cursor_failed = scheduler.get_events_filtered(
+            since=0,
+            limit=10,
+            event_type=RuntimeEventType.NODE_FAILED,
+        )
+        assert len(failed_events) == 1
+        assert failed_events[0].error_code == "node.execution_failed"
+        assert cursor_failed > 0
+
+        filtered_node_error, _ = scheduler.get_events_filtered(
+            since=0,
+            limit=10,
+            node_id="n2",
+            severity="error",
+            error_code="node.execution_failed",
+        )
+        assert len(filtered_node_error) == 1
+        assert filtered_node_error[0].event_type == RuntimeEventType.NODE_FAILED
+
+        # 过滤不到任何事件时，游标也应推进到扫描终点，保证增量读取可持续。
+        empty_items, end_cursor = scheduler.get_events_filtered(
+            since=0,
+            limit=10,
+            node_id="missing_node",
+        )
+        assert empty_items == []
+        assert end_cursor == len(all_events)
+
+        # 边缘场景：limit=0 不返回事件，游标保持不变。
+        zero_items, zero_cursor = scheduler.get_events_filtered(
+            since=2,
+            limit=0,
+            event_type=RuntimeEventType.NODE_FAILED,
+        )
+        assert zero_items == []
+        assert zero_cursor == 2
+
+    asyncio.run(_run())
+
+
 def test_scheduler_stop_interrupts_running_nodes() -> None:
     """stop 应能停止运行中的慢节点。"""
 
@@ -364,7 +525,154 @@ def test_scheduler_marks_failed_on_node_exception() -> None:
         assert "boom from failing node" in (state.node_states["n2"].last_error or "")
 
         events, _ = scheduler.get_events(since=0, limit=100)
-        assert any(event.event_type == RuntimeEventType.NODE_FAILED for event in events)
+        failed_events = [event for event in events if event.event_type == RuntimeEventType.NODE_FAILED]
+        assert len(failed_events) == 1
+        assert failed_events[0].severity.value == "error"
+        assert failed_events[0].component.value == "node"
+        assert failed_events[0].error_code == "node.execution_failed"
+
+    asyncio.run(_run())
+
+
+def test_scheduler_continue_on_error_allows_non_critical_node_failure() -> None:
+    """非关键节点配置 continue_on_error 时，运行应继续并完成。"""
+
+    async def _run() -> None:
+        graph = GraphSpec(
+            graph_id="g_scheduler_continue_on_error",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+                NodeInstanceSpec(
+                    node_id="n2",
+                    type_name="test.fail",
+                    config={"continue_on_error": True},
+                ),
+                NodeInstanceSpec(node_id="n3", type_name="mock.output"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="text"),
+                EdgeSpec(source_node="n1", source_port="text", target_node="n3", target_port="in"),
+            ],
+        )
+        builder = _build_registry_with_custom_nodes()
+        compiled = builder.build(graph)
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+        state = await scheduler.run(compiled, run_id="run_scheduler_continue_on_error")
+
+        assert state.status == "completed"
+        assert state.node_states["n2"].status == "failed"
+        assert state.node_states["n2"].metrics["continued_on_error"] is True
+        assert state.node_states["n3"].status == "finished"
+
+    asyncio.run(_run())
+
+
+def test_scheduler_string_false_flags_keep_fail_fast_behavior() -> None:
+    """布尔字符串 false 不应被误判为 True。"""
+
+    async def _run() -> None:
+        graph = GraphSpec(
+            graph_id="g_scheduler_string_bool_false",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+                NodeInstanceSpec(
+                    node_id="n2",
+                    type_name="test.fail",
+                    config={"continue_on_error": "false"},
+                ),
+                NodeInstanceSpec(node_id="n3", type_name="mock.output"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="text"),
+                EdgeSpec(source_node="n1", source_port="text", target_node="n3", target_port="in"),
+            ],
+        )
+        builder = _build_registry_with_custom_nodes()
+        compiled = builder.build(graph)
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+        state = await scheduler.run(compiled, run_id="run_scheduler_string_bool_false")
+
+        assert state.status == "failed"
+        assert state.node_states["n2"].status == "failed"
+        assert "continued_on_error" not in state.node_states["n2"].metrics
+
+    asyncio.run(_run())
+
+
+def test_scheduler_continue_on_error_failure_wakes_downstream_waiters() -> None:
+    """continue_on_error 失败节点应唤醒下游，避免等待必需输入时挂起。"""
+
+    async def _run() -> None:
+        graph = GraphSpec(
+            graph_id="g_scheduler_continue_on_error_wakeup",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+                NodeInstanceSpec(
+                    node_id="n2",
+                    type_name="test.fail",
+                    config={"continue_on_error": True},
+                ),
+                NodeInstanceSpec(node_id="n3", type_name="mock.output"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="text"),
+                EdgeSpec(source_node="n2", source_port="text", target_node="n3", target_port="in"),
+            ],
+        )
+        builder = _build_registry_with_custom_nodes()
+        compiled = builder.build(graph)
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+
+        state = await asyncio.wait_for(
+            scheduler.run(compiled, run_id="run_scheduler_continue_on_error_wakeup"),
+            timeout=1.0,
+        )
+        assert state.status == "failed"
+        assert state.node_states["n2"].status == "failed"
+        assert state.node_states["n2"].metrics["continued_on_error"] is True
+        assert state.node_states["n3"].status == "failed"
+        assert "必需输入已不可达" in (state.node_states["n3"].last_error or "")
+
+        events, _ = scheduler.get_events(since=0, limit=200)
+        failed_events = [
+            event
+            for event in events
+            if event.event_type == RuntimeEventType.NODE_FAILED and event.node_id == "n3"
+        ]
+        assert len(failed_events) == 1
+        assert failed_events[0].error_code == ErrorCode.NODE_INPUT_UNAVAILABLE.value
+
+    asyncio.run(_run())
+
+
+def test_scheduler_critical_node_ignores_continue_on_error_and_fails_fast() -> None:
+    """关键节点即使配置 continue_on_error，也应保持 fail-fast。"""
+
+    async def _run() -> None:
+        graph = GraphSpec(
+            graph_id="g_scheduler_critical_fail_fast",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+                NodeInstanceSpec(
+                    node_id="n2",
+                    type_name="test.fail",
+                    config={"continue_on_error": True, "critical": True},
+                ),
+                NodeInstanceSpec(node_id="n3", type_name="mock.output"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="text"),
+                EdgeSpec(source_node="n1", source_port="text", target_node="n3", target_port="in"),
+            ],
+        )
+        builder = _build_registry_with_custom_nodes()
+        compiled = builder.build(graph)
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+        state = await scheduler.run(compiled, run_id="run_scheduler_critical_fail_fast")
+
+        assert state.status == "failed"
+        assert state.node_states["n2"].status == "failed"
+        assert "continued_on_error" not in state.node_states["n2"].metrics
 
     asyncio.run(_run())
 
@@ -515,6 +823,8 @@ def test_scheduler_emits_sync_frame_with_alignment_fields() -> None:
         assert details["seq"] == 0
         assert isinstance(details["play_at"], float)
         assert details["strategy"] == "clock_lock"
+        assert sync_events[0].edge_key == "n4.sync->n5.in"
+        assert sync_events[0].component.value in {"edge", "sync"}
 
     asyncio.run(_run())
 

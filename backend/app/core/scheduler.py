@@ -12,10 +12,25 @@ import asyncio
 import math
 import time
 import uuid
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
-from .frame import Frame, FrameType, RuntimeEvent, RuntimeEventType
+from .errors import (
+    ErrorCode,
+    NodeTimeoutError,
+    RuntimeNodeError,
+    classify_exception,
+    is_retryable_exception,
+)
+from .frame import (
+    Frame,
+    FrameType,
+    RuntimeEvent,
+    RuntimeEventComponent,
+    RuntimeEventSeverity,
+    RuntimeEventType,
+)
 from .graph_builder import CompiledGraph
 from .graph_runtime import GraphRuntimeState, RuntimeEdgeState, RuntimeNodeState
 from .node_base import BaseNode, NodeContext
@@ -37,6 +52,17 @@ class SchedulerConfig:
     default_edge_queue_maxsize: int = 0
     # 边队列轮询间隔（秒），用于 stop 后快速从等待中退出。
     queue_poll_timeout_s: float = 0.05
+
+
+@dataclass(slots=True)
+class NodeExecutionPolicy:
+    """节点执行策略（来自实例配置）。"""
+
+    timeout_s: float | None = None
+    max_retries: int = 0
+    retry_backoff_ms: int = 0
+    continue_on_error: bool = False
+    critical: bool = False
 
 
 class GraphScheduler:
@@ -65,6 +91,8 @@ class GraphScheduler:
 
         # _events: 运行期间积累的结构化事件列表。
         self._events: list[RuntimeEvent] = []
+        # _event_seq: 运行内事件单调序号（用于稳定排序与定位）。
+        self._event_seq = 0
         # _stop_event: 全局停止信号；节点与边任务都依赖它判断退出。
         self._stop_event = asyncio.Event()
         # _finished_event: 运行进入终态（completed/stopped/failed）后置位。
@@ -88,6 +116,8 @@ class GraphScheduler:
         self._node_inputs: dict[str, dict[str, Any]] = {}
         # _node_input_events: 节点 -> 输入到达事件，用于唤醒等待输入的节点任务。
         self._node_input_events: dict[str, asyncio.Event] = {}
+        # _node_policies: 节点 -> 执行策略（超时、重试、错误传播）。
+        self._node_policies: dict[str, NodeExecutionPolicy] = {}
 
         # _failed: 运行是否已经进入失败路径（用于最终态决策）。
         self._failed = False
@@ -124,13 +154,46 @@ class GraphScheduler:
 
     def get_events(self, *, since: int = 0, limit: int = 200) -> tuple[list[RuntimeEvent], int]:
         """获取内存中的运行事件。"""
-        if since < 0:
-            since = 0
-        # end: 本次切片终点（包含 since 与 limit 约束）。
-        end = since + max(limit, 0)
-        # items: 返回给调用方的事件子集。
-        items = self._events[since:end]
-        return items, since + len(items)
+        return self.get_events_filtered(since=since, limit=limit)
+
+    def get_events_filtered(
+            self,
+            *,
+            since: int = 0,
+            limit: int = 200,
+            event_type: RuntimeEventType | str | None = None,
+            node_id: str | None = None,
+            severity: RuntimeEventSeverity | str | None = None,
+            error_code: str | None = None,
+    ) -> tuple[list[RuntimeEvent], int]:
+        """按过滤条件获取内存事件。
+
+        游标语义：
+        - `since` 与返回的 `next_cursor` 均基于“完整事件序列”的索引。
+        - 即使过滤后命中条目较少，游标也会持续向后推进，保证增量读取稳定。
+        """
+        cursor = max(since, 0)
+        fetch_limit = max(limit, 0)
+
+        if fetch_limit == 0 or cursor >= len(self._events):
+            return [], cursor
+
+        normalized_node_id = (node_id or "").strip() or None
+        normalized_error_code = (error_code or "").strip() or None
+        items: list[RuntimeEvent] = []
+        while cursor < len(self._events) and len(items) < fetch_limit:
+            event = self._events[cursor]
+            cursor += 1
+            if not self._event_matches_filters(
+                    event,
+                    event_type=event_type,
+                    node_id=normalized_node_id,
+                    severity=severity,
+                    error_code=normalized_error_code,
+            ):
+                continue
+            items.append(event)
+        return items, cursor
 
     async def run(
             self,
@@ -148,6 +211,7 @@ class GraphScheduler:
         self._stream_id = self._normalize_stream_id(stream_id)
 
         self._events.clear()
+        self._event_seq = 0
         # stop_requested_before_run: 记录 run 入口前是否已经收到 stop 请求。
         stop_requested_before_run = self._stop_requested
         self._stop_requested = False
@@ -162,12 +226,14 @@ class GraphScheduler:
         self._edge_state_map.clear()
         self._node_inputs.clear()
         self._node_input_events.clear()
+        self._node_policies.clear()
 
         self.runtime_state = GraphRuntimeState(
             run_id=self._run_id,
             graph_id=compiled_graph.graph.graph_id,
             status="running",
             started_at=time.time(),
+            metrics=self._initial_runtime_metrics(),
             node_states={
                 node_id: RuntimeNodeState(node_id=node_id) for node_id in compiled_graph.node_specs
             },
@@ -233,6 +299,7 @@ class GraphScheduler:
                 message="Run finished",
                 details={"final_status": self.status},
             )
+            self._finalize_runtime_metrics()
             self._finished_event.set()
 
         return self.runtime_state
@@ -247,6 +314,7 @@ class GraphScheduler:
             # node_def: 当前 node_id 对应的实例配置（含 config/title 等）。
             node_def = node_instances[node_id]
             nodes[node_id] = self.node_factory.create(node=node_def, spec=spec)
+            self._node_policies[node_id] = self._build_node_policy(node_def.config)
         return nodes
 
     def _setup_input_buffers(self, compiled_graph: CompiledGraph) -> None:
@@ -283,6 +351,14 @@ class GraphScheduler:
             self._edge_state_map[edge_key] = edge_state
             self.runtime_state.edge_states.append(edge_state)
 
+    def _notify_downstream_waiters(self, source_node_id: str) -> None:
+        """唤醒 source_node 直接下游节点，让其重新评估输入可达性。"""
+        assert self._compiled_graph is not None
+        for edge in self._compiled_graph.outgoing_edges.get(source_node_id, []):
+            event = self._node_input_events.get(edge.target_node)
+            if event is not None:
+                event.set()
+
     async def _node_worker(self, node_id: str, node: BaseNode) -> None:
         """单节点执行任务。"""
         assert self._compiled_graph is not None
@@ -293,6 +369,7 @@ class GraphScheduler:
         node_state = self.runtime_state.node_states[node_id]
         # spec: 当前节点类型规格（输入输出端口、模式等）。
         spec = self._compiled_graph.node_specs[node_id]
+        policy = self._node_policies.get(node_id, NodeExecutionPolicy())
         # required_ports: 当前节点必须满足的输入端口集合。
         required_ports = {port.name for port in spec.inputs if port.required}
 
@@ -302,6 +379,29 @@ class GraphScheduler:
                 current_inputs = self._node_inputs[node_id]
                 if required_ports.issubset(current_inputs):
                     break
+                if self._required_inputs_unavailable(node_id, required_ports):
+                    message = f"节点 {node_id} 必需输入已不可达"
+                    node_state.status = "failed"
+                    node_state.finished_at = time.time()
+                    node_state.last_error = message
+                    node_state.metrics["failed_count"] = int(
+                        node_state.metrics.get("failed_count", 0)
+                    ) + 1
+                    self._emit_event(
+                        RuntimeEventType.NODE_FAILED,
+                        node_id=node_id,
+                        message=message,
+                        severity=RuntimeEventSeverity.ERROR,
+                        component=RuntimeEventComponent.NODE,
+                        error_code=ErrorCode.NODE_INPUT_UNAVAILABLE.value,
+                        details={"required_ports": sorted(required_ports)},
+                    )
+                    if policy.continue_on_error and not policy.critical:
+                        self._notify_downstream_waiters(node_id)
+                        return
+                    self._fail_run(message)
+                    self.stop()
+                    return
 
                 # event: 当前节点的输入到达事件；等待下游边任务唤醒。
                 event = self._node_input_events[node_id]
@@ -314,7 +414,12 @@ class GraphScheduler:
 
             node_state.status = "running"
             node_state.started_at = time.time()
-            self._emit_event(RuntimeEventType.NODE_STARTED, node_id=node_id, message="Node started")
+            self._emit_event(
+                RuntimeEventType.NODE_STARTED,
+                node_id=node_id,
+                message="Node started",
+                component=RuntimeEventComponent.NODE,
+            )
 
             # context: 传给节点 process 的运行上下文。
             context = NodeContext(
@@ -329,10 +434,15 @@ class GraphScheduler:
             )
             # inputs: 传入节点 process 的输入副本，避免节点修改共享缓存。
             inputs = dict(self._node_inputs[node_id])
-
-            async with self._parallel_semaphore:
-                # outputs: 节点 process 返回的输出端口数据映射。
-                outputs = await node.process(inputs=inputs, context=context)
+            # outputs: 节点 process 返回的输出端口数据映射。
+            outputs = await self._execute_node_with_policy(
+                node_id=node_id,
+                node=node,
+                inputs=inputs,
+                context=context,
+                node_state=node_state,
+                policy=policy,
+            )
 
             if not isinstance(outputs, dict):
                 raise TypeError(f"节点 {node_id} 输出必须是 dict，实际: {type(outputs)}")
@@ -356,21 +466,52 @@ class GraphScheduler:
                     (node_state.finished_at - node_state.started_at) * 1000
                 )
 
-            self._emit_event(RuntimeEventType.NODE_FINISHED, node_id=node_id, message="Node finished")
+            self._emit_event(
+                RuntimeEventType.NODE_FINISHED,
+                node_id=node_id,
+                message="Node finished",
+                component=RuntimeEventComponent.NODE,
+            )
+            if node_state.started_at is not None and node_state.finished_at is not None:
+                elapsed_s = max(node_state.finished_at - node_state.started_at, 0.0)
+                if elapsed_s > 0:
+                    node_state.metrics["throughput_fps"] = round(
+                        float(node_state.metrics.get("processed_count", 0)) / elapsed_s, 3
+                    )
+
+            if self.runtime_state is not None:
+                self.runtime_state.metrics["node_finished"] = (
+                        int(self.runtime_state.metrics.get("node_finished", 0)) + 1
+                )
         except asyncio.CancelledError:
             node_state.status = "stopped"
             node_state.finished_at = time.time()
             raise
         except Exception as exc:  # noqa: BLE001 - 调度器需要兜底捕获节点错误
+            error_code, retryable = classify_exception(exc)
             node_state.status = "failed"
             node_state.finished_at = time.time()
             node_state.last_error = str(exc)
+            node_state.metrics["failed_count"] = int(node_state.metrics.get("failed_count", 0)) + 1
+            node_state.metrics["last_error_code"] = error_code.value
+            node_state.metrics["last_error_retryable"] = retryable
             self._emit_event(
                 RuntimeEventType.NODE_FAILED,
                 node_id=node_id,
                 message=f"Node failed: {exc}",
-                details={"error": str(exc)},
+                severity=RuntimeEventSeverity.ERROR,
+                component=RuntimeEventComponent.NODE,
+                error_code=error_code.value,
+                details={"error": str(exc), "retryable": retryable},
             )
+            if self.runtime_state is not None:
+                self.runtime_state.metrics["node_failed"] = (
+                        int(self.runtime_state.metrics.get("node_failed", 0)) + 1
+                )
+            if policy.continue_on_error and not policy.critical:
+                node_state.metrics["continued_on_error"] = True
+                self._notify_downstream_waiters(node_id)
+                return
             self._fail_run(f"节点 {node_id} 执行失败: {exc}")
             self.stop()
 
@@ -398,7 +539,8 @@ class GraphScheduler:
             frame_seq = 0
             frame_sync_key: str | None = None
             frame_play_at: float | None = None
-            event_details: dict[str, Any] = {"edge": self._edge_key(edge)}
+            event_edge_key = self._format_edge_key(edge)
+            event_details: dict[str, Any] = {"edge": event_edge_key}
 
             if frame_type == FrameType.SYNC:
                 if not isinstance(payload_value, dict):
@@ -448,13 +590,31 @@ class GraphScheduler:
 
             await queue.put(frame)
             edge_state.queue_size = queue.qsize()
+            edge_state.queue_peak_size = max(edge_state.queue_peak_size, edge_state.queue_size)
+            if self.runtime_state is not None:
+                self.runtime_state.metrics["edge_queue_peak_max"] = max(
+                    int(self.runtime_state.metrics.get("edge_queue_peak_max", 0)),
+                    edge_state.queue_peak_size,
+                )
 
-            self._emit_event(
+            event_type = (
                 RuntimeEventType.SYNC_FRAME_EMITTED
                 if frame_type == FrameType.SYNC
-                else RuntimeEventType.FRAME_EMITTED,
+                else RuntimeEventType.FRAME_EMITTED
+            )
+            severity = RuntimeEventSeverity.INFO
+            component = RuntimeEventComponent.EDGE
+            if frame_type == FrameType.SYNC and event_details.get("decision") == "drop":
+                severity = RuntimeEventSeverity.WARNING
+                component = RuntimeEventComponent.SYNC
+
+            self._emit_event(
+                event_type,
                 node_id=node_id,
                 message=f"Frame emitted to {edge.target_node}.{edge.target_port}",
+                severity=severity,
+                component=component,
+                edge_key=event_edge_key,
                 details=event_details,
             )
 
@@ -486,6 +646,10 @@ class GraphScheduler:
                 queue.task_done()
                 edge_state.forwarded_frames += 1
                 edge_state.queue_size = queue.qsize()
+                if self.runtime_state is not None:
+                    self.runtime_state.metrics["edge_forwarded_frames"] = (
+                            int(self.runtime_state.metrics.get("edge_forwarded_frames", 0)) + 1
+                    )
         except asyncio.CancelledError:
             raise
 
@@ -511,24 +675,43 @@ class GraphScheduler:
             *,
             node_id: str | None = None,
             message: str | None = None,
+            severity: RuntimeEventSeverity = RuntimeEventSeverity.INFO,
+            component: RuntimeEventComponent = RuntimeEventComponent.SCHEDULER,
+            error_code: str | None = None,
+            edge_key: str | None = None,
+            attempt: int | None = None,
             details: dict[str, Any] | None = None,
     ) -> None:
         """写入运行事件并输出日志。"""
         if self._run_id is None:
             return
+        event_seq = self._event_seq
+        self._event_seq += 1
+        event_id = f"{self._run_id}:{event_seq}"
         # event: 本次要写入事件队列的结构化事件对象。
         event = RuntimeEvent(
             run_id=self._run_id,
+            event_id=event_id,
+            event_seq=event_seq,
             event_type=event_type,
+            severity=severity,
+            component=component,
             node_id=node_id,
+            edge_key=edge_key,
+            error_code=error_code,
+            attempt=attempt,
             message=message,
             details=details or {},
         )
         self._events.append(event)
+        self._update_runtime_metrics_on_event(event)
         print(
             "[RuntimeEvent]",
             f"run={event.run_id}",
+            f"seq={event.event_seq}",
             f"type={event.event_type.value}",
+            f"severity={event.severity.value}",
+            f"component={event.component.value}",
             f"node={event.node_id or '-'}",
             f"msg={event.message or '-'}",
         )
@@ -537,6 +720,302 @@ class GraphScheduler:
     def _edge_key(edge: EdgeSpec) -> EdgeKey:
         """构造边唯一键。"""
         return edge.source_node, edge.source_port, edge.target_node, edge.target_port
+
+    @classmethod
+    def _format_edge_key(cls, edge: EdgeSpec) -> str:
+        """构造对外可读边键。"""
+        source_node, source_port, target_node, target_port = cls._edge_key(edge)
+        return f"{source_node}.{source_port}->{target_node}.{target_port}"
+
+    @staticmethod
+    def _initial_runtime_metrics() -> dict[str, Any]:
+        """构造运行时聚合指标初始值。"""
+        return {
+            "event_total": 0,
+            "event_warning": 0,
+            "event_error": 0,
+            "node_retry_events": 0,
+            "node_timeout_events": 0,
+            "node_finished": 0,
+            "node_failed": 0,
+            "node_retried_total": 0,
+            "node_timeout_total": 0,
+            "edge_forwarded_frames": 0,
+            "edge_queue_peak_max": 0,
+            "sync_decisions": {},
+        }
+
+    def _update_runtime_metrics_on_event(self, event: RuntimeEvent) -> None:
+        """按事件增量更新图级指标。"""
+        if self.runtime_state is None:
+            return
+        metrics = self.runtime_state.metrics
+        metrics["event_total"] = int(metrics.get("event_total", 0)) + 1
+        if event.severity == RuntimeEventSeverity.WARNING:
+            metrics["event_warning"] = int(metrics.get("event_warning", 0)) + 1
+        if event.severity in {RuntimeEventSeverity.ERROR, RuntimeEventSeverity.CRITICAL}:
+            metrics["event_error"] = int(metrics.get("event_error", 0)) + 1
+
+        if event.event_type == RuntimeEventType.NODE_RETRY:
+            metrics["node_retry_events"] = int(metrics.get("node_retry_events", 0)) + 1
+        if event.event_type == RuntimeEventType.NODE_TIMEOUT:
+            metrics["node_timeout_events"] = int(metrics.get("node_timeout_events", 0)) + 1
+
+        if event.event_type == RuntimeEventType.SYNC_FRAME_EMITTED:
+            decision = str(event.details.get("decision", "unknown"))
+            sync_decisions = metrics.setdefault("sync_decisions", {})
+            if isinstance(sync_decisions, dict):
+                sync_decisions[decision] = int(sync_decisions.get(decision, 0)) + 1
+
+    def _finalize_runtime_metrics(self) -> None:
+        """在运行收尾时汇总一次图级指标，保证快照一致。"""
+        if self.runtime_state is None:
+            return
+
+        finished_count = sum(
+            1 for node in self.runtime_state.node_states.values() if node.status == "finished"
+        )
+        failed_count = sum(
+            1 for node in self.runtime_state.node_states.values() if node.status == "failed"
+        )
+        edge_forwarded_total = sum(edge.forwarded_frames for edge in self.runtime_state.edge_states)
+        edge_queue_peak_max = max(
+            (edge.queue_peak_size for edge in self.runtime_state.edge_states),
+            default=0,
+        )
+        node_retried_total = sum(
+            int(node.metrics.get("retry_count", 0))
+            for node in self.runtime_state.node_states.values()
+        )
+        node_timeout_total = sum(
+            int(node.metrics.get("timeout_count", 0))
+            for node in self.runtime_state.node_states.values()
+        )
+        self.runtime_state.metrics["node_finished"] = finished_count
+        self.runtime_state.metrics["node_failed"] = failed_count
+        self.runtime_state.metrics["node_retried_total"] = node_retried_total
+        self.runtime_state.metrics["node_timeout_total"] = node_timeout_total
+        self.runtime_state.metrics["edge_forwarded_frames"] = edge_forwarded_total
+        self.runtime_state.metrics["edge_queue_peak_max"] = edge_queue_peak_max
+
+    async def _execute_node_with_policy(
+            self,
+            *,
+            node_id: str,
+            node: BaseNode,
+            inputs: dict[str, Any],
+            context: NodeContext,
+            node_state: RuntimeNodeState,
+            policy: NodeExecutionPolicy,
+    ) -> dict[str, Any]:
+        """按超时/重试策略执行节点处理逻辑。"""
+        # original_inputs: 首次进入执行策略时的输入快照。
+        # 每次 attempt 都基于它重新拷贝，避免节点在失败前修改入参导致重试污染。
+        original_inputs = deepcopy(inputs)
+        max_retries = max(0, policy.max_retries)
+        max_attempts = max_retries + 1
+        attempt = 1
+        while True:
+            node_state.metrics["attempt_count"] = attempt
+            node_state.metrics["retry_count"] = max(0, attempt - 1)
+            attempt_inputs = deepcopy(original_inputs)
+            try:
+                async with self._parallel_semaphore:
+                    if policy.timeout_s is not None:
+                        outputs = await asyncio.wait_for(
+                            node.process(inputs=attempt_inputs, context=context), timeout=policy.timeout_s
+                        )
+                    else:
+                        outputs = await node.process(inputs=attempt_inputs, context=context)
+                return outputs
+            except asyncio.TimeoutError as exc:
+                timeout_error = NodeTimeoutError(f"节点 {node_id} 执行超时")
+                node_state.metrics["timeout_count"] = int(node_state.metrics.get("timeout_count", 0)) + 1
+                retry_left = attempt < max_attempts
+                self._emit_event(
+                    RuntimeEventType.NODE_TIMEOUT,
+                    node_id=node_id,
+                    message=f"Node timeout on attempt {attempt}",
+                    severity=RuntimeEventSeverity.WARNING if retry_left else RuntimeEventSeverity.ERROR,
+                    component=RuntimeEventComponent.NODE,
+                    error_code=ErrorCode.NODE_TIMEOUT.value,
+                    attempt=attempt,
+                    details={"retry_left": retry_left, "timeout_s": policy.timeout_s},
+                )
+                if not retry_left:
+                    # max_retries=0 时，保持原始超时错误码，避免将“未重试”误标为重试耗尽。
+                    if max_retries <= 0:
+                        raise timeout_error from exc
+                    raise RuntimeNodeError(
+                        f"节点 {node_id} 重试耗尽（最后错误: timeout）",
+                        code=ErrorCode.NODE_RETRY_EXHAUSTED,
+                        retryable=False,
+                        details={"cause": ErrorCode.NODE_TIMEOUT.value},
+                    ) from exc
+                await self._schedule_retry_event(node_id=node_id, attempt=attempt, error=timeout_error, policy=policy)
+                attempt += 1
+                continue
+            except Exception as exc:  # noqa: BLE001 - 节点异常统一归类
+                retryable = is_retryable_exception(exc)
+                retry_left = retryable and attempt < max_attempts
+                if not retry_left:
+                    # max_retries=0 时，保持原始异常分类；仅在“已配置重试”且耗尽时上报 retry_exhausted。
+                    if retryable and max_retries > 0:
+                        code, _ = classify_exception(exc)
+                        raise RuntimeNodeError(
+                            f"节点 {node_id} 重试耗尽（最后错误: {code.value}）",
+                            code=ErrorCode.NODE_RETRY_EXHAUSTED,
+                            retryable=False,
+                            details={"cause": code.value},
+                        ) from exc
+                    raise
+                await self._schedule_retry_event(node_id=node_id, attempt=attempt, error=exc, policy=policy)
+                attempt += 1
+
+    async def _schedule_retry_event(
+            self,
+            *,
+            node_id: str,
+            attempt: int,
+            error: Exception,
+            policy: NodeExecutionPolicy,
+    ) -> None:
+        """发出重试事件并按策略回退等待。"""
+        code, _retryable = classify_exception(error)
+        next_attempt = attempt + 1
+        self._emit_event(
+            RuntimeEventType.NODE_RETRY,
+            node_id=node_id,
+            message=f"Node retry scheduled: attempt {next_attempt}",
+            severity=RuntimeEventSeverity.WARNING,
+            component=RuntimeEventComponent.NODE,
+            error_code=code.value,
+            attempt=next_attempt,
+            details={"retry_backoff_ms": policy.retry_backoff_ms},
+        )
+        backoff_s = max(policy.retry_backoff_ms, 0) / 1000.0
+        if backoff_s > 0:
+            await asyncio.sleep(backoff_s)
+
+    def _required_inputs_unavailable(self, node_id: str, required_ports: set[str]) -> bool:
+        """判断必需输入是否已不可达（用于 continue_on_error 场景避免等待死锁）。"""
+        assert self._compiled_graph is not None
+        assert self.runtime_state is not None
+
+        missing_ports = [
+            port for port in required_ports if port not in self._node_inputs.get(node_id, {})
+        ]
+        if not missing_ports:
+            return False
+
+        incoming_edges = self._compiled_graph.incoming_edges.get(node_id, [])
+        # 仅当某必需端口的所有上游都处于失败/停止态时，才判定不可达。
+        # 注意：finished 并不代表输入已被下游消费，队列中仍可能有待转发帧。
+        blocking_statuses = {"failed", "stopped"}
+        for port in missing_ports:
+            provider_nodes = [
+                edge.source_node for edge in incoming_edges if edge.target_port == port
+            ]
+            if not provider_nodes:
+                return True
+            # 只要某上游不是失败/停止态，就仍可能产生/转发该输入。
+            if any(
+                    self.runtime_state.node_states[src].status not in blocking_statuses
+                    for src in provider_nodes
+            ):
+                return False
+            # 当前端口所有上游均失败/停止，端口不可达；继续检查其它 missing port。
+            continue
+        return True
+
+    @staticmethod
+    def _build_node_policy(config: dict[str, Any]) -> NodeExecutionPolicy:
+        """从节点实例配置解析执行策略。"""
+        raw_timeout = config.get("timeout_s")
+        timeout_s: float | None = None
+        if raw_timeout is not None:
+            try:
+                candidate = float(raw_timeout)
+            except (TypeError, ValueError):
+                candidate = 0.0
+            if candidate > 0:
+                timeout_s = candidate
+
+        raw_max_retries = config.get("max_retries", 0)
+        try:
+            max_retries = max(0, int(raw_max_retries))
+        except (TypeError, ValueError):
+            max_retries = 0
+
+        raw_backoff_ms = config.get("retry_backoff_ms", 0)
+        try:
+            retry_backoff_ms = max(0, int(raw_backoff_ms))
+        except (TypeError, ValueError):
+            retry_backoff_ms = 0
+
+        continue_on_error = GraphScheduler._parse_bool_flag(
+            config.get("continue_on_error"), default=False
+        )
+        critical = GraphScheduler._parse_bool_flag(config.get("critical"), default=False)
+
+        return NodeExecutionPolicy(
+            timeout_s=timeout_s,
+            max_retries=max_retries,
+            retry_backoff_ms=retry_backoff_ms,
+            continue_on_error=continue_on_error,
+            critical=critical,
+        )
+
+    @staticmethod
+    def _parse_bool_flag(raw_value: Any, *, default: bool) -> bool:
+        """解析配置中的布尔开关，避免将字符串误判为 True。"""
+        if raw_value is None:
+            return default
+        if isinstance(raw_value, bool):
+            return raw_value
+        if isinstance(raw_value, int) and raw_value in {0, 1}:
+            return bool(raw_value)
+        if isinstance(raw_value, str):
+            normalized = raw_value.strip().lower()
+            if normalized in {"true", "1", "yes", "y", "on"}:
+                return True
+            if normalized in {"false", "0", "no", "n", "off"}:
+                return False
+            if not normalized:
+                return default
+        return default
+
+    @staticmethod
+    def _event_matches_filters(
+            event: RuntimeEvent,
+            *,
+            event_type: RuntimeEventType | str | None,
+            node_id: str | None,
+            severity: RuntimeEventSeverity | str | None,
+            error_code: str | None,
+    ) -> bool:
+        """判断事件是否命中过滤条件。"""
+        if event_type is not None:
+            expected_event_type = (
+                event_type.value if isinstance(event_type, RuntimeEventType) else str(event_type)
+            )
+            if event.event_type.value != expected_event_type:
+                return False
+
+        if node_id is not None and event.node_id != node_id:
+            return False
+
+        if severity is not None:
+            expected_severity = (
+                severity.value if isinstance(severity, RuntimeEventSeverity) else str(severity)
+            )
+            if event.severity.value != expected_severity:
+                return False
+
+        if error_code is not None and event.error_code != error_code:
+            return False
+
+        return True
 
     @staticmethod
     def _normalize_seq(raw_value: Any) -> int:

@@ -96,9 +96,32 @@ class RuntimeEventType(str, Enum):
     RUN_STOPPED = "run_stopped"
     NODE_STARTED = "node_started"
     NODE_FINISHED = "node_finished"
+    NODE_RETRY = "node_retry"
+    NODE_TIMEOUT = "node_timeout"
     NODE_FAILED = "node_failed"
     FRAME_EMITTED = "frame_emitted"
     SYNC_FRAME_EMITTED = "sync_frame_emitted"
+
+
+class RuntimeEventSeverity(str, Enum):
+    """运行事件严重级别。"""
+
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    CRITICAL = "critical"
+
+
+class RuntimeEventComponent(str, Enum):
+    """运行事件所属组件。"""
+
+    SCHEDULER = "scheduler"
+    NODE = "node"
+    EDGE = "edge"
+    SERVICE = "service"
+    SYNC = "sync"
+    API = "api"
 
 
 class RuntimeEvent(BaseModel):
@@ -113,8 +136,19 @@ class RuntimeEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     run_id: str = Field(..., min_length=1, description="运行实例 ID")
+    event_id: str = Field(default="evt_0", min_length=1, description="事件唯一 ID")
+    event_seq: int = Field(default=0, ge=0, description="运行内事件序号")
     event_type: RuntimeEventType = Field(..., description="事件类型")
+    severity: RuntimeEventSeverity = Field(
+        default=RuntimeEventSeverity.INFO, description="事件级别"
+    )
+    component: RuntimeEventComponent = Field(
+        default=RuntimeEventComponent.SCHEDULER, description="事件归属组件"
+    )
     ts: float = Field(default_factory=time.time, description="事件时间")
     node_id: str | None = Field(default=None, description="相关节点 ID")
+    edge_key: str | None = Field(default=None, description="相关边键（如有）")
+    error_code: str | None = Field(default=None, description="结构化错误码")
+    attempt: int | None = Field(default=None, ge=1, description="重试序号（如有）")
     message: str | None = Field(default=None, description="可读消息")
     details: dict[str, Any] = Field(default_factory=dict, description="扩展详情")

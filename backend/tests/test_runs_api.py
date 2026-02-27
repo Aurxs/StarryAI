@@ -197,11 +197,20 @@ def test_create_run_and_query_status_and_events() -> None:
 
         assert final_status == "completed"
 
+        final_snapshot = client.get(f"/api/v1/runs/{run_id}")
+        assert final_snapshot.status_code == 200
+        assert final_snapshot.json()["metrics"]["event_total"] >= 1
+
         events_resp = client.get(f"/api/v1/runs/{run_id}/events")
         assert events_resp.status_code == 200
         events_body = events_resp.json()
         assert events_body["count"] > 0
         assert any(item["event_type"] == "run_started" for item in events_body["items"])
+        first_event = events_body["items"][0]
+        assert "event_id" in first_event
+        assert isinstance(first_event["event_seq"], int)
+        assert first_event["severity"] in {"info", "warning", "error", "debug", "critical"}
+        assert first_event["component"] in {"scheduler", "node", "edge", "sync", "service", "api"}
 
 
 def test_stop_run_endpoint_stops_running_instance(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -231,6 +240,15 @@ def test_create_run_returns_422_for_invalid_graph() -> None:
         detail = resp.json()["detail"]
         assert detail["message"] == "Graph validation failed before execution"
         assert detail["report"]["valid"] is False
+
+
+def test_create_run_returns_422_for_blank_stream_id() -> None:
+    """stream_id 为空白字符串时应在请求层直接失败。"""
+    with TestClient(app) as client:
+        payload = _basic_graph_payload()
+        payload["stream_id"] = "   "
+        resp = client.post("/api/v1/runs", json=payload)
+        assert resp.status_code == 422
 
 
 def test_run_endpoints_return_404_when_missing() -> None:
@@ -273,3 +291,104 @@ def test_sync_run_events_contain_alignment_details() -> None:
         assert details["seq"] == 0
         assert isinstance(details["play_at"], float)
         assert details["strategy"] == "clock_lock"
+        assert sync_events[0]["edge_key"] == "n4.sync->n5.in"
+        assert sync_events[0]["component"] in {"edge", "sync"}
+
+
+def test_get_run_events_supports_filter_query_params() -> None:
+    """events 接口应支持 event_type/node_id/severity/error_code 过滤。"""
+    with TestClient(app) as client:
+        create = client.post("/api/v1/runs", json=_sync_graph_payload())
+        assert create.status_code == 200
+        run_id = create.json()["run_id"]
+
+        for _ in range(40):
+            status_resp = client.get(f"/api/v1/runs/{run_id}")
+            assert status_resp.status_code == 200
+            if status_resp.json()["status"] in {"completed", "failed", "stopped"}:
+                break
+            time.sleep(0.05)
+
+        all_events_resp = client.get(f"/api/v1/runs/{run_id}/events?since=0&limit=500")
+        assert all_events_resp.status_code == 200
+        all_events = all_events_resp.json()["items"]
+        assert len(all_events) >= 1
+
+        sync_only = client.get(
+            f"/api/v1/runs/{run_id}/events?since=0&limit=200&event_type=sync_frame_emitted"
+        )
+        assert sync_only.status_code == 200
+        sync_items = sync_only.json()["items"]
+        assert len(sync_items) >= 1
+        assert all(item["event_type"] == "sync_frame_emitted" for item in sync_items)
+
+        node_only = client.get(f"/api/v1/runs/{run_id}/events?since=0&limit=200&node_id=n4")
+        assert node_only.status_code == 200
+        node_items = node_only.json()["items"]
+        assert len(node_items) >= 1
+        assert all(item["node_id"] == "n4" for item in node_items)
+
+        severity_info = client.get(f"/api/v1/runs/{run_id}/events?since=0&limit=200&severity=info")
+        assert severity_info.status_code == 200
+        assert severity_info.json()["count"] >= 1
+
+        missing_error_code = client.get(
+            f"/api/v1/runs/{run_id}/events?since=0&limit=200&error_code=non.existing.code"
+        )
+        assert missing_error_code.status_code == 200
+        assert missing_error_code.json()["count"] == 0
+        assert missing_error_code.json()["next_cursor"] == len(all_events)
+
+
+def test_get_run_events_returns_422_for_invalid_filter_enum() -> None:
+    """events 过滤枚举非法时应返回 422。"""
+    with TestClient(app) as client:
+        create = client.post("/api/v1/runs", json=_basic_graph_payload())
+        assert create.status_code == 200
+        run_id = create.json()["run_id"]
+
+        bad_event_type = client.get(f"/api/v1/runs/{run_id}/events?event_type=invalid_type")
+        assert bad_event_type.status_code == 422
+
+        bad_severity = client.get(f"/api/v1/runs/{run_id}/events?severity=fatal")
+        assert bad_severity.status_code == 422
+
+
+def test_run_metrics_and_diagnostics_endpoints() -> None:
+    """应能读取 metrics 与 diagnostics 视图。"""
+    with TestClient(app) as client:
+        create = client.post("/api/v1/runs", json=_sync_graph_payload())
+        assert create.status_code == 200
+        run_id = create.json()["run_id"]
+
+        for _ in range(40):
+            status_resp = client.get(f"/api/v1/runs/{run_id}")
+            assert status_resp.status_code == 200
+            if status_resp.json()["status"] in {"completed", "failed", "stopped"}:
+                break
+            time.sleep(0.05)
+
+        metrics_resp = client.get(f"/api/v1/runs/{run_id}/metrics")
+        assert metrics_resp.status_code == 200
+        metrics_body = metrics_resp.json()
+        assert metrics_body["run_id"] == run_id
+        assert "graph_metrics" in metrics_body
+        assert "node_metrics" in metrics_body
+        assert "edge_metrics" in metrics_body
+
+        diagnostics_resp = client.get(f"/api/v1/runs/{run_id}/diagnostics")
+        assert diagnostics_resp.status_code == 200
+        diagnostics_body = diagnostics_resp.json()
+        assert diagnostics_body["run_id"] == run_id
+        assert "failed_nodes" in diagnostics_body
+        assert "slow_nodes_top" in diagnostics_body
+        assert "edge_hotspots_top" in diagnostics_body
+
+
+def test_run_metrics_and_diagnostics_return_404_when_missing() -> None:
+    with TestClient(app) as client:
+        metrics_resp = client.get("/api/v1/runs/run_missing/metrics")
+        assert metrics_resp.status_code == 404
+
+        diagnostics_resp = client.get("/api/v1/runs/run_missing/diagnostics")
+        assert diagnostics_resp.status_code == 404

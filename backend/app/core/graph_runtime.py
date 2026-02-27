@@ -46,6 +46,8 @@ class RuntimeEdgeState:
     target_port: str
     # 边对应队列当前长度。
     queue_size: int = 0
+    # 边队列观测到的历史峰值。
+    queue_peak_size: int = 0
     # 该边累计转发帧数量。
     forwarded_frames: int = 0
 
@@ -57,6 +59,7 @@ class RuntimeEdgeState:
             "target_node": self.target_node,
             "target_port": self.target_port,
             "queue_size": self.queue_size,
+            "queue_peak_size": self.queue_peak_size,
             "forwarded_frames": self.forwarded_frames,
         }
 
@@ -72,6 +75,8 @@ class GraphRuntimeState:
     started_at: float | None = None
     ended_at: float | None = None
     last_error: str | None = None
+    # 图级聚合指标（事件计数、节点状态计数、边转发统计等）。
+    metrics: dict[str, Any] = field(default_factory=dict)
     node_states: dict[str, RuntimeNodeState] = field(default_factory=dict)
     edge_states: list[RuntimeEdgeState] = field(default_factory=list)
 
@@ -84,6 +89,7 @@ class GraphRuntimeState:
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "last_error": self.last_error,
+            "metrics": dict(self.metrics),
             "node_states": {k: v.to_dict() for k, v in self.node_states.items()},
             "edge_states": [edge.to_dict() for edge in self.edge_states],
         }

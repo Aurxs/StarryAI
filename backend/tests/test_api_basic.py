@@ -51,11 +51,59 @@ def _basic_graph_payload() -> dict[str, object]:
     }
 
 
+def _sync_graph_payload() -> dict[str, object]:
+    return {
+        "graph": {
+            "graph_id": "g_api_ws_sync_filter",
+            "nodes": [
+                {"node_id": "n1", "type_name": "mock.input"},
+                {"node_id": "n2", "type_name": "mock.tts"},
+                {"node_id": "n3", "type_name": "mock.motion"},
+                {"node_id": "n4", "type_name": "sync.timeline"},
+                {"node_id": "n5", "type_name": "mock.output"},
+            ],
+            "edges": [
+                {
+                    "source_node": "n1",
+                    "source_port": "text",
+                    "target_node": "n2",
+                    "target_port": "text",
+                },
+                {
+                    "source_node": "n1",
+                    "source_port": "text",
+                    "target_node": "n3",
+                    "target_port": "text",
+                },
+                {
+                    "source_node": "n2",
+                    "source_port": "audio",
+                    "target_node": "n4",
+                    "target_port": "audio",
+                },
+                {
+                    "source_node": "n3",
+                    "source_port": "motion",
+                    "target_node": "n4",
+                    "target_port": "motion",
+                },
+                {
+                    "source_node": "n4",
+                    "source_port": "sync",
+                    "target_node": "n5",
+                    "target_port": "in",
+                },
+            ],
+        },
+        "stream_id": "stream_ws_sync_filter",
+    }
+
+
 def test_root_and_health_endpoints() -> None:
     with TestClient(app) as client:
         root = client.get("/")
         assert root.status_code == 200
-        assert root.json()["phase"] == "C"
+        assert root.json()["phase"] == "D"
 
         health = client.get("/health")
         assert health.status_code == 200
@@ -119,12 +167,55 @@ def test_run_events_websocket_streams_until_completed() -> None:
         with client.websocket_connect(f"/api/v1/runs/{run_id}/events?since=0") as ws:
             seen_event_types: set[str] = set()
             completed = False
+            checked_structured_fields = False
             for _ in range(200):
                 payload = ws.receive_json()
                 event_type = payload.get("event_type", "")
                 seen_event_types.add(event_type)
+                if event_type and event_type != "system":
+                    assert "event_id" in payload
+                    assert isinstance(payload.get("event_seq"), int)
+                    checked_structured_fields = True
                 if event_type == "system" and payload.get("message") == "stream completed":
                     completed = True
                     break
             assert completed is True
+            assert checked_structured_fields is True
             assert "run_started" in seen_event_types
+
+
+def test_run_events_websocket_supports_filters() -> None:
+    with TestClient(app) as client:
+        create = client.post("/api/v1/runs", json=_sync_graph_payload())
+        assert create.status_code == 200
+        run_id = create.json()["run_id"]
+
+        with client.websocket_connect(
+                f"/api/v1/runs/{run_id}/events?since=0&event_type=sync_frame_emitted&node_id=n4"
+        ) as ws:
+            received_sync = 0
+            for _ in range(200):
+                payload = ws.receive_json()
+                event_type = payload.get("event_type", "")
+                if event_type == "system":
+                    assert payload.get("message") == "stream completed"
+                    break
+                assert event_type == "sync_frame_emitted"
+                assert payload.get("node_id") == "n4"
+                received_sync += 1
+
+            assert received_sync >= 1
+
+
+def test_run_events_websocket_returns_error_for_invalid_filter_enum() -> None:
+    with TestClient(app) as client:
+        create = client.post("/api/v1/runs", json=_basic_graph_payload() | {"stream_id": "s_ws_bad"})
+        assert create.status_code == 200
+        run_id = create.json()["run_id"]
+
+        with client.websocket_connect(f"/api/v1/runs/{run_id}/events?severity=fatal") as ws:
+            payload = ws.receive_json()
+            assert payload["event_type"] == "error"
+            assert "invalid severity" in payload["message"]
+            with pytest.raises(WebSocketDisconnect):
+                ws.receive_json()
