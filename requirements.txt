@@ -1,5 +1,4 @@
 # StarryAI unified dependencies (Python 3.12)
-# 说明：按你的要求，仓库仅保留这一份 requirements 文件。
 
 # Runtime
 fastapi>=0.110.0
