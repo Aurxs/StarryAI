@@ -58,6 +58,26 @@ def _slow_graph(graph_id: str = "g_service_slow") -> GraphSpec:
     )
 
 
+def _sync_graph(graph_id: str = "g_service_sync") -> GraphSpec:
+    return GraphSpec(
+        graph_id=graph_id,
+        nodes=[
+            NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+            NodeInstanceSpec(node_id="n2", type_name="mock.tts"),
+            NodeInstanceSpec(node_id="n3", type_name="mock.motion"),
+            NodeInstanceSpec(node_id="n4", type_name="sync.timeline"),
+            NodeInstanceSpec(node_id="n5", type_name="mock.output"),
+        ],
+        edges=[
+            EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="text"),
+            EdgeSpec(source_node="n1", source_port="text", target_node="n3", target_port="text"),
+            EdgeSpec(source_node="n2", source_port="audio", target_node="n4", target_port="audio"),
+            EdgeSpec(source_node="n3", source_port="motion", target_node="n4", target_port="motion"),
+            EdgeSpec(source_node="n4", source_port="sync", target_node="n5", target_port="in"),
+        ],
+    )
+
+
 def _build_service_with_slow_node() -> RunService:
     registry = create_default_registry()
     registry.register(
@@ -140,5 +160,47 @@ def test_run_service_stop_run_not_found_raises() -> None:
         service = RunService()
         with pytest.raises(RunNotFoundError):
             await service.stop_run("missing")
+
+    asyncio.run(_run())
+
+
+def test_run_service_sync_run_exposes_sync_metrics_and_events() -> None:
+    """同步链路运行后，快照和事件应包含同步信息。"""
+
+    async def _run() -> None:
+        service = RunService()
+        record = await service.create_run(_sync_graph(), stream_id="stream_service_sync")
+        await record.task
+
+        snapshot = service.get_run_snapshot(record.run_id)
+        assert snapshot["status"] == "completed"
+        assert snapshot["node_states"]["n4"]["metrics"]["sync_emitted"] >= 1
+
+        events, _ = service.get_run_events(record.run_id, since=0, limit=300)
+        sync_events = [event for event in events if event.event_type.value == "sync_frame_emitted"]
+        assert len(sync_events) >= 1
+        assert sync_events[0].details["stream_id"] == "stream_service_sync"
+        assert sync_events[0].details["seq"] == 0
+
+    asyncio.run(_run())
+
+
+def test_run_service_prunes_completed_runs_when_over_limit() -> None:
+    """超出保留上限时应清理最旧的终态运行记录。"""
+
+    async def _run() -> None:
+        service = RunService(max_retained_runs=2, retention_ttl_s=3600.0)
+
+        run1 = await service.create_run(_basic_graph("g_prune_1"))
+        await run1.task
+        run2 = await service.create_run(_basic_graph("g_prune_2"))
+        await run2.task
+        run3 = await service.create_run(_basic_graph("g_prune_3"))
+        await run3.task
+
+        with pytest.raises(RunNotFoundError):
+            service.get_run(run1.run_id)
+        assert service.get_run(run2.run_id).run_id == run2.run_id
+        assert service.get_run(run3.run_id).run_id == run3.run_id
 
     asyncio.run(_run())

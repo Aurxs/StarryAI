@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 import uuid
 from dataclasses import dataclass
@@ -321,6 +322,7 @@ class GraphScheduler:
                 node_id=node_id,
                 metadata={
                     "stream_id": self._stream_id,
+                    "seq": 0,
                     "graph_id": self.runtime_state.graph_id,
                     "node_mode": spec.mode.value,
                 },
@@ -334,6 +336,11 @@ class GraphScheduler:
 
             if not isinstance(outputs, dict):
                 raise TypeError(f"节点 {node_id} 输出必须是 dict，实际: {type(outputs)}")
+
+            # 同步节点可通过保留键上报额外指标，不参与端口路由。
+            node_metrics = outputs.pop("__node_metrics", None)
+            if isinstance(node_metrics, dict):
+                node_state.metrics.update(node_metrics)
 
             if self._stop_event.is_set():
                 node_state.status = "stopped"
@@ -387,19 +394,48 @@ class GraphScheduler:
             payload_value = outputs[edge.source_port]
             # frame_type: 根据节点模式决定发 data 帧还是 sync 帧。
             frame_type = FrameType.SYNC if mode == NodeMode.SYNC else FrameType.DATA
+            frame_stream_id = self._stream_id
+            frame_seq = 0
+            frame_sync_key: str | None = None
+            frame_play_at: float | None = None
+            event_details: dict[str, Any] = {"edge": self._edge_key(edge)}
+
+            if frame_type == FrameType.SYNC:
+                if not isinstance(payload_value, dict):
+                    raise TypeError(f"同步节点输出必须是 dict，实际: {type(payload_value)}")
+
+                frame_stream_id = str(payload_value.get("stream_id", self._stream_id))
+                if not frame_stream_id:
+                    raise ValueError("同步帧 stream_id 不能为空")
+                frame_seq = self._normalize_seq(payload_value.get("seq", 0))
+                frame_play_at = self._normalize_required_play_at(payload_value.get("play_at"))
+                frame_sync_key = self._normalize_sync_key(
+                    payload_value.get("sync_key"),
+                    fallback=f"{frame_stream_id}:{frame_seq}",
+                )
+                event_details.update(
+                    {
+                        "stream_id": frame_stream_id,
+                        "seq": frame_seq,
+                        "play_at": frame_play_at,
+                        "sync_key": frame_sync_key,
+                        "strategy": payload_value.get("strategy"),
+                        "late_policy": payload_value.get("late_policy"),
+                        "decision": payload_value.get("decision"),
+                    }
+                )
+
             # frame: 统一帧对象，后续由 edge_worker 实际转发。
             frame = Frame(
                 run_id=self._run_id,
-                stream_id=self._stream_id,
-                seq=0,
+                stream_id=frame_stream_id,
+                seq=frame_seq,
                 source_node=edge.source_node,
                 source_port=edge.source_port,
                 frame_type=frame_type,
                 payload={"value": payload_value},
-                sync_key=self._stream_id if frame_type == FrameType.SYNC else None,
-                play_at=payload_value.get("play_at")
-                if frame_type == FrameType.SYNC and isinstance(payload_value, dict)
-                else None,
+                sync_key=frame_sync_key,
+                play_at=frame_play_at,
             )
 
             await queue.put(frame)
@@ -411,7 +447,7 @@ class GraphScheduler:
                 else RuntimeEventType.FRAME_EMITTED,
                 node_id=node_id,
                 message=f"Frame emitted to {edge.target_node}.{edge.target_port}",
-                details={"edge": self._edge_key(edge)},
+                details=event_details,
             )
 
     async def _edge_worker(self, edge: EdgeSpec) -> None:
@@ -493,3 +529,45 @@ class GraphScheduler:
     def _edge_key(edge: EdgeSpec) -> EdgeKey:
         """构造边唯一键。"""
         return edge.source_node, edge.source_port, edge.target_node, edge.target_port
+
+    @staticmethod
+    def _normalize_seq(raw_value: Any) -> int:
+        """规范化 seq 并做边界校验。"""
+        try:
+            seq = int(raw_value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"非法 seq 值: {raw_value!r}") from exc
+        if seq < 0:
+            raise ValueError(f"seq 不能为负数: {seq}")
+        return seq
+
+    @staticmethod
+    def _normalize_play_at(raw_value: Any) -> float | None:
+        """规范化 play_at 并做边界校验。"""
+        if raw_value is None:
+            return None
+        try:
+            play_at = float(raw_value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"非法 play_at 值: {raw_value!r}") from exc
+        if play_at < 0 or not math.isfinite(play_at):
+            raise ValueError(f"play_at 必须是有限非负数: {play_at}")
+        return play_at
+
+    @classmethod
+    def _normalize_required_play_at(cls, raw_value: Any) -> float:
+        """规范化必填的 play_at 字段。"""
+        play_at = cls._normalize_play_at(raw_value)
+        if play_at is None:
+            raise ValueError("同步帧缺少必填字段 play_at")
+        return play_at
+
+    @staticmethod
+    def _normalize_sync_key(raw_value: Any, *, fallback: str) -> str:
+        """规范化 sync_key，缺失时回退到默认键。"""
+        if raw_value is None:
+            return fallback
+        text = str(raw_value).strip()
+        if not text or text.lower() == "none":
+            return fallback
+        return text

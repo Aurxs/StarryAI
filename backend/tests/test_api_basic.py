@@ -55,7 +55,7 @@ def test_root_and_health_endpoints() -> None:
     with TestClient(app) as client:
         root = client.get("/")
         assert root.status_code == 200
-        assert root.json()["phase"] == "B"
+        assert root.json()["phase"] == "C"
 
         health = client.get("/health")
         assert health.status_code == 200

@@ -60,10 +60,14 @@ class RunService:
             registry: NodeTypeRegistry | None = None,
             scheduler_config: SchedulerConfig | None = None,
             node_factory_builder: Callable[[], NodeFactory] | None = None,
+            max_retained_runs: int = 500,
+            retention_ttl_s: float = 3600.0,
     ) -> None:
         self.registry = registry or create_default_registry()
         self.scheduler_config = scheduler_config or SchedulerConfig()
         self.node_factory_builder = node_factory_builder or create_default_node_factory
+        self.max_retained_runs = max(1, max_retained_runs)
+        self.retention_ttl_s = max(0.0, retention_ttl_s)
         self.builder = GraphBuilder(self.registry)
 
         self._runs: dict[str, RunRecord] = {}
@@ -91,6 +95,7 @@ class RunService:
         )
         async with self._lock:
             self._runs[run_id] = record
+            self._prune_runs_locked(now=time.time())
         return record
 
     async def stop_run(self, run_id: str, *, timeout_s: float = 3.0) -> RunRecord:
@@ -152,6 +157,35 @@ class RunService:
             return self._runs[run_id]
         except KeyError as exc:
             raise RunNotFoundError(f"运行实例不存在: {run_id}") from exc
+
+    def _prune_runs_locked(self, *, now: float) -> None:
+        """清理终态且过期/超额的运行记录。"""
+        if not self._runs:
+            return
+
+        # 先按 TTL 删除已过期的终态记录。
+        expired_run_ids = [
+            run_id
+            for run_id, record in self._runs.items()
+            if record.task.done() and now - record.created_at >= self.retention_ttl_s
+        ]
+        for run_id in expired_run_ids:
+            self._runs.pop(run_id, None)
+
+        # 再按容量上限删除最老的终态记录。
+        if len(self._runs) <= self.max_retained_runs:
+            return
+
+        terminal_records = [
+            (run_id, record)
+            for run_id, record in self._runs.items()
+            if record.task.done()
+        ]
+        terminal_records.sort(key=lambda item: item[1].created_at)
+
+        overflow = len(self._runs) - self.max_retained_runs
+        for run_id, _record in terminal_records[:overflow]:
+            self._runs.pop(run_id, None)
 
 
 _run_service_singleton: RunService | None = None

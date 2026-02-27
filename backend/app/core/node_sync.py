@@ -1,4 +1,4 @@
-"""阶段 A：同步节点基类。"""
+"""同步节点基类与运行状态模型（Phase C）。"""
 
 from __future__ import annotations
 
@@ -10,15 +10,35 @@ from .spec import NodeSpec, SyncConfig
 
 
 @dataclass(slots=True)
+class SyncBucket:
+    """单个同步桶状态。"""
+
+    # 同步键下已到达的端口数据。
+    ports: dict[str, Any] = field(default_factory=dict)
+    # 首次与最近一次写入时刻（monotonic 秒），用于观测等待时长。
+    first_seen_at: float | None = None
+    last_seen_at: float | None = None
+
+
+@dataclass(slots=True)
+class SyncMetrics:
+    """同步节点累计统计。"""
+
+    emitted: int = 0
+    dropped_late: int = 0
+    reclocked: int = 0
+    emit_partial: int = 0
+    mismatched_inputs: int = 0
+    missing_required: int = 0
+
+
+@dataclass(slots=True)
 class SyncState:
-    """同步节点内部状态。
+    """同步节点内部状态。"""
 
-    buckets 结构：
-    - key: sync_key（一般可使用 stream_id）
-    - value: 已到达端口的数据映射（port_name -> payload）
-    """
-
-    buckets: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # key: (stream_id, seq)
+    buckets: dict[tuple[str, int], SyncBucket] = field(default_factory=dict)
+    metrics: SyncMetrics = field(default_factory=SyncMetrics)
 
 
 class SyncNode(BaseNode):

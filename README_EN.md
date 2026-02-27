@@ -1,22 +1,25 @@
 # StarryAI
 
 StarryAI is a modular, node-based AI virtual human workflow engine.
-The repository is currently in **Phase A (architecture and protocol validation)**.
+The repository is currently in **Phase C (synchronization orchestration enhancement)**.
 
-## Phase A Scope
+## Phase C Scope
 
 Implemented:
 
 - Unified backend protocol models: `Frame`, `SyncFrame`, `RuntimeEvent`
 - Node and graph contracts: `NodeSpec`, `PortSpec`, `SyncConfig`, `GraphSpec`
 - Static graph validation and compilation: `GraphBuilder`
-- Built-in mock node specs and implementation skeletons
-- FastAPI skeleton endpoints for node-type listing and graph validation
+- Runnable backend runtime loop: scheduler + runs REST/WS
+- Sync orchestration v1:
+  - `sync.timeline` aggregation by `stream_id/seq`
+  - strategy paths: `barrier/window_join/clock_lock`
+  - late policies: `drop/reclock` (+ `emit_partial` compatibility path)
+  - enriched sync events (`play_at/strategy/late_policy/decision`)
 
 Out of scope:
 
 - Real model inference and external network calls
-- Runtime execution for `runs` APIs (planned for Phase B)
 - Full production frontend graph editor
 
 ## Current Design Choices
@@ -29,7 +32,7 @@ Out of scope:
 
 - `stream_id`: identifier of one business flow (for example, one reply/playback unit).
 - `seq`: ordered index inside the same `stream_id`.
-- In Phase A (non-streaming), `seq=0` is usually enough.
+- In Phase C (current non-streaming baseline), `seq=0` is still the common default.
 - In future streaming phases, `seq` can represent timeline slices (`0,1,2...`).
 
 ## Requirements
@@ -52,9 +55,15 @@ python3.12 -m uvicorn app.main:app --reload
 
 Available endpoints:
 
+- `GET /`
 - `GET /health`
 - `GET /api/v1/node-types`
 - `POST /api/v1/graphs/validate`
+- `POST /api/v1/runs`
+- `POST /api/v1/runs/{run_id}/stop`
+- `GET /api/v1/runs/{run_id}`
+- `GET /api/v1/runs/{run_id}/events`
+- `WS /api/v1/runs/{run_id}/events`
 
 ## Test
 
@@ -91,5 +100,20 @@ Available runtime endpoints:
 
 Notes:
 
-- This is still the non-streaming Phase B MVP runtime.
+- This section is a historical milestone record; the current phase is Phase C.
 - Added dev/test dependency: `httpx>=0.28.0` (required by `fastapi.testclient` integration tests).
+
+## Phase C Incremental Update (2026-02-27, Milestone 4)
+
+New capabilities:
+
+- `sync.timeline` upgraded from simple packet stitching to executable sync policy logic
+- Scheduler now forwards sync metadata (`stream_id/seq/play_at/sync_key`)
+- `sync_frame_emitted` includes strategy and decision details
+- Sync node metrics are exposed in runtime snapshots
+- `GET /` phase marker updated to `C`
+
+Validation in `StarryAI` conda environment:
+
+- `python -m pytest -q backend/tests`: `59 passed`
+- `python -m ruff check backend/app backend/tests`: passed

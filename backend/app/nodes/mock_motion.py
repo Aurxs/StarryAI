@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from app.core.node_async import AsyncNode
@@ -21,9 +22,10 @@ class MockMotionNode(AsyncNode):
 
     async def process(self, inputs: dict[str, Any], context: NodeContext) -> dict[str, Any]:
         """生成 mock 动作时间线。"""
-        _ = context
-
         text = str(inputs.get("text", ""))
+        stream_id = str(context.metadata.get("stream_id", "stream_default"))
+        seq = int(context.metadata.get("seq", 0))
+        play_at = time.monotonic() + 0.2
 
         # 动作时间线示例：
         # 1) 初始 idle
@@ -35,4 +37,12 @@ class MockMotionNode(AsyncNode):
             {"t": 1200 + len(text) * 15, "action": "speak_end"},
         ]
 
-        return {"motion": {"timeline": timeline, "source_text": text}}
+        return {
+            "motion": {
+                "timeline": timeline,
+                "source_text": text,
+                "stream_id": stream_id,
+                "seq": seq,
+                "play_at": play_at,
+            }
+        }

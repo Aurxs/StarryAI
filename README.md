@@ -1,22 +1,25 @@
 # StarryAI
 
 StarryAI 是一个模块化、节点式 AI 虚拟人工作流引擎。
-当前仓库处于 **Phase A（架构与协议验证阶段）**，核心目标是先验证后端图模型、节点规范和同步语义，再进入可运行调度与前端工作台。
+当前仓库处于 **Phase C（同步编排增强阶段）**，核心目标是在 Phase B 可运行闭环基础上，把同步节点能力做成可执行、可观测、可测试。
 
-## 当前阶段范围（Phase A）
+## 当前阶段范围（Phase C）
 
 已完成：
 
 - 后端统一消息协议：`Frame`、`SyncFrame`、`RuntimeEvent`
 - 节点与图规范：`NodeSpec`、`PortSpec`、`SyncConfig`、`GraphSpec`
 - 图静态校验与编译：`GraphBuilder`
-- 内置 mock 节点规范与代码骨架
-- FastAPI 基础接口骨架：节点类型查询、图校验
+- 最小可运行调度闭环：`GraphScheduler`、`RunService`、runs REST/WS
+- 同步编排初版：
+    - `sync.timeline` 按 `stream_id/seq` 聚合
+    - 策略：`barrier/window_join/clock_lock`
+    - 迟到策略：`drop/reclock`（含 `emit_partial` 兼容路径）
+    - 同步事件增强（`strategy/late_policy/decision/play_at`）
 
 暂不包含：
 
 - 真实模型推理、真实网络调用
-- 真实调度执行（`runs` 相关逻辑在 Phase B 实现）
 - 完整 React Flow 工作台
 
 ## 关键设计决策（当前版本）
@@ -29,7 +32,7 @@ StarryAI 是一个模块化、节点式 AI 虚拟人工作流引擎。
 
 - `stream_id`：同一条业务流（例如一次回复/一次播报）的标识。
 - `seq`：该业务流内部的顺序编号。
-- Phase A（非流式）默认可以用 `seq=0`。
+- Phase C（当前非流式）默认链路通常仍使用 `seq=0`，并在同步链路透传该字段。
 - 后续进入流式/时间片调度时，可扩展为 `seq=0,1,2...`。
 
 ## 环境要求
@@ -55,8 +58,14 @@ python3.12 -m uvicorn app.main:app --reload
 可用接口：
 
 - `GET /health`
+- `GET /`
 - `GET /api/v1/node-types`
 - `POST /api/v1/graphs/validate`
+- `POST /api/v1/runs`
+- `POST /api/v1/runs/{run_id}/stop`
+- `GET /api/v1/runs/{run_id}`
+- `GET /api/v1/runs/{run_id}/events`
+- `WS /api/v1/runs/{run_id}/events`
 
 ## 测试
 
@@ -116,5 +125,26 @@ frontend/
 
 说明：
 
-- 当前仍是 Phase B 的非流式最小闭环，不引入复杂 streaming 语义。
+- 该节是历史里程碑记录，当前主阶段已进入 Phase C。
 - 本阶段新增开发测试依赖：`httpx>=0.28.0`（用于 `fastapi.testclient` 集成测试）。
+
+## Phase C 增量更新（2026-02-27，第四里程碑）
+
+新增能力：
+
+- `sync.timeline` 从最小拼包升级为真实聚合与策略执行
+- 调度器同步帧透传 `stream_id/seq/play_at/sync_key`
+- `sync_frame_emitted` 事件补齐策略与决策字段
+- 同步节点指标进入运行态快照（如 `sync_emitted/sync_dropped_late/sync_reclocked`）
+- 根接口阶段标识更新为 `phase = "C"`
+
+同步专项测试扩展：
+
+- 节点行为：策略分支与输入冲突
+- 调度行为：同步字段透传与非法同步输出边界
+- 服务/API：同步事件字段回归
+
+本地验证（StarryAI conda 环境）：
+
+- `python -m pytest -q backend/tests`：`59 passed`
+- `python -m ruff check backend/app backend/tests`：通过

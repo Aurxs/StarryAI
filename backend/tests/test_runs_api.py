@@ -78,6 +78,54 @@ def _invalid_graph_payload() -> dict[str, Any]:
     }
 
 
+def _sync_graph_payload() -> dict[str, Any]:
+    return {
+        "graph": {
+            "graph_id": "g_api_sync",
+            "nodes": [
+                {"node_id": "n1", "type_name": "mock.input"},
+                {"node_id": "n2", "type_name": "mock.tts"},
+                {"node_id": "n3", "type_name": "mock.motion"},
+                {"node_id": "n4", "type_name": "sync.timeline"},
+                {"node_id": "n5", "type_name": "mock.output"},
+            ],
+            "edges": [
+                {
+                    "source_node": "n1",
+                    "source_port": "text",
+                    "target_node": "n2",
+                    "target_port": "text",
+                },
+                {
+                    "source_node": "n1",
+                    "source_port": "text",
+                    "target_node": "n3",
+                    "target_port": "text",
+                },
+                {
+                    "source_node": "n2",
+                    "source_port": "audio",
+                    "target_node": "n4",
+                    "target_port": "audio",
+                },
+                {
+                    "source_node": "n3",
+                    "source_port": "motion",
+                    "target_node": "n4",
+                    "target_port": "motion",
+                },
+                {
+                    "source_node": "n4",
+                    "source_port": "sync",
+                    "target_node": "n5",
+                    "target_port": "in",
+                },
+            ],
+        },
+        "stream_id": "stream_api_sync",
+    }
+
+
 def _build_slow_run_service() -> RunService:
     registry = create_default_registry()
     registry.register(
@@ -196,3 +244,32 @@ def test_run_endpoints_return_404_when_missing() -> None:
 
         stop_resp = client.post("/api/v1/runs/run_missing/stop")
         assert stop_resp.status_code == 404
+
+
+def test_sync_run_events_contain_alignment_details() -> None:
+    """同步链路事件应包含 stream_id/seq/play_at 与策略信息。"""
+    with TestClient(app) as client:
+        create = client.post("/api/v1/runs", json=_sync_graph_payload())
+        assert create.status_code == 200
+        run_id = create.json()["run_id"]
+
+        for _ in range(40):
+            status_resp = client.get(f"/api/v1/runs/{run_id}")
+            assert status_resp.status_code == 200
+            if status_resp.json()["status"] in {"completed", "failed", "stopped"}:
+                break
+            time.sleep(0.05)
+
+        events_resp = client.get(f"/api/v1/runs/{run_id}/events")
+        assert events_resp.status_code == 200
+        sync_events = [
+            item
+            for item in events_resp.json()["items"]
+            if item["event_type"] == "sync_frame_emitted"
+        ]
+        assert len(sync_events) >= 1
+        details = sync_events[0]["details"]
+        assert details["stream_id"] == "stream_api_sync"
+        assert details["seq"] == 0
+        assert isinstance(details["play_at"], float)
+        assert details["strategy"] == "clock_lock"
