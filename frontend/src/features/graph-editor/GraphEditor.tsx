@@ -101,6 +101,7 @@ const workflowNodeStyle: CSSProperties = {
     borderRadius: 10,
     padding: '8px 10px 10px',
     background: '#ffffff',
+    color: '#0f172a',
     boxShadow: '0 1px 2px rgba(0, 0, 0, 0.08)',
     position: 'relative',
 };
@@ -209,7 +210,7 @@ const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
                 ×
             </button>
             <strong>{data.title}</strong>
-            <div style={{fontSize: 11, opacity: 0.76}}>{data.spec.type_name}</div>
+            <div style={{fontSize: 11, color: '#334155'}}>{data.spec.type_name}</div>
 
             {inputs.map((port, index) => (
                 <Handle

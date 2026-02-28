@@ -86,6 +86,7 @@ export function RunControlPanel() {
 
     const [streamId, setStreamId] = useState('stream_frontend');
     const [requestBusy, setRequestBusy] = useState(false);
+    const isRunActive = status === 'running' || status === 'validating';
 
     useEffect(() => {
         if (!runId) {
@@ -124,6 +125,9 @@ export function RunControlPanel() {
     }, [runId, setError, setStatus]);
 
     const startRun = async (): Promise<void> => {
+        if (isRunActive) {
+            return;
+        }
         setRequestBusy(true);
         setStatus('validating');
         setError(null);
@@ -146,10 +150,15 @@ export function RunControlPanel() {
         if (!runId) {
             return;
         }
+        if (!isRunActive) {
+            setError('当前运行已结束，无需停止。');
+            return;
+        }
         setRequestBusy(true);
         try {
             const stopped = await apiClient.stopRun(runId);
             setStatus(mapBackendStatus(stopped.status));
+            setError(null);
         } catch (error) {
             const message = error instanceof ApiClientError ? error.message : String(error);
             setStatus('failed');
@@ -175,7 +184,7 @@ export function RunControlPanel() {
                     onClick={() => {
                         void startRun();
                     }}
-                    disabled={requestBusy}
+                    disabled={requestBusy || isRunActive}
                 >
                     启动运行
                 </button>
@@ -185,7 +194,7 @@ export function RunControlPanel() {
                     onClick={() => {
                         void stopRun();
                     }}
-                    disabled={!runId || requestBusy}
+                    disabled={!runId || requestBusy || !isRunActive}
                 >
                     停止运行
                 </button>

@@ -155,5 +155,6 @@ describe('RunControlPanel', () => {
             },
             {timeout: 2500},
         );
+        expect(screen.getByRole('button', {name: '停止运行'}).hasAttribute('disabled')).toBe(true);
     });
 });
