@@ -184,6 +184,11 @@ def run_launcher(host: str, backend_port: int, frontend_port: int, color_mode: s
         env["FORCE_COLOR"] = "1"
         env["CLICOLOR_FORCE"] = "1"
         env.pop("NO_COLOR", None)
+    else:
+        # 明确关闭子进程颜色，避免继承外部环境导致配置不一致。
+        env.pop("FORCE_COLOR", None)
+        env.pop("CLICOLOR_FORCE", None)
+        env["NO_COLOR"] = "1"
 
     backend_cmd = [
         sys.executable,
@@ -191,7 +196,6 @@ def run_launcher(host: str, backend_port: int, frontend_port: int, color_mode: s
         "uvicorn",
         "app.main:app",
         "--reload",
-        "--use-colors",
         "--host",
         host,
         "--port",
@@ -199,6 +203,7 @@ def run_launcher(host: str, backend_port: int, frontend_port: int, color_mode: s
         "--app-dir",
         str(BACKEND_DIR),
     ]
+    backend_cmd.append("--use-colors" if USE_COLOR else "--no-use-colors")
     frontend_cmd = [
         "npm",
         "run",
