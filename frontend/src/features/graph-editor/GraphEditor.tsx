@@ -65,7 +65,7 @@ const toolbarStyle: CSSProperties = {
     backdropFilter: 'blur(5px)',
     borderRadius: 10,
     position: 'absolute',
-    top: 12,
+    top: 72,
     left: 372,
     right: 392,
     zIndex: 6,
@@ -82,6 +82,9 @@ const paletteChipStyle: CSSProperties = {
 };
 
 const paletteButtonStyle: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     border: '1px solid rgba(255, 255, 255, 0.25)',
     borderRadius: 8,
     padding: '4px 8px',
@@ -89,6 +92,7 @@ const paletteButtonStyle: CSSProperties = {
     cursor: 'pointer',
     background: 'rgba(17, 24, 39, 0.85)',
     color: '#f9fafb',
+    lineHeight: 1,
 };
 
 const workflowNodeStyle: CSSProperties = {
@@ -101,23 +105,24 @@ const workflowNodeStyle: CSSProperties = {
     position: 'relative',
 };
 
-const getPortTop = (index: number, total: number): string =>
-    `${Math.round(((index + 1) * 100) / (total + 1))}%`;
+const getPortTop = (index: number, total: number): string => `${((index + 1) * 100) / (total + 1)}%`;
 
 const deleteNodeButtonStyle: CSSProperties = {
     position: 'absolute',
     top: 6,
     right: 6,
-    width: 18,
-    height: 18,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 20,
+    height: 20,
     border: '1px solid rgba(127, 29, 29, 0.45)',
     borderRadius: 999,
     background: '#fee2e2',
     color: '#7f1d1d',
     cursor: 'pointer',
-    fontSize: 12,
-    lineHeight: '16px',
-    textAlign: 'center',
+    fontSize: 15,
+    lineHeight: 1,
     padding: 0,
 };
 

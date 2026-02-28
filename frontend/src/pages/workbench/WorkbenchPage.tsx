@@ -13,7 +13,7 @@ import {useUiStore} from '../../shared/state/ui-store';
 const shellStyle: CSSProperties = {
     position: 'relative',
     width: '100%',
-    height: '100vh',
+    height: '100dvh',
     overflow: 'hidden',
     color: '#e5e7eb',
     fontFamily: '"Avenir Next", "Segoe UI", sans-serif',
@@ -57,6 +57,9 @@ const chipStyle = (active: boolean): CSSProperties => ({
 });
 
 const collapseButtonStyle: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     border: '1px solid rgba(148, 163, 184, 0.5)',
     borderRadius: 8,
     padding: '4px 8px',
@@ -64,6 +67,7 @@ const collapseButtonStyle: CSSProperties = {
     cursor: 'pointer',
     background: 'rgba(15, 23, 42, 0.85)',
     color: '#e2e8f0',
+    lineHeight: 1,
 };
 
 const panelHeaderStyle: CSSProperties = {
@@ -78,12 +82,20 @@ const panelTitleStyle: CSSProperties = {
     fontSize: 18,
 };
 
-const topTitleStyle: CSSProperties = {
+const topBannerStyle: CSSProperties = {
     position: 'absolute',
-    top: 12,
+    top: 10,
     left: '50%',
     transform: 'translateX(-50%)',
-    zIndex: 9,
+    zIndex: 7,
+    pointerEvents: 'none',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 2,
+};
+
+const topTitleStyle: CSSProperties = {
     margin: 0,
     padding: '8px 14px',
     borderRadius: 10,
@@ -91,19 +103,12 @@ const topTitleStyle: CSSProperties = {
     background: 'rgba(15, 23, 42, 0.72)',
     fontSize: 18,
     color: '#f8fafc',
-    pointerEvents: 'none',
 };
 
 const topSubtitleStyle: CSSProperties = {
-    position: 'absolute',
-    top: 48,
-    left: '50%',
-    transform: 'translateX(-50%)',
-    zIndex: 9,
     margin: 0,
     fontSize: 12,
     color: 'rgba(226, 232, 240, 0.92)',
-    pointerEvents: 'none',
 };
 
 export function WorkbenchPage() {
@@ -134,8 +139,10 @@ export function WorkbenchPage() {
             <section style={canvasLayerStyle} aria-label="canvas-panel">
                 <GraphEditor/>
             </section>
-            <h1 style={topTitleStyle}>StarryAI Workbench</h1>
-            <p style={topSubtitleStyle}>Phase E / T2 baseline shell</p>
+            <header style={topBannerStyle}>
+                <h1 style={topTitleStyle}>StarryAI Workbench</h1>
+                <p style={topSubtitleStyle}>Phase E / T2 baseline shell</p>
+            </header>
 
             {leftCollapsed ? (
                 <button
@@ -153,7 +160,7 @@ export function WorkbenchPage() {
                         left: 12,
                         top: 12,
                         width: 340,
-                        maxHeight: 'calc(100vh - 24px)',
+                        maxHeight: 'calc(100dvh - 24px)',
                         overflow: 'auto',
                     }}
                     aria-label="left-panel"
@@ -235,7 +242,7 @@ export function WorkbenchPage() {
                         right: 12,
                         top: 12,
                         width: 360,
-                        maxHeight: 'calc(100vh - 24px)',
+                        maxHeight: 'calc(100dvh - 24px)',
                         overflow: 'auto',
                     }}
                     aria-label="right-panel"

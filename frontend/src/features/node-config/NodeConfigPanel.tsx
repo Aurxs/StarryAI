@@ -7,7 +7,8 @@ const panelStyle: CSSProperties = {
     border: '1px solid rgba(31, 41, 51, 0.14)',
     borderRadius: 10,
     padding: 10,
-    background: 'rgba(255,255,255,0.86)',
+    background: 'rgba(248, 250, 252, 0.95)',
+    color: '#0f172a',
 };
 
 const inputStyle: CSSProperties = {
@@ -18,6 +19,8 @@ const inputStyle: CSSProperties = {
     padding: '8px 10px',
     fontSize: 13,
     marginTop: 4,
+    color: '#0f172a',
+    background: '#ffffff',
 };
 
 const textareaStyle: CSSProperties = {
@@ -29,13 +32,18 @@ const textareaStyle: CSSProperties = {
 };
 
 const buttonStyle: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     border: '1px solid rgba(31, 41, 51, 0.2)',
     borderRadius: 8,
     padding: '6px 10px',
     fontSize: 12,
     cursor: 'pointer',
     background: '#ffffff',
+    color: '#0f172a',
     marginRight: 8,
+    lineHeight: 1.1,
 };
 
 const formatJson = (value: Record<string, unknown>): string => JSON.stringify(value, null, 2);

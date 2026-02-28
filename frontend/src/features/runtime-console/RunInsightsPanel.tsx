@@ -8,17 +8,23 @@ const panelStyle: CSSProperties = {
     border: '1px solid rgba(31, 41, 51, 0.16)',
     borderRadius: 10,
     padding: 10,
-    background: 'rgba(255,255,255,0.86)',
+    background: 'rgba(248, 250, 252, 0.95)',
+    color: '#0f172a',
     marginTop: 10,
 };
 
 const buttonStyle: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     border: '1px solid rgba(31, 41, 51, 0.24)',
     borderRadius: 8,
     padding: '6px 10px',
     fontSize: 12,
     cursor: 'pointer',
     background: '#ffffff',
+    color: '#0f172a',
+    lineHeight: 1.1,
 };
 
 export function RunInsightsPanel() {
