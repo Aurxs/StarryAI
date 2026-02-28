@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState, type CSSProperties} from 'react';
+import {useCallback, useEffect, useRef, useState, type CSSProperties} from 'react';
 
 import type {RunDiagnosticsResponse, RunMetricsResponse} from '../../entities/workbench/types';
 import {apiClient, ApiClientError} from '../../shared/api/client';
@@ -23,6 +23,7 @@ const buttonStyle: CSSProperties = {
 
 export function RunInsightsPanel() {
     const runId = useRunStore((state) => state.runId);
+    const requestSeqRef = useRef(0);
 
     const [loading, setLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -30,25 +31,41 @@ export function RunInsightsPanel() {
     const [diagnostics, setDiagnostics] = useState<RunDiagnosticsResponse | null>(null);
 
     const loadInsights = useCallback(async () => {
-        if (!runId) {
+        const targetRunId = runId;
+        if (!targetRunId) {
+            requestSeqRef.current += 1;
+            setLoading(false);
+            setErrorMessage(null);
             setMetrics(null);
             setDiagnostics(null);
             return;
         }
+        const requestSeq = requestSeqRef.current + 1;
+        requestSeqRef.current = requestSeq;
+        const isActiveRequest = (): boolean =>
+            requestSeqRef.current === requestSeq && useRunStore.getState().runId === targetRunId;
         setLoading(true);
         setErrorMessage(null);
         try {
             const [metricsPayload, diagnosticsPayload] = await Promise.all([
-                apiClient.getRunMetrics(runId),
-                apiClient.getRunDiagnostics(runId),
+                apiClient.getRunMetrics(targetRunId),
+                apiClient.getRunDiagnostics(targetRunId),
             ]);
+            if (!isActiveRequest()) {
+                return;
+            }
             setMetrics(metricsPayload);
             setDiagnostics(diagnosticsPayload);
         } catch (error) {
+            if (!isActiveRequest()) {
+                return;
+            }
             const message = error instanceof ApiClientError ? error.message : String(error);
             setErrorMessage(`load insights failed: ${message}`);
         } finally {
-            setLoading(false);
+            if (isActiveRequest()) {
+                setLoading(false);
+            }
         }
     }, [runId]);
 

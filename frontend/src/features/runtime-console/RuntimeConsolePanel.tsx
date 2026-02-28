@@ -96,7 +96,10 @@ export function RuntimeConsolePanel() {
 
     useEffect(() => {
         closeWs();
-    }, [runId, closeWs]);
+        clearEvents();
+        setErrorMessage(null);
+        setIsLoading(false);
+    }, [runId, closeWs, clearEvents]);
 
     const loadEvents = async (): Promise<void> => {
         if (!runId) {

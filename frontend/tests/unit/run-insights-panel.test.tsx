@@ -103,6 +103,91 @@ describe('RunInsightsPanel', () => {
         expect(diagnosticsHits).toBeGreaterThanOrEqual(2);
     });
 
+    it('ignores stale responses from previous run switch', async () => {
+        let releaseOldMetrics: (() => void) | null = null;
+        let releaseOldDiagnostics: (() => void) | null = null;
+        const oldMetricsGate = new Promise<void>((resolve) => {
+            releaseOldMetrics = resolve;
+        });
+        const oldDiagnosticsGate = new Promise<void>((resolve) => {
+            releaseOldDiagnostics = resolve;
+        });
+
+        server.use(
+            http.get('*/api/v1/runs/run_t8_old/metrics', async () => {
+                await oldMetricsGate;
+                return HttpResponse.json({
+                    run_id: 'run_t8_old',
+                    graph_id: 'g_old',
+                    status: 'running',
+                    created_at: 1_700_000_000,
+                    started_at: 1_700_000_001,
+                    ended_at: null,
+                    task_done: false,
+                    graph_metrics: {event_total: 1},
+                    node_metrics: {n_old: {}},
+                    edge_metrics: [{edge: 'n_old.out->n_old2.in'}],
+                });
+            }),
+            http.get('*/api/v1/runs/run_t8_old/diagnostics', async () => {
+                await oldDiagnosticsGate;
+                return HttpResponse.json({
+                    run_id: 'run_t8_old',
+                    graph_id: 'g_old',
+                    status: 'running',
+                    task_done: false,
+                    last_error: null,
+                    failed_nodes: [{node_id: 'n_old'}],
+                    slow_nodes_top: [{node_id: 'n_old'}],
+                    edge_hotspots_top: [{edge: 'n_old.out->n_old2.in'}],
+                });
+            }),
+            http.get('*/api/v1/runs/run_t8_new/metrics', () =>
+                HttpResponse.json({
+                    run_id: 'run_t8_new',
+                    graph_id: 'g_new',
+                    status: 'running',
+                    created_at: 1_700_000_100,
+                    started_at: 1_700_000_101,
+                    ended_at: null,
+                    task_done: false,
+                    graph_metrics: {event_total: 9, latency_ms: 22},
+                    node_metrics: {n1: {}, n2: {}},
+                    edge_metrics: [{edge: 'n1.out->n2.in'}, {edge: 'n2.out->n3.in'}],
+                }),
+            ),
+            http.get('*/api/v1/runs/run_t8_new/diagnostics', () =>
+                HttpResponse.json({
+                    run_id: 'run_t8_new',
+                    graph_id: 'g_new',
+                    status: 'running',
+                    task_done: false,
+                    last_error: null,
+                    failed_nodes: [{node_id: 'n2'}, {node_id: 'n3'}],
+                    slow_nodes_top: [{node_id: 'n1'}, {node_id: 'n2'}],
+                    edge_hotspots_top: [{edge: 'n1.out->n2.in'}, {edge: 'n2.out->n3.in'}],
+                }),
+            ),
+        );
+
+        useRunStore.getState().attachRun('run_t8_old', 'running');
+        render(<RunInsightsPanel/>);
+
+        useRunStore.getState().attachRun('run_t8_new', 'running');
+        await waitFor(() => {
+            expect(screen.getByTestId('run-insights-metrics').textContent).toContain('graph_metrics_keys: 2');
+            expect(screen.getByTestId('run-insights-diagnostics').textContent).toContain('failed_nodes: 2');
+        });
+
+        releaseOldMetrics?.();
+        releaseOldDiagnostics?.();
+
+        await waitFor(() => {
+            expect(screen.getByTestId('run-insights-metrics').textContent).toContain('graph_metrics_keys: 2');
+            expect(screen.getByTestId('run-insights-diagnostics').textContent).toContain('failed_nodes: 2');
+        });
+    });
+
     it('shows error when insights requests fail (edge path)', async () => {
         useRunStore.getState().attachRun('run_t8_fail', 'running');
         server.use(

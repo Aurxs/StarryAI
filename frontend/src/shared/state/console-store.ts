@@ -61,12 +61,25 @@ export const useRuntimeConsoleStore = create<RuntimeConsoleState>((set) => ({
             lastCursor: 0,
         })),
     setFilters: (patch) =>
-        set((state) => ({
-            filters: {
+        set((state) => {
+            const nextFilters: RuntimeConsoleFilters = {
                 ...state.filters,
                 ...patch,
-            },
-        })),
+            };
+            const filtersChanged =
+                nextFilters.event_type !== state.filters.event_type ||
+                nextFilters.node_id !== state.filters.node_id ||
+                nextFilters.severity !== state.filters.severity ||
+                nextFilters.error_code !== state.filters.error_code;
+            if (!filtersChanged) {
+                return state;
+            }
+            return {
+                filters: nextFilters,
+                events: [],
+                lastCursor: 0,
+            };
+        }),
     setCursor: (nextCursor) =>
         set((state) => ({
             lastCursor: Math.max(state.lastCursor, Math.max(0, nextCursor)),

@@ -52,19 +52,34 @@ describe('runtime console store', () => {
         expect(useRuntimeConsoleStore.getState().lastCursor).toBe(8);
     });
 
-    it('merges filters and resets events/cursor', () => {
+    it('resets events/cursor when filters change', () => {
+        useRuntimeConsoleStore.getState().appendEvents([eventFixture('evt_3', 3)]);
+        useRuntimeConsoleStore.getState().setCursor(9);
         useRuntimeConsoleStore.getState().setFilters({
             event_type: 'node_failed',
             severity: 'error',
         });
-        useRuntimeConsoleStore.getState().appendEvents([eventFixture('evt_3', 3)]);
-        useRuntimeConsoleStore.getState().setCursor(9);
-        useRuntimeConsoleStore.getState().clearEvents();
 
         const state = useRuntimeConsoleStore.getState();
         expect(state.filters.event_type).toBe('node_failed');
         expect(state.filters.severity).toBe('error');
         expect(state.events).toHaveLength(0);
         expect(state.lastCursor).toBe(0);
+    });
+
+    it('keeps events/cursor when filter patch does not change values', () => {
+        useRuntimeConsoleStore.getState().setFilters({
+            event_type: 'node_failed',
+        });
+        useRuntimeConsoleStore.getState().appendEvents([eventFixture('evt_4', 4)]);
+        useRuntimeConsoleStore.getState().setCursor(10);
+        useRuntimeConsoleStore.getState().setFilters({
+            event_type: 'node_failed',
+        });
+
+        const state = useRuntimeConsoleStore.getState();
+        expect(state.filters.event_type).toBe('node_failed');
+        expect(state.events).toHaveLength(1);
+        expect(state.lastCursor).toBe(10);
     });
 });

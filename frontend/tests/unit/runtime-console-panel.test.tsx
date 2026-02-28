@@ -102,6 +102,54 @@ describe('RuntimeConsolePanel', () => {
         });
     });
 
+    it('resets events/cursor when switching run and restarts since from zero', async () => {
+        useRunStore.getState().attachRun('run_t7_old');
+        useRuntimeConsoleStore.getState().appendEvents([
+            {
+                run_id: 'run_t7_old',
+                event_id: 'evt_old_1',
+                event_seq: 40,
+                event_type: 'node_started',
+                severity: 'info',
+                component: 'node',
+                ts: 1_700_000_000,
+                node_id: 'n1',
+                edge_key: null,
+                error_code: null,
+                attempt: null,
+                message: null,
+                details: {},
+            },
+        ]);
+        useRuntimeConsoleStore.getState().setCursor(41);
+
+        let requestedSince: string | null = null;
+        server.use(
+            http.get('*/api/v1/runs/run_t7_new/events', ({request}) => {
+                requestedSince = new URL(request.url).searchParams.get('since');
+                return HttpResponse.json({
+                    run_id: 'run_t7_new',
+                    next_cursor: 0,
+                    count: 0,
+                    items: [],
+                });
+            }),
+        );
+
+        render(<RuntimeConsolePanel/>);
+
+        useRunStore.getState().attachRun('run_t7_new');
+        await waitFor(() => {
+            expect(useRuntimeConsoleStore.getState().events).toHaveLength(0);
+            expect(useRuntimeConsoleStore.getState().lastCursor).toBe(0);
+        });
+
+        fireEvent.click(screen.getByRole('button', {name: 'Load Events'}));
+        await waitFor(() => {
+            expect(requestedSince).toBe('0');
+        });
+    });
+
     it('updates filters through inputs', () => {
         useRunStore.getState().attachRun('run_t7_filters');
         render(<RuntimeConsolePanel/>);
