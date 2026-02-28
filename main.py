@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import functools
 import importlib.util
 import locale
@@ -85,6 +86,10 @@ MESSAGES = {
     "interrupt_received": {
         "zh": "收到中断信号，正在停止所有进程...",
         "en": "Interrupt received, stopping all processes...",
+    },
+    "signal_received": {
+        "zh": "收到信号 {signal}，正在停止所有进程...",
+        "en": "Received signal {signal}, stopping all processes...",
     },
     "backend_url": {
         "zh": "后端:  http://{host}:{port}",
@@ -279,6 +284,8 @@ def _spawn_process(
         env: dict[str, str],
         name: str,
 ) -> subprocess.Popen[str]:
+    is_windows = platform.system().lower().startswith("win")
+    creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if is_windows else 0
     process = subprocess.Popen(
         cmd,
         cwd=str(cwd),
@@ -287,6 +294,8 @@ def _spawn_process(
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
+        start_new_session=not is_windows,
+        creationflags=creationflags,
     )
     if process.stdout is None:
         raise RuntimeError(_msg("spawn_failed", name=name))
@@ -349,18 +358,44 @@ def _terminate_process(process: subprocess.Popen[str], name: str) -> None:
     if process.poll() is not None:
         return
 
+    is_windows = platform.system().lower().startswith("win")
     _log("launcher", _msg("stopping_process", name=name))
-    if platform.system().lower().startswith("win"):
-        process.send_signal(signal.CTRL_BREAK_EVENT)
+    if is_windows:
+        try:
+            process.send_signal(signal.CTRL_BREAK_EVENT)
+        except Exception:
+            process.terminate()
     else:
-        process.terminate()
+        try:
+            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        except Exception:
+            process.terminate()
 
     try:
         process.wait(timeout=8)
     except subprocess.TimeoutExpired:
         _log("launcher", _msg("process_stop_timeout", name=name))
-        process.kill()
-        process.wait(timeout=3)
+        if is_windows:
+            process.kill()
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        else:
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                return
+            except Exception:
+                process.kill()
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            pass
 
 
 def run_launcher(host: str, backend_port: int, frontend_port: int, color_mode: str) -> int:
@@ -421,24 +456,53 @@ def run_launcher(host: str, backend_port: int, frontend_port: int, color_mode: s
     frontend_proc = _spawn_process(frontend_cmd, FRONTEND_DIR, env, "frontend")
 
     procs = [("backend", backend_proc), ("frontend", frontend_proc)]
+    stop_event = threading.Event()
+    cleanup_lock = threading.Lock()
+    signal_handlers: list[tuple[int, signal.Handlers]] = []
+
+    def _shutdown_all(log_message: str | None = None) -> None:
+        if stop_event.is_set():
+            return
+        with cleanup_lock:
+            if stop_event.is_set():
+                return
+            stop_event.set()
+            if log_message:
+                _log("launcher", log_message)
+            for proc_name, proc in procs:
+                _terminate_process(proc, proc_name)
+
+    def _handle_signal(signum: int, _frame: object) -> None:
+        signal_name = signal.Signals(signum).name
+        _shutdown_all(_msg("signal_received", signal=signal_name))
+
+    for sig_name in ("SIGINT", "SIGTERM", "SIGHUP"):
+        sig = getattr(signal, sig_name, None)
+        if sig is None:
+            continue
+        previous = signal.getsignal(sig)
+        signal.signal(sig, _handle_signal)
+        signal_handlers.append((sig, previous))
+
+    atexit.register(_shutdown_all)
 
     try:
-        while True:
+        while not stop_event.is_set():
             for name, proc in procs:
                 code = proc.poll()
                 if code is not None:
-                    _log("launcher", _msg("process_exited", name=name, code=code))
-                    for other_name, other_proc in procs:
-                        if other_proc is not proc:
-                            _terminate_process(other_proc, other_name)
+                    _shutdown_all(_msg("process_exited", name=name, code=code))
                     return code if code != 0 else 0
             time.sleep(0.3)
+        return 0
     except KeyboardInterrupt:
         print()
-        _log("launcher", _msg("interrupt_received"))
-        for name, proc in procs:
-            _terminate_process(proc, name)
+        _shutdown_all(_msg("interrupt_received"))
         return 0
+    finally:
+        for sig, previous in signal_handlers:
+            signal.signal(sig, previous)
+        atexit.unregister(_shutdown_all)
 
 
 def parse_args() -> argparse.Namespace:
