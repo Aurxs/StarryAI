@@ -47,3 +47,16 @@ Thumbs.db
 Plan.md
 description.md
 test.md
+
+# AI agent artifacts
+.codex/
+.claude/
+.cursor/
+.windsurf/
+.aider/
+.continue/
+.roo/
+.cody/
+.copilot/
+.gemini/
+.augment/
