@@ -74,6 +74,7 @@ export function RuntimeConsolePanel() {
     const clearEvents = useRuntimeConsoleStore((state) => state.clearEvents);
 
     const wsRef = useRef<WebSocket | null>(null);
+    const prevRunIdRef = useRef<string | null>(runId);
     const [isLoading, setIsLoading] = useState(false);
     const [wsConnected, setWsConnected] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -95,6 +96,12 @@ export function RuntimeConsolePanel() {
     }, [closeWs]);
 
     useEffect(() => {
+        const prevRunId = prevRunIdRef.current;
+        if (prevRunId === runId) {
+            return;
+        }
+
+        prevRunIdRef.current = runId;
         closeWs();
         clearEvents();
         setErrorMessage(null);

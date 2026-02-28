@@ -64,6 +64,34 @@ describe('RuntimeConsolePanel', () => {
         expect(screen.getByTestId('runtime-console-empty').textContent).toContain('No events yet');
     });
 
+    it('keeps preloaded events/cursor on initial mount for the same run', () => {
+        useRunStore.getState().attachRun('run_t7_preloaded');
+        useRuntimeConsoleStore.getState().appendEvents([
+            {
+                run_id: 'run_t7_preloaded',
+                event_id: 'evt_preloaded_1',
+                event_seq: 21,
+                event_type: 'node_finished',
+                severity: 'info',
+                component: 'node',
+                ts: 1_700_000_111,
+                node_id: 'n1',
+                edge_key: null,
+                error_code: null,
+                attempt: null,
+                message: null,
+                details: {},
+            },
+        ]);
+        useRuntimeConsoleStore.getState().setCursor(22);
+
+        render(<RuntimeConsolePanel/>);
+
+        expect(useRuntimeConsoleStore.getState().events).toHaveLength(1);
+        expect(useRuntimeConsoleStore.getState().lastCursor).toBe(22);
+        expect(screen.getByTestId('runtime-console-summary').textContent).toContain('events=1');
+    });
+
     it('loads events from REST endpoint and updates cursor', async () => {
         useRunStore.getState().attachRun('run_t7_rest');
         server.use(
