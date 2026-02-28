@@ -15,7 +15,7 @@ describe('GraphValidationPanel', () => {
 
     it('shows not-validated state by default', () => {
         render(<GraphValidationPanel/>);
-        expect(screen.getByTestId('validation-summary').textContent).toContain('Not validated yet');
+        expect(screen.getByTestId('validation-summary').textContent).toContain('还未校验');
     });
 
     it('stores valid result after successful validation request', async () => {
@@ -31,10 +31,10 @@ describe('GraphValidationPanel', () => {
         );
 
         render(<GraphValidationPanel/>);
-        fireEvent.click(screen.getByRole('button', {name: 'Validate Graph'}));
+        fireEvent.click(screen.getByRole('button', {name: '校验图'}));
 
         await waitFor(() => {
-            expect(screen.getByTestId('validation-summary').textContent).toContain('Result: valid');
+            expect(screen.getByTestId('validation-summary').textContent).toContain('结果: 通过');
         });
 
         expect(useGraphStore.getState().validationValid).toBe(true);
@@ -59,14 +59,14 @@ describe('GraphValidationPanel', () => {
         );
 
         render(<GraphValidationPanel/>);
-        fireEvent.click(screen.getByRole('button', {name: 'Validate Graph'}));
+        fireEvent.click(screen.getByRole('button', {name: '校验图'}));
 
         await waitFor(() => {
-            expect(screen.getByTestId('validation-summary').textContent).toContain('Result: invalid');
+            expect(screen.getByTestId('validation-summary').textContent).toContain('结果: 未通过');
         });
         expect(screen.getByText(/edge\.schema_mismatch/)).toBeTruthy();
 
-        fireEvent.click(screen.getByRole('button', {name: 'Clear'}));
+        fireEvent.click(screen.getByRole('button', {name: '清空'}));
         expect(useGraphStore.getState().validationCheckedAt).toBeNull();
         expect(useGraphStore.getState().validationIssues).toHaveLength(0);
     });
@@ -84,7 +84,7 @@ describe('GraphValidationPanel', () => {
         );
 
         render(<GraphValidationPanel/>);
-        fireEvent.click(screen.getByRole('button', {name: 'Validate Graph'}));
+        fireEvent.click(screen.getByRole('button', {name: '校验图'}));
 
         await waitFor(() => {
             expect(useRunStore.getState().status).toBe('failed');

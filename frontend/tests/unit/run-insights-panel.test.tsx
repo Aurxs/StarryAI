@@ -13,7 +13,7 @@ describe('RunInsightsPanel', () => {
 
     it('shows empty state when run is not started', () => {
         render(<RunInsightsPanel/>);
-        expect(screen.getByTestId('run-insights-empty').textContent).toContain('Start a run');
+        expect(screen.getByTestId('run-insights-empty').textContent).toContain('启动一次运行');
     });
 
     it('loads metrics and diagnostics for active run', async () => {
@@ -54,12 +54,12 @@ describe('RunInsightsPanel', () => {
         render(<RunInsightsPanel/>);
 
         await waitFor(() => {
-            expect(screen.getByTestId('run-insights-metrics').textContent).toContain('graph_metrics_keys: 1');
-            expect(screen.getByTestId('run-insights-diagnostics').textContent).toContain('failed_nodes: 1');
+            expect(screen.getByTestId('run-insights-metrics').textContent).toContain('图指标键数量: 1');
+            expect(screen.getByTestId('run-insights-diagnostics').textContent).toContain('失败节点数: 1');
         });
     });
 
-    it('refreshes insights when Refresh button is clicked', async () => {
+    it('refreshes insights when refresh button is clicked', async () => {
         useRunStore.getState().attachRun('run_t8_refresh', 'running');
         let metricsHits = 0;
         let diagnosticsHits = 0;
@@ -98,7 +98,7 @@ describe('RunInsightsPanel', () => {
         render(<RunInsightsPanel/>);
         await waitFor(() => expect(metricsHits).toBeGreaterThanOrEqual(1));
 
-        fireEvent.click(screen.getByRole('button', {name: 'Refresh'}));
+        fireEvent.click(screen.getByRole('button', {name: '刷新'}));
         await waitFor(() => expect(metricsHits).toBeGreaterThanOrEqual(2));
         expect(diagnosticsHits).toBeGreaterThanOrEqual(2);
     });
@@ -175,16 +175,16 @@ describe('RunInsightsPanel', () => {
 
         useRunStore.getState().attachRun('run_t8_new', 'running');
         await waitFor(() => {
-            expect(screen.getByTestId('run-insights-metrics').textContent).toContain('graph_metrics_keys: 2');
-            expect(screen.getByTestId('run-insights-diagnostics').textContent).toContain('failed_nodes: 2');
+            expect(screen.getByTestId('run-insights-metrics').textContent).toContain('图指标键数量: 2');
+            expect(screen.getByTestId('run-insights-diagnostics').textContent).toContain('失败节点数: 2');
         });
 
         releaseOldMetrics?.();
         releaseOldDiagnostics?.();
 
         await waitFor(() => {
-            expect(screen.getByTestId('run-insights-metrics').textContent).toContain('graph_metrics_keys: 2');
-            expect(screen.getByTestId('run-insights-diagnostics').textContent).toContain('failed_nodes: 2');
+            expect(screen.getByTestId('run-insights-metrics').textContent).toContain('图指标键数量: 2');
+            expect(screen.getByTestId('run-insights-diagnostics').textContent).toContain('失败节点数: 2');
         });
     });
 
@@ -212,7 +212,7 @@ describe('RunInsightsPanel', () => {
         render(<RunInsightsPanel/>);
 
         await waitFor(() => {
-            expect(screen.getByTestId('run-insights-error').textContent).toContain('load insights failed');
+            expect(screen.getByTestId('run-insights-error').textContent).toContain('加载运行洞察失败');
         });
     });
 });

@@ -61,20 +61,20 @@ describe('WorkbenchPage shell', () => {
         expect(screen.getByTestId('summary-node-count').textContent).toContain('1');
         expect(screen.getByTestId('summary-edge-count').textContent).toContain('1');
         expect(screen.getByTestId('selected-node').textContent).toContain('n1');
-        expect(screen.getByTestId('run-status').textContent).toContain('running');
+        expect(screen.getByTestId('run-status').textContent).toContain('运行中');
         expect(screen.getByTestId('run-id').textContent).toContain('run_t2');
-        expect(screen.getByTestId('runtime-console-summary').textContent).toContain('events=1');
+        expect(screen.getByTestId('runtime-console-summary').textContent).toContain('事件数=1');
     });
 
     it('switches panel tabs through UI interactions (edge path)', () => {
         render(<WorkbenchPage/>);
 
-        fireEvent.click(screen.getByRole('button', {name: 'Graph Outline'}));
-        fireEvent.click(screen.getByRole('button', {name: 'Run Inspector'}));
+        fireEvent.click(screen.getByRole('button', {name: '图结构'}));
+        fireEvent.click(screen.getByRole('button', {name: '运行洞察'}));
 
         expect(useUiStore.getState().leftPanel).toBe('graph-outline');
         expect(useUiStore.getState().rightPanel).toBe('run-inspector');
-        expect(screen.getByTestId('left-panel-value').textContent).toContain('graph-outline');
-        expect(screen.getByTestId('right-panel-value').textContent).toContain('run-inspector');
+        expect(screen.getByTestId('left-panel-value').textContent).toContain('图结构');
+        expect(screen.getByTestId('right-panel-value').textContent).toContain('运行洞察');
     });
 });

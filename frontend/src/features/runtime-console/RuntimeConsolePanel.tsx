@@ -134,7 +134,7 @@ export function RuntimeConsolePanel() {
             appendEvents(payload.items);
             setCursor(payload.next_cursor);
         } catch (error) {
-            setErrorMessage(`load events failed: ${String(error)}`);
+            setErrorMessage(`加载事件失败: ${String(error)}`);
         } finally {
             setIsLoading(false);
         }
@@ -159,7 +159,7 @@ export function RuntimeConsolePanel() {
             setWsConnected(true);
         };
         ws.onerror = () => {
-            setErrorMessage('ws connection error');
+            setErrorMessage('WS 连接失败');
         };
         ws.onclose = () => {
             setWsConnected(false);
@@ -174,16 +174,16 @@ export function RuntimeConsolePanel() {
                 appendEvents([payload]);
                 setCursor(payload.event_seq + 1);
             } catch {
-                setErrorMessage('ws message parse failed');
+                setErrorMessage('WS 消息解析失败');
             }
         };
     };
 
     return (
         <section style={panelStyle} data-testid="runtime-console-panel">
-            <h3 style={{marginTop: 0, marginBottom: 8}}>Runtime Events</h3>
+            <h3 style={{marginTop: 0, marginBottom: 8}}>运行事件</h3>
             <div style={{fontSize: 12, marginBottom: 8}} data-testid="runtime-console-summary">
-                run_id={runId ?? 'none'} | cursor={lastCursor} | ws={wsConnected ? 'connected' : 'idle'} | events=
+                运行 ID={runId ?? '无'} | 游标={lastCursor} | WS={wsConnected ? '已连接' : '空闲'} | 事件数=
                 {events.length}
             </div>
 
@@ -198,7 +198,7 @@ export function RuntimeConsolePanel() {
                     style={inputStyle}
                     aria-label="filter-event-type"
                 >
-                    <option value="">event_type:any</option>
+                    <option value="">事件类型: 全部</option>
                     {eventTypes.map((value) => (
                         <option key={value} value={value}>
                             {value}
@@ -215,7 +215,7 @@ export function RuntimeConsolePanel() {
                     style={inputStyle}
                     aria-label="filter-severity"
                 >
-                    <option value="">severity:any</option>
+                    <option value="">级别: 全部</option>
                     {severities.map((value) => (
                         <option key={value} value={value}>
                             {value}
@@ -226,14 +226,14 @@ export function RuntimeConsolePanel() {
                     value={filters.node_id ?? ''}
                     onChange={(event) => setFilters({node_id: event.target.value || undefined})}
                     style={inputStyle}
-                    placeholder="node_id"
+                    placeholder="节点 ID"
                     aria-label="filter-node-id"
                 />
                 <input
                     value={filters.error_code ?? ''}
                     onChange={(event) => setFilters({error_code: event.target.value || undefined})}
                     style={inputStyle}
-                    placeholder="error_code"
+                    placeholder="错误码"
                     aria-label="filter-error-code"
                 />
             </div>
@@ -247,7 +247,7 @@ export function RuntimeConsolePanel() {
                     }}
                     disabled={!runId || isLoading}
                 >
-                    {isLoading ? 'Loading...' : 'Load Events'}
+                    {isLoading ? '加载中...' : '加载事件'}
                 </button>
                 <button
                     type="button"
@@ -255,7 +255,7 @@ export function RuntimeConsolePanel() {
                     onClick={subscribeWs}
                     disabled={!runId || wsConnected}
                 >
-                    Subscribe WS
+                    订阅 WS
                 </button>
                 <button
                     type="button"
@@ -263,7 +263,7 @@ export function RuntimeConsolePanel() {
                     onClick={closeWs}
                     disabled={!wsConnected}
                 >
-                    Unsubscribe WS
+                    取消订阅 WS
                 </button>
                 <button
                     type="button"
@@ -271,7 +271,7 @@ export function RuntimeConsolePanel() {
                     onClick={() => clearEvents()}
                     disabled={events.length === 0}
                 >
-                    Clear Events
+                    清空事件
                 </button>
             </div>
 
@@ -293,7 +293,7 @@ export function RuntimeConsolePanel() {
             >
                 {latestEvents.length === 0 ? (
                     <div data-testid="runtime-console-empty" style={{opacity: 0.72}}>
-                        No events yet.
+                        暂无事件。
                     </div>
                 ) : (
                     latestEvents.map((event) => (

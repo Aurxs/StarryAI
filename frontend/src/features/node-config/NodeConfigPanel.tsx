@@ -81,9 +81,9 @@ export function NodeConfigPanel() {
     if (!selectedNode) {
         return (
             <section style={panelStyle} data-testid="node-config-empty">
-                <h3 style={{marginTop: 0}}>Node Config</h3>
+                <h3 style={{marginTop: 0}}>节点配置</h3>
                 <p style={{fontSize: 13, opacity: 0.82, marginBottom: 0}}>
-                    Select a node on canvas to edit its title and config.
+                    请先在画布上选择一个节点，再编辑标题和配置。
                 </p>
             </section>
         );
@@ -95,13 +95,13 @@ export function NodeConfigPanel() {
         try {
             const rawParsed = JSON.parse(configDraft) as unknown;
             if (!rawParsed || typeof rawParsed !== 'object' || Array.isArray(rawParsed)) {
-                setErrorMessage('Config must be a JSON object.');
+                setErrorMessage('配置必须是 JSON 对象。');
                 setSuccessMessage(null);
                 return;
             }
             parsedConfig = rawParsed as Record<string, unknown>;
         } catch {
-            setErrorMessage('Config JSON is invalid.');
+            setErrorMessage('配置 JSON 格式无效。');
             setSuccessMessage(null);
             return;
         }
@@ -111,7 +111,7 @@ export function NodeConfigPanel() {
             config: parsedConfig,
         });
         setErrorMessage(null);
-        setSuccessMessage('Config saved.');
+        setSuccessMessage('配置已保存。');
     };
 
     const onReset = (): void => {
@@ -123,14 +123,14 @@ export function NodeConfigPanel() {
 
     return (
         <section style={panelStyle} data-testid="node-config-panel">
-            <h3 style={{marginTop: 0, marginBottom: 6}}>Node Config</h3>
+            <h3 style={{marginTop: 0, marginBottom: 6}}>节点配置</h3>
             <div style={{fontSize: 12, opacity: 0.78, marginBottom: 8}}>
-                <div>node_id: {selectedNode.node_id}</div>
-                <div>type_name: {selectedNode.type_name}</div>
+                <div>节点 ID: {selectedNode.node_id}</div>
+                <div>类型名: {selectedNode.type_name}</div>
             </div>
 
             <label style={{fontSize: 12}}>
-                Title
+                标题
                 <input
                     value={titleDraft}
                     onChange={(event) => {
@@ -143,7 +143,7 @@ export function NodeConfigPanel() {
             </label>
 
             <label style={{display: 'block', fontSize: 12, marginTop: 10}}>
-                Config JSON
+                配置 JSON
                 <textarea
                     value={configDraft}
                     onChange={(event) => {
@@ -157,10 +157,10 @@ export function NodeConfigPanel() {
 
             <div style={{marginTop: 10}}>
                 <button type="button" style={buttonStyle} onClick={onSave}>
-                    Save
+                    保存
                 </button>
                 <button type="button" style={buttonStyle} onClick={onReset}>
-                    Reset
+                    重置
                 </button>
             </div>
 

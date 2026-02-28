@@ -9,9 +9,9 @@ describe('App shell baseline', () => {
 
         const heading = screen.getByRole('heading', {
             level: 1,
-            name: 'StarryAI Workbench',
+            name: 'StarryAI 工作台',
         });
-        const phaseText = screen.getByText('Phase E / T2 baseline shell');
+        const phaseText = screen.getByText('Phase E / T2 基线框架');
 
         expect(heading).toBeTruthy();
         expect(phaseText).toBeTruthy();
@@ -20,7 +20,7 @@ describe('App shell baseline', () => {
     it('shows runtime console section', () => {
         render(<App/>);
 
-        const runtimeConsole = screen.getByRole('heading', {level: 2, name: 'Runtime Console'});
+        const runtimeConsole = screen.getByRole('heading', {level: 2, name: '运行控制台'});
         expect(runtimeConsole).toBeTruthy();
     });
 });

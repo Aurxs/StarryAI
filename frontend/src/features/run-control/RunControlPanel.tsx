@@ -54,6 +54,25 @@ const mapBackendStatus = (status: string): RunUiStatus => {
     }
 };
 
+const toRunStatusLabel = (status: RunUiStatus): string => {
+    switch (status) {
+        case 'idle':
+            return '空闲';
+        case 'validating':
+            return '校验中';
+        case 'running':
+            return '运行中';
+        case 'stopped':
+            return '已停止';
+        case 'completed':
+            return '已完成';
+        case 'failed':
+            return '失败';
+        default:
+            return status;
+    }
+};
+
 export function RunControlPanel() {
     const graph = useGraphStore((state) => state.graph);
     const runId = useRunStore((state) => state.runId);
@@ -90,7 +109,7 @@ export function RunControlPanel() {
                 }
                 const message = error instanceof ApiClientError ? error.message : String(error);
                 setStatus('failed');
-                setError(`run status polling failed: ${message}`);
+                setError(`运行状态轮询失败: ${message}`);
             }
         };
 
@@ -117,7 +136,7 @@ export function RunControlPanel() {
         } catch (error) {
             const message = error instanceof ApiClientError ? error.message : String(error);
             setStatus('failed');
-            setError(`run create failed: ${message}`);
+            setError(`启动运行失败: ${message}`);
         } finally {
             setRequestBusy(false);
         }
@@ -134,7 +153,7 @@ export function RunControlPanel() {
         } catch (error) {
             const message = error instanceof ApiClientError ? error.message : String(error);
             setStatus('failed');
-            setError(`run stop failed: ${message}`);
+            setError(`停止运行失败: ${message}`);
         } finally {
             setRequestBusy(false);
         }
@@ -142,7 +161,7 @@ export function RunControlPanel() {
 
     return (
         <section style={panelStyle} data-testid="run-control-panel">
-            <h3 style={{marginTop: 0, marginBottom: 8}}>Run Control</h3>
+            <h3 style={{marginTop: 0, marginBottom: 8}}>运行控制</h3>
             <div style={{marginBottom: 8}}>
                 <input
                     value={streamId}
@@ -158,7 +177,7 @@ export function RunControlPanel() {
                     }}
                     disabled={requestBusy}
                 >
-                    Start Run
+                    启动运行
                 </button>
                 <button
                     type="button"
@@ -168,7 +187,7 @@ export function RunControlPanel() {
                     }}
                     disabled={!runId || requestBusy}
                 >
-                    Stop Run
+                    停止运行
                 </button>
                 <button
                     type="button"
@@ -176,13 +195,13 @@ export function RunControlPanel() {
                     onClick={() => clearRun()}
                     disabled={requestBusy}
                 >
-                    Reset Run
+                    重置运行
                 </button>
             </div>
 
             <div style={{fontSize: 12}} data-testid="run-control-summary">
-                run_id={runId ?? 'none'} | status={status}
-                {isBusy ? ' | busy' : ''}
+                运行 ID={runId ?? '无'} | 状态={toRunStatusLabel(status)}
+                {isBusy ? ' | 处理中' : ''}
             </div>
             {lastError && (
                 <p style={{color: '#9f1239', fontSize: 12, marginBottom: 0}} data-testid="run-control-error">

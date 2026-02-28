@@ -41,11 +41,11 @@ describe('RunControlPanel', () => {
         );
 
         render(<RunControlPanel/>);
-        fireEvent.click(screen.getByRole('button', {name: 'Start Run'}));
+        fireEvent.click(screen.getByRole('button', {name: '启动运行'}));
 
         await waitFor(() => {
             expect(screen.getByTestId('run-control-summary').textContent).toContain('run_t6_start');
-            expect(screen.getByTestId('run-control-summary').textContent).toContain('status=running');
+            expect(screen.getByTestId('run-control-summary').textContent).toContain('状态=运行中');
         });
     });
 
@@ -83,12 +83,12 @@ describe('RunControlPanel', () => {
         );
 
         render(<RunControlPanel/>);
-        fireEvent.click(screen.getByRole('button', {name: 'Start Run'}));
+        fireEvent.click(screen.getByRole('button', {name: '启动运行'}));
         await waitFor(() => expect(useRunStore.getState().runId).toBe('run_t6_stop'));
 
-        fireEvent.click(screen.getByRole('button', {name: 'Stop Run'}));
+        fireEvent.click(screen.getByRole('button', {name: '停止运行'}));
         await waitFor(() => {
-            expect(screen.getByTestId('run-control-summary').textContent).toContain('status=stopped');
+            expect(screen.getByTestId('run-control-summary').textContent).toContain('状态=已停止');
         });
     });
 
@@ -109,10 +109,10 @@ describe('RunControlPanel', () => {
         );
 
         render(<RunControlPanel/>);
-        fireEvent.click(screen.getByRole('button', {name: 'Start Run'}));
+        fireEvent.click(screen.getByRole('button', {name: '启动运行'}));
 
         await waitFor(() => {
-            expect(screen.getByTestId('run-control-error').textContent).toContain('run create failed');
+            expect(screen.getByTestId('run-control-error').textContent).toContain('启动运行失败');
             expect(useRunStore.getState().status).toBe('failed');
         });
     });
@@ -147,7 +147,7 @@ describe('RunControlPanel', () => {
         );
 
         render(<RunControlPanel/>);
-        fireEvent.click(screen.getByRole('button', {name: 'Start Run'}));
+        fireEvent.click(screen.getByRole('button', {name: '启动运行'}));
 
         await waitFor(
             () => {

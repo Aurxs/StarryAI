@@ -230,28 +230,28 @@ test('completes validate-run-events-insights flow with mocked backend', async ({
     await page.goto('/');
 
     // Build a minimal graph by adding nodes from palette.
-    await page.locator('[data-testid="graph-editor-shell"]').getByRole('button', {name: 'Add'}).first().click();
-    await page.locator('[data-testid="graph-editor-shell"]').getByRole('button', {name: 'Add'}).nth(1).click();
+    await page.locator('[data-testid="graph-editor-shell"]').getByRole('button', {name: '添加'}).first().click();
+    await page.locator('[data-testid="graph-editor-shell"]').getByRole('button', {name: '添加'}).nth(1).click();
     await expect(page.getByTestId('summary-node-count')).toContainText('2');
 
     // Validate graph.
-    await page.getByRole('button', {name: 'Validate Graph'}).click();
-    await expect(page.getByTestId('validation-summary')).toContainText('Result: valid');
+    await page.getByRole('button', {name: '校验图'}).click();
+    await expect(page.getByTestId('validation-summary')).toContainText('结果: 通过');
 
     // Start run and wait for completion through status polling.
     await page.getByLabel('stream-id-input').fill('stream_e2e');
-    await page.getByRole('button', {name: 'Start Run'}).click();
+    await page.getByRole('button', {name: '启动运行'}).click();
     await expect(page.getByTestId('run-control-summary')).toContainText('run_e2e_flow');
-    await expect(page.getByTestId('run-control-summary')).toContainText('status=completed');
+    await expect(page.getByTestId('run-control-summary')).toContainText('状态=已完成');
 
     // Apply filters and load events.
     await page.getByLabel('filter-event-type').selectOption('node_finished');
     await page.getByLabel('filter-severity').selectOption('info');
     await page.getByLabel('filter-node-id').fill('n1');
     await page.getByLabel('filter-error-code').fill('node.execution_failed');
-    await page.getByRole('button', {name: 'Load Events'}).click();
+    await page.getByRole('button', {name: '加载事件'}).click();
 
-    await expect(page.getByTestId('runtime-console-summary')).toContainText('events=2');
+    await expect(page.getByTestId('runtime-console-summary')).toContainText('事件数=2');
     await expect(page.getByTestId('runtime-console-panel')).toContainText('node_finished @n1');
     expect(capturedEventsQuery).toContain('event_type=node_finished');
     expect(capturedEventsQuery).toContain('severity=info');
@@ -259,9 +259,9 @@ test('completes validate-run-events-insights flow with mocked backend', async ({
     expect(capturedEventsQuery).toContain('error_code=node.execution_failed');
 
     // Open run insights panel and verify metrics/diagnostics are rendered.
-    await page.getByRole('button', {name: 'Run Inspector'}).click();
-    await expect(page.getByTestId('run-insights-metrics')).toContainText('graph_metrics_keys: 2');
-    await expect(page.getByTestId('run-insights-diagnostics')).toContainText('slow_nodes_top: 1');
+    await page.getByRole('button', {name: '运行洞察'}).click();
+    await expect(page.getByTestId('run-insights-metrics')).toContainText('图指标键数量: 2');
+    await expect(page.getByTestId('run-insights-diagnostics')).toContainText('慢节点 Top 数: 1');
 });
 
 test('shows validation and run errors when backend returns failure responses', async ({page}) => {
@@ -356,14 +356,14 @@ test('shows validation and run errors when backend returns failure responses', a
 
     await page.goto('/');
 
-    await page.locator('[data-testid="graph-editor-shell"]').getByRole('button', {name: 'Add'}).first().click();
-    await page.locator('[data-testid="graph-editor-shell"]').getByRole('button', {name: 'Add'}).nth(1).click();
+    await page.locator('[data-testid="graph-editor-shell"]').getByRole('button', {name: '添加'}).first().click();
+    await page.locator('[data-testid="graph-editor-shell"]').getByRole('button', {name: '添加'}).nth(1).click();
 
-    await page.getByRole('button', {name: 'Validate Graph'}).click();
-    await expect(page.getByTestId('validation-summary')).toContainText('Result: invalid');
+    await page.getByRole('button', {name: '校验图'}).click();
+    await expect(page.getByTestId('validation-summary')).toContainText('结果: 未通过');
     await expect(page.getByTestId('graph-validation-panel')).toContainText('edge.schema_mismatch');
 
-    await page.getByRole('button', {name: 'Start Run'}).click();
-    await expect(page.getByTestId('run-control-error')).toContainText('run create failed');
-    await expect(page.getByTestId('run-control-summary')).toContainText('status=failed');
+    await page.getByRole('button', {name: '启动运行'}).click();
+    await expect(page.getByTestId('run-control-error')).toContainText('启动运行失败');
+    await expect(page.getByTestId('run-control-summary')).toContainText('状态=失败');
 });

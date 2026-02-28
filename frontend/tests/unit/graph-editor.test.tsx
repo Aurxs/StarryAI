@@ -15,16 +15,16 @@ describe('GraphEditor', () => {
         render(<GraphEditor/>);
 
         await waitFor(() => {
-            expect(screen.getByTestId('graph-editor-status').textContent).toContain('Catalog');
+            expect(screen.getByTestId('graph-editor-status').textContent).toContain('节点目录');
         });
 
-        const addButtons = screen.getAllByRole('button', {name: 'Add'});
+        const addButtons = screen.getAllByRole('button', {name: '添加'});
         fireEvent.click(addButtons[0]!);
         fireEvent.click(addButtons[1]!);
 
         const graph = useGraphStore.getState().graph;
         expect(graph.nodes).toHaveLength(2);
-        expect(screen.getByTestId('graph-editor-meta').textContent).toContain('nodes=2');
+        expect(screen.getByTestId('graph-editor-meta').textContent).toContain('节点=2');
     });
 
     it('falls back to built-in catalog when node-types API fails (edge path)', async () => {
@@ -42,10 +42,10 @@ describe('GraphEditor', () => {
         render(<GraphEditor/>);
 
         await waitFor(() => {
-            expect(screen.getByTestId('graph-editor-status').textContent).toContain('Catalog fallback active');
+            expect(screen.getByTestId('graph-editor-status').textContent).toContain('节点目录回退模式');
         });
 
-        const addButtons = screen.getAllByRole('button', {name: 'Add'});
+        const addButtons = screen.getAllByRole('button', {name: '添加'});
         fireEvent.click(addButtons[0]!);
         expect(useGraphStore.getState().graph.nodes).toHaveLength(1);
     });
@@ -54,15 +54,15 @@ describe('GraphEditor', () => {
         render(<GraphEditor/>);
 
         await waitFor(() => {
-            expect(screen.getByTestId('graph-editor-status').textContent).toContain('Catalog');
+            expect(screen.getByTestId('graph-editor-status').textContent).toContain('节点目录');
         });
 
-        const addButtons = screen.getAllByRole('button', {name: 'Add'});
+        const addButtons = screen.getAllByRole('button', {name: '添加'});
         fireEvent.click(addButtons[0]!);
         fireEvent.click(addButtons[1]!);
         expect(useGraphStore.getState().graph.nodes).toHaveLength(2);
 
-        fireEvent.click(screen.getByTitle('Delete n1'));
+        fireEvent.click(screen.getByTitle('删除 n1'));
         expect(useGraphStore.getState().graph.nodes).toHaveLength(1);
         expect(useGraphStore.getState().graph.nodes[0]?.node_id).toBe('n2');
     });

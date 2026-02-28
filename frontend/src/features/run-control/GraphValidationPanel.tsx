@@ -49,11 +49,11 @@ export function GraphValidationPanel() {
             setValidationResult(report.valid, report.issues);
             setStatus('idle');
             if (!report.valid) {
-                setError(`graph validation failed with ${report.issues.length} issue(s)`);
+                setError(`图校验失败，共 ${report.issues.length} 个问题`);
             }
         } catch (error) {
             const message = error instanceof ApiClientError ? error.message : String(error);
-            setError(`graph validation request failed: ${message}`);
+            setError(`图校验请求失败: ${message}`);
             setValidationResult(false, [
                 {
                     level: 'error',
@@ -69,7 +69,7 @@ export function GraphValidationPanel() {
 
     return (
         <section style={panelStyle} data-testid="graph-validation-panel">
-            <h3 style={{marginTop: 0, marginBottom: 8}}>Graph Validation</h3>
+            <h3 style={{marginTop: 0, marginBottom: 8}}>图校验</h3>
             <div style={{marginBottom: 8}}>
                 <button
                     type="button"
@@ -79,7 +79,7 @@ export function GraphValidationPanel() {
                     }}
                     disabled={isValidating}
                 >
-                    {isValidating ? 'Validating...' : 'Validate Graph'}
+                    {isValidating ? '校验中...' : '校验图'}
                 </button>
                 <button
                     type="button"
@@ -87,21 +87,21 @@ export function GraphValidationPanel() {
                     onClick={() => clearValidation()}
                     disabled={isValidating || validationCheckedAt === null}
                 >
-                    Clear
+                    清空
                 </button>
             </div>
 
             {validationCheckedAt === null ? (
                 <p style={{fontSize: 12, opacity: 0.8, margin: 0}} data-testid="validation-summary">
-                    Not validated yet.
+                    还未校验。
                 </p>
             ) : (
                 <div data-testid="validation-summary">
                     <p style={{fontSize: 12, marginTop: 0, marginBottom: 4}}>
-                        Result: {validationValid ? 'valid' : 'invalid'} | issues: {validationIssues.length}
+                        结果: {validationValid ? '通过' : '未通过'} | 问题数: {validationIssues.length}
                     </p>
                     <p style={{fontSize: 12, marginTop: 0, opacity: 0.75}}>
-                        checked_at: {new Date(validationCheckedAt).toLocaleTimeString()}
+                        校验时间: {new Date(validationCheckedAt).toLocaleTimeString()}
                     </p>
                 </div>
             )}

@@ -13,7 +13,7 @@ describe('NodeConfigPanel', () => {
         render(<NodeConfigPanel/>);
 
         expect(screen.getByTestId('node-config-empty').textContent).toContain(
-            'Select a node on canvas to edit',
+            '请先在画布上选择一个节点',
         );
     });
 
@@ -36,7 +36,7 @@ describe('NodeConfigPanel', () => {
         fireEvent.change(screen.getByTestId('node-config-json-input'), {
             target: {value: '{\n  "content": "world"\n}'},
         });
-        fireEvent.click(screen.getByRole('button', {name: 'Save'}));
+        fireEvent.click(screen.getByRole('button', {name: '保存'}));
 
         const state = useGraphStore.getState();
         const node = state.graph.nodes.find((item) => item.node_id === 'n1');
@@ -61,9 +61,9 @@ describe('NodeConfigPanel', () => {
         fireEvent.change(screen.getByTestId('node-config-json-input'), {
             target: {value: '{invalid'},
         });
-        fireEvent.click(screen.getByRole('button', {name: 'Save'}));
+        fireEvent.click(screen.getByRole('button', {name: '保存'}));
 
-        expect(screen.getByTestId('node-config-error').textContent).toContain('Config JSON is invalid');
+        expect(screen.getByTestId('node-config-error').textContent).toContain('配置 JSON 格式无效');
         const node = useGraphStore
             .getState()
             .graph.nodes.find((item) => item.node_id === 'n2');

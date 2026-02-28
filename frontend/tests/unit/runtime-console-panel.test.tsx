@@ -55,13 +55,13 @@ describe('RuntimeConsolePanel', () => {
     it('keeps controls disabled when no run is active', () => {
         render(<RuntimeConsolePanel/>);
 
-        expect((screen.getByRole('button', {name: 'Load Events'}) as HTMLButtonElement).disabled).toBe(
+        expect((screen.getByRole('button', {name: '加载事件'}) as HTMLButtonElement).disabled).toBe(
             true,
         );
         expect(
-            (screen.getByRole('button', {name: 'Subscribe WS'}) as HTMLButtonElement).disabled,
+            (screen.getByRole('button', {name: '订阅 WS'}) as HTMLButtonElement).disabled,
         ).toBe(true);
-        expect(screen.getByTestId('runtime-console-empty').textContent).toContain('No events yet');
+        expect(screen.getByTestId('runtime-console-empty').textContent).toContain('暂无事件');
     });
 
     it('keeps preloaded events/cursor on initial mount for the same run', () => {
@@ -89,7 +89,7 @@ describe('RuntimeConsolePanel', () => {
 
         expect(useRuntimeConsoleStore.getState().events).toHaveLength(1);
         expect(useRuntimeConsoleStore.getState().lastCursor).toBe(22);
-        expect(screen.getByTestId('runtime-console-summary').textContent).toContain('events=1');
+        expect(screen.getByTestId('runtime-console-summary').textContent).toContain('事件数=1');
     });
 
     it('loads events from REST endpoint and updates cursor', async () => {
@@ -122,7 +122,7 @@ describe('RuntimeConsolePanel', () => {
         );
 
         render(<RuntimeConsolePanel/>);
-        fireEvent.click(screen.getByRole('button', {name: 'Load Events'}));
+        fireEvent.click(screen.getByRole('button', {name: '加载事件'}));
 
         await waitFor(() => {
             expect(useRuntimeConsoleStore.getState().events).toHaveLength(1);
@@ -172,7 +172,7 @@ describe('RuntimeConsolePanel', () => {
             expect(useRuntimeConsoleStore.getState().lastCursor).toBe(0);
         });
 
-        fireEvent.click(screen.getByRole('button', {name: 'Load Events'}));
+        fireEvent.click(screen.getByRole('button', {name: '加载事件'}));
         await waitFor(() => {
             expect(requestedSince).toBe('0');
         });
@@ -206,7 +206,7 @@ describe('RuntimeConsolePanel', () => {
         useRunStore.getState().attachRun('run_t7_ws');
         render(<RuntimeConsolePanel/>);
 
-        fireEvent.click(screen.getByRole('button', {name: 'Subscribe WS'}));
+        fireEvent.click(screen.getByRole('button', {name: '订阅 WS'}));
         const ws = FakeWebSocket.instances[0];
         expect(ws).toBeTruthy();
         ws?.emitOpen();
@@ -232,7 +232,7 @@ describe('RuntimeConsolePanel', () => {
         await waitFor(() => {
             expect(useRuntimeConsoleStore.getState().events).toHaveLength(1);
             expect(screen.getByTestId('runtime-console-error').textContent).toContain(
-                'ws message parse failed',
+                'WS 消息解析失败',
             );
         });
     });

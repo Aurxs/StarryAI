@@ -67,7 +67,7 @@ export function RunInsightsPanel() {
                 return;
             }
             const message = error instanceof ApiClientError ? error.message : String(error);
-            setErrorMessage(`load insights failed: ${message}`);
+            setErrorMessage(`加载运行洞察失败: ${message}`);
         } finally {
             if (isActiveRequest()) {
                 setLoading(false);
@@ -82,9 +82,9 @@ export function RunInsightsPanel() {
     if (!runId) {
         return (
             <section style={panelStyle} data-testid="run-insights-empty">
-                <h3 style={{marginTop: 0}}>Run Insights</h3>
+                <h3 style={{marginTop: 0}}>运行洞察</h3>
                 <p style={{marginBottom: 0, fontSize: 13, opacity: 0.82}}>
-                    Start a run to view metrics and diagnostics.
+                    启动一次运行后即可查看指标与诊断信息。
                 </p>
             </section>
         );
@@ -93,9 +93,9 @@ export function RunInsightsPanel() {
     return (
         <section style={panelStyle} data-testid="run-insights-panel">
             <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8}}>
-                <h3 style={{margin: 0}}>Run Insights</h3>
+                <h3 style={{margin: 0}}>运行洞察</h3>
                 <button type="button" style={buttonStyle} onClick={() => void loadInsights()} disabled={loading}>
-                    {loading ? 'Refreshing...' : 'Refresh'}
+                    {loading ? '刷新中...' : '刷新'}
                 </button>
             </div>
 
@@ -107,18 +107,18 @@ export function RunInsightsPanel() {
 
             {!errorMessage && metrics && (
                 <div style={{fontSize: 12, marginTop: 8}} data-testid="run-insights-metrics">
-                    <div>status: {metrics.status}</div>
-                    <div>graph_metrics_keys: {Object.keys(metrics.graph_metrics).length}</div>
-                    <div>node_metrics_count: {Object.keys(metrics.node_metrics).length}</div>
-                    <div>edge_metrics_count: {metrics.edge_metrics.length}</div>
+                    <div>状态: {metrics.status}</div>
+                    <div>图指标键数量: {Object.keys(metrics.graph_metrics).length}</div>
+                    <div>节点指标数量: {Object.keys(metrics.node_metrics).length}</div>
+                    <div>边指标数量: {metrics.edge_metrics.length}</div>
                 </div>
             )}
 
             {!errorMessage && diagnostics && (
                 <div style={{fontSize: 12, marginTop: 8}} data-testid="run-insights-diagnostics">
-                    <div>failed_nodes: {diagnostics.failed_nodes.length}</div>
-                    <div>slow_nodes_top: {diagnostics.slow_nodes_top.length}</div>
-                    <div>edge_hotspots_top: {diagnostics.edge_hotspots_top.length}</div>
+                    <div>失败节点数: {diagnostics.failed_nodes.length}</div>
+                    <div>慢节点 Top 数: {diagnostics.slow_nodes_top.length}</div>
+                    <div>热点边 Top 数: {diagnostics.edge_hotspots_top.length}</div>
                 </div>
             )}
         </section>
