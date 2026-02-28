@@ -12,12 +12,14 @@
 from __future__ import annotations
 
 import argparse
+import functools
 import importlib.util
 import locale
 import os
 import platform
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -84,6 +86,22 @@ MESSAGES = {
         "zh": "收到中断信号，正在停止所有进程...",
         "en": "Interrupt received, stopping all processes...",
     },
+    "backend_url": {
+        "zh": "后端:  http://{host}:{port}",
+        "en": "Backend:  http://{host}:{port}",
+    },
+    "frontend_url": {
+        "zh": "前端: http://{host}:{port}",
+        "en": "Frontend: http://{host}:{port}",
+    },
+    "port_busy_switching": {
+        "zh": "{name} 端口 {old_port} 已被占用，自动切换到 {new_port}。",
+        "en": "{name} port {old_port} is in use, switching to {new_port}.",
+    },
+    "port_unavailable": {
+        "zh": "无法为 {name} 找到可用端口（起始端口 {start_port}，尝试 {tries} 次）。",
+        "en": "Unable to find an available port for {name} (start {start_port}, tried {tries} ports).",
+    },
     "arg_desc": {
         "zh": "一键启动 StarryAI 前后端开发环境。",
         "en": "One-command launcher for StarryAI backend and frontend dev environment.",
@@ -113,14 +131,63 @@ def _msg(key: str, **kwargs: object) -> str:
     return template.format(**kwargs)
 
 
+def _read_macos_lang() -> str:
+    if platform.system() != "Darwin":
+        return ""
+
+    try:
+        result = subprocess.run(
+            ["defaults", "read", "-g", "AppleLanguages"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            # 输出通常形如：
+            # (
+            #     "zh-Hans-CN",
+            #     "en-US"
+            # )
+            for raw_line in result.stdout.splitlines():
+                line = raw_line.strip().strip(",")
+                if not line or line in {"(", ")"}:
+                    continue
+                return line.strip('"').strip("'")
+    except Exception:
+        pass
+
+    try:
+        result = subprocess.run(
+            ["defaults", "read", "-g", "AppleLocale"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+
+    return ""
+
+
+def _is_zh_lang_code(lang: str) -> bool:
+    return lang.strip().lower().replace("_", "-").startswith("zh")
+
+
+@functools.lru_cache(maxsize=1)
 def _is_chinese_system_language() -> bool:
     """根据系统语言判断是否应显示中文。"""
+    macos_lang = _read_macos_lang()
+    if macos_lang:
+        return _is_zh_lang_code(macos_lang)
+
     env_langs = (
-        os.getenv("LC_ALL", "").strip(),
-        os.getenv("LC_MESSAGES", "").strip(),
-        os.getenv("LANG", "").strip(),
+        os.getenv("LC_ALL", ""),
+        os.getenv("LC_MESSAGES", ""),
+        os.getenv("LANG", ""),
     )
-    if any(lang.lower().startswith("zh") for lang in env_langs if lang):
+    if any(_is_zh_lang_code(lang) for lang in env_langs if lang):
         return True
 
     locale_langs: list[str] = []
@@ -129,7 +196,32 @@ def _is_chinese_system_language() -> bool:
     except Exception:
         pass
 
-    return any(lang.lower().startswith("zh") for lang in locale_langs if lang)
+    return any(_is_zh_lang_code(lang) for lang in locale_langs if lang)
+
+
+def _is_port_available(host: str, port: int) -> bool:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind((host, port))
+            return True
+    except OSError:
+        return False
+
+
+def _pick_available_port(name: str, host: str, start_port: int, tries: int = 50) -> int:
+    for offset in range(tries):
+        candidate = start_port + offset
+        if _is_port_available(host, candidate):
+            if candidate != start_port:
+                _log(
+                    "launcher",
+                    _msg("port_busy_switching", name=name, old_port=start_port, new_port=candidate),
+                )
+            return candidate
+
+    raise RuntimeError(
+        _msg("port_unavailable", name=name, start_port=start_port, tries=tries)
+    )
 
 
 def _resolve_use_color(color_mode: str) -> bool:
@@ -280,6 +372,8 @@ def run_launcher(host: str, backend_port: int, frontend_port: int, color_mode: s
     _check_required_commands()
     _ensure_python_deps(REPO_ROOT)
     _ensure_frontend_deps(FRONTEND_DIR)
+    backend_port = _pick_available_port("backend", host, backend_port)
+    frontend_port = _pick_available_port("frontend", host, frontend_port)
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
@@ -319,8 +413,8 @@ def run_launcher(host: str, backend_port: int, frontend_port: int, color_mode: s
         str(frontend_port),
     ]
 
-    _log("launcher", f"Backend:  http://{host}:{backend_port}")
-    _log("launcher", f"Frontend: http://{host}:{frontend_port}")
+    _log("launcher", _msg("backend_url", host=host, port=backend_port))
+    _log("launcher", _msg("frontend_url", host=host, port=frontend_port))
     _log("launcher", _msg("press_ctrl_c"))
 
     backend_proc = _spawn_process(backend_cmd, REPO_ROOT, env, "backend")
