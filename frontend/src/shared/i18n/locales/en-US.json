@@ -1,0 +1,178 @@
+{
+  "app": {
+    "title": "StarryAI Workbench",
+    "subtitle": "Phase E / T2 Baseline Framework"
+  },
+  "language": {
+    "label": "Language",
+    "zh-CN": "Simplified Chinese",
+    "en-US": "English"
+  },
+  "common": {
+    "none": "N/A",
+    "collapse": "Collapse"
+  },
+  "workbench": {
+    "showLeft": "Show Left Panel",
+    "showRight": "Show Right Panel",
+    "showConsole": "Show Console",
+    "leftPanelTitle": "Workbench",
+    "rightPanelTitle": "Inspector",
+    "bottomPanelTitle": "Runtime Console",
+    "panel": {
+      "nodeLibrary": "Node Library",
+      "graphOutline": "Graph Outline",
+      "nodeConfig": "Node Config",
+      "runInspector": "Run Insights",
+      "current": "Current: {{label}}"
+    },
+    "summary": {
+      "graphId": "Graph ID",
+      "nodeCount": "Node Count",
+      "edgeCount": "Edge Count",
+      "selectedNode": "Selected Node: {{nodeId}}",
+      "runStatus": "Run Status: {{status}}{{busySuffix}}",
+      "runId": "Run ID: {{runId}}"
+    },
+    "busySuffix": " (processing)"
+  },
+  "run": {
+    "status": {
+      "idle": "Idle",
+      "validating": "Validating",
+      "running": "Running",
+      "stopped": "Stopped",
+      "completed": "Completed",
+      "failed": "Failed"
+    }
+  },
+  "graphEditor": {
+    "fallbackNodeTypeDescription": "Fallback node type",
+    "deleteNode": "Delete {{nodeId}}",
+    "toolbar": {
+      "title": "Node Palette",
+      "add": "Add",
+      "meta": "Nodes={{nodeCount}}, Edges={{edgeCount}}"
+    },
+    "status": {
+      "loadingCatalog": "Loading node catalog...",
+      "fallbackCatalog": "Fallback catalog mode: {{error}}",
+      "catalogReady": "Catalog ready ({{count}} types)"
+    },
+    "errors": {
+      "catalogUnavailable": "Node types unavailable: {{message}}",
+      "unknownNodeType": "Unknown node type: {{typeName}}",
+      "invalidConnection": "Invalid connection: missing source/target handle",
+      "targetPortDuplicate": "Target handle does not allow duplicate binding"
+    }
+  },
+  "nodeConfig": {
+    "title": "Node Config",
+    "emptyPrompt": "Select a node on the canvas before editing title and config.",
+    "meta": {
+      "nodeId": "Node ID: {{nodeId}}",
+      "typeName": "Type: {{typeName}}"
+    },
+    "fields": {
+      "title": "Title",
+      "configJson": "Config JSON"
+    },
+    "actions": {
+      "save": "Save",
+      "reset": "Reset"
+    },
+    "errors": {
+      "mustBeObject": "Config must be a JSON object.",
+      "invalidJson": "Config JSON is invalid."
+    },
+    "success": {
+      "saved": "Config saved."
+    }
+  },
+  "graphValidation": {
+    "title": "Graph Validation",
+    "actions": {
+      "validate": "Validate Graph",
+      "validating": "Validating...",
+      "clear": "Clear"
+    },
+    "summary": {
+      "notChecked": "Validation has not been executed yet.",
+      "result": "Result: {{result}} | Issues: {{count}}",
+      "checkedAt": "Validated At: {{time}}"
+    },
+    "result": {
+      "pass": "Pass",
+      "fail": "Fail"
+    },
+    "errors": {
+      "failedIssues": "Graph validation failed with {{count}} issues",
+      "requestFailed": "Validation request failed: {{message}}"
+    }
+  },
+  "runControl": {
+    "title": "Run Control",
+    "actions": {
+      "start": "Start Run",
+      "stop": "Stop Run",
+      "reset": "Reset Run"
+    },
+    "summary": "Run ID={{runId}} | Status={{status}}{{busySuffix}}",
+    "busySuffix": " | processing",
+    "errors": {
+      "pollFailed": "Run status polling failed: {{message}}",
+      "startFailed": "Run start failed: {{message}}",
+      "stopFailed": "Run stop failed: {{message}}",
+      "alreadyEnded": "Current run has already ended; stop is unnecessary."
+    }
+  },
+  "runtimeConsole": {
+    "title": "Run Events",
+    "summary": "Run ID={{runId}} | Cursor={{cursor}} | WS={{wsState}} | Events={{count}}",
+    "ws": {
+      "connected": "Connected",
+      "idle": "Idle"
+    },
+    "filters": {
+      "eventTypeAll": "Event Type: All",
+      "severityAll": "Severity: All",
+      "nodeIdPlaceholder": "Node ID",
+      "errorCodePlaceholder": "Error Code"
+    },
+    "actions": {
+      "loadEvents": "Load Events",
+      "loadingEvents": "Loading...",
+      "subscribeWs": "Subscribe WS",
+      "unsubscribeWs": "Unsubscribe WS",
+      "clearEvents": "Clear Events"
+    },
+    "errors": {
+      "loadEventsFailed": "Failed to load events: {{message}}",
+      "wsConnectFailed": "WS connection failed",
+      "wsParseFailed": "WS message parse failed"
+    },
+    "empty": "No events yet."
+  },
+  "runInsights": {
+    "title": "Run Insights",
+    "emptyPrompt": "Start a run to inspect metrics and diagnostics.",
+    "actions": {
+      "refresh": "Refresh",
+      "refreshing": "Refreshing..."
+    },
+    "errors": {
+      "loadFailed": "Failed to load run insights: {{message}}"
+    },
+    "metrics": {
+      "status": "Status: {{status}}",
+      "graphKeyCount": "Graph Metric Keys: {{count}}",
+      "nodeCount": "Node Metrics: {{count}}",
+      "edgeCount": "Edge Metrics: {{count}}"
+    },
+    "diagnostics": {
+      "failedNodes": "Failed Nodes: {{count}}",
+      "slowNodesTop": "Top Slow Nodes: {{count}}",
+      "edgeHotspotsTop": "Top Edge Hotspots: {{count}}"
+    }
+  }
+}

@@ -13,3 +13,13 @@ test('keeps root render stable on reload (edge path)', async ({page}) => {
 
     await expect(page.getByRole('heading', {name: 'StarryAI 工作台'})).toBeVisible();
 });
+
+test('persists selected language after reload', async ({page}) => {
+    await page.goto('/');
+
+    await page.getByTestId('language-switch').selectOption('en-US');
+    await expect(page.getByRole('heading', {name: 'StarryAI Workbench'})).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByRole('heading', {name: 'StarryAI Workbench'})).toBeVisible();
+});

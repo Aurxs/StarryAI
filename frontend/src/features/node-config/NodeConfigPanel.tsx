@@ -1,4 +1,5 @@
 import {useEffect, useMemo, useState, type CSSProperties} from 'react';
+import {useTranslation} from 'react-i18next';
 
 import {useGraphStore} from '../../shared/state/graph-store';
 
@@ -49,6 +50,7 @@ const buttonStyle: CSSProperties = {
 const formatJson = (value: Record<string, unknown>): string => JSON.stringify(value, null, 2);
 
 export function NodeConfigPanel() {
+    const {t} = useTranslation();
     const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
     const nodes = useGraphStore((state) => state.graph.nodes);
     const patchNode = useGraphStore((state) => state.patchNode);
@@ -81,9 +83,9 @@ export function NodeConfigPanel() {
     if (!selectedNode) {
         return (
             <section style={panelStyle} data-testid="node-config-empty">
-                <h3 style={{marginTop: 0}}>节点配置</h3>
+                <h3 style={{marginTop: 0}}>{t('nodeConfig.title')}</h3>
                 <p style={{fontSize: 13, opacity: 0.82, marginBottom: 0}}>
-                    请先在画布上选择一个节点，再编辑标题和配置。
+                    {t('nodeConfig.emptyPrompt')}
                 </p>
             </section>
         );
@@ -95,13 +97,13 @@ export function NodeConfigPanel() {
         try {
             const rawParsed = JSON.parse(configDraft) as unknown;
             if (!rawParsed || typeof rawParsed !== 'object' || Array.isArray(rawParsed)) {
-                setErrorMessage('配置必须是 JSON 对象。');
+                setErrorMessage(t('nodeConfig.errors.mustBeObject'));
                 setSuccessMessage(null);
                 return;
             }
             parsedConfig = rawParsed as Record<string, unknown>;
         } catch {
-            setErrorMessage('配置 JSON 格式无效。');
+            setErrorMessage(t('nodeConfig.errors.invalidJson'));
             setSuccessMessage(null);
             return;
         }
@@ -111,7 +113,7 @@ export function NodeConfigPanel() {
             config: parsedConfig,
         });
         setErrorMessage(null);
-        setSuccessMessage('配置已保存。');
+        setSuccessMessage(t('nodeConfig.success.saved'));
     };
 
     const onReset = (): void => {
@@ -123,14 +125,14 @@ export function NodeConfigPanel() {
 
     return (
         <section style={panelStyle} data-testid="node-config-panel">
-            <h3 style={{marginTop: 0, marginBottom: 6}}>节点配置</h3>
+            <h3 style={{marginTop: 0, marginBottom: 6}}>{t('nodeConfig.title')}</h3>
             <div style={{fontSize: 12, opacity: 0.78, marginBottom: 8}}>
-                <div>节点 ID: {selectedNode.node_id}</div>
-                <div>类型名: {selectedNode.type_name}</div>
+                <div>{t('nodeConfig.meta.nodeId', {nodeId: selectedNode.node_id})}</div>
+                <div>{t('nodeConfig.meta.typeName', {typeName: selectedNode.type_name})}</div>
             </div>
 
             <label style={{fontSize: 12}}>
-                标题
+                {t('nodeConfig.fields.title')}
                 <input
                     value={titleDraft}
                     onChange={(event) => {
@@ -143,7 +145,7 @@ export function NodeConfigPanel() {
             </label>
 
             <label style={{display: 'block', fontSize: 12, marginTop: 10}}>
-                配置 JSON
+                {t('nodeConfig.fields.configJson')}
                 <textarea
                     value={configDraft}
                     onChange={(event) => {
@@ -157,10 +159,10 @@ export function NodeConfigPanel() {
 
             <div style={{marginTop: 10}}>
                 <button type="button" style={buttonStyle} onClick={onSave}>
-                    保存
+                    {t('nodeConfig.actions.save')}
                 </button>
                 <button type="button" style={buttonStyle} onClick={onReset}>
-                    重置
+                    {t('nodeConfig.actions.reset')}
                 </button>
             </div>
 

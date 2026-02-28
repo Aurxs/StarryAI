@@ -1,4 +1,5 @@
 import {useMemo, useState, type CSSProperties} from 'react';
+import {useTranslation} from 'react-i18next';
 
 import {GraphEditor} from '../../features/graph-editor/GraphEditor';
 import {NodeConfigPanel} from '../../features/node-config/NodeConfigPanel';
@@ -6,6 +7,17 @@ import {GraphValidationPanel} from '../../features/run-control/GraphValidationPa
 import {RunControlPanel} from '../../features/run-control/RunControlPanel';
 import {RuntimeConsolePanel} from '../../features/runtime-console/RuntimeConsolePanel';
 import {RunInsightsPanel} from '../../features/runtime-console/RunInsightsPanel';
+import {
+    changeAppLanguage,
+    getCurrentLanguage,
+    supportedLanguages,
+    type SupportedLanguage,
+} from '../../shared/i18n/i18n';
+import {
+    translateLeftPanel,
+    translateRightPanel,
+    translateRunStatus,
+} from '../../shared/i18n/label-mappers';
 import {useGraphStore} from '../../shared/state/graph-store';
 import {useRunStore} from '../../shared/state/run-store';
 import {useUiStore} from '../../shared/state/ui-store';
@@ -111,48 +123,18 @@ const topSubtitleStyle: CSSProperties = {
     color: 'rgba(226, 232, 240, 0.92)',
 };
 
-const toLeftPanelLabel = (value: string): string => {
-    switch (value) {
-        case 'node-library':
-            return '节点库';
-        case 'graph-outline':
-            return '图结构';
-        default:
-            return value;
-    }
-};
-
-const toRightPanelLabel = (value: string): string => {
-    switch (value) {
-        case 'node-config':
-            return '节点配置';
-        case 'run-inspector':
-            return '运行洞察';
-        default:
-            return value;
-    }
-};
-
-const toRunStatusLabel = (value: string): string => {
-    switch (value) {
-        case 'idle':
-            return '空闲';
-        case 'validating':
-            return '校验中';
-        case 'running':
-            return '运行中';
-        case 'stopped':
-            return '已停止';
-        case 'completed':
-            return '已完成';
-        case 'failed':
-            return '失败';
-        default:
-            return value;
-    }
+const languageSelectStyle: CSSProperties = {
+    marginLeft: 8,
+    border: '1px solid rgba(148, 163, 184, 0.5)',
+    borderRadius: 8,
+    padding: '2px 6px',
+    fontSize: 12,
+    background: 'rgba(15, 23, 42, 0.85)',
+    color: '#e2e8f0',
 };
 
 export function WorkbenchPage() {
+    const {t} = useTranslation();
     const graph = useGraphStore((state) => state.graph);
     const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
     const runId = useRunStore((state) => state.runId);
@@ -165,6 +147,7 @@ export function WorkbenchPage() {
     const [leftCollapsed, setLeftCollapsed] = useState(false);
     const [rightCollapsed, setRightCollapsed] = useState(false);
     const [bottomCollapsed, setBottomCollapsed] = useState(false);
+    const [activeLanguage, setActiveLanguage] = useState<SupportedLanguage>(() => getCurrentLanguage());
 
     const summary = useMemo(
         () => ({
@@ -181,8 +164,8 @@ export function WorkbenchPage() {
                 <GraphEditor/>
             </section>
             <header style={topBannerStyle}>
-                <h1 style={topTitleStyle}>StarryAI 工作台</h1>
-                <p style={topSubtitleStyle}>Phase E / T2 基线框架</p>
+                <h1 style={topTitleStyle}>{t('app.title')}</h1>
+                <p style={topSubtitleStyle}>{t('app.subtitle')}</p>
             </header>
 
             {leftCollapsed ? (
@@ -191,7 +174,7 @@ export function WorkbenchPage() {
                     style={{...collapseButtonStyle, position: 'absolute', left: 12, top: 12, zIndex: 9}}
                     onClick={() => setLeftCollapsed(false)}
                 >
-                    显示左侧
+                    {t('workbench.showLeft')}
                 </button>
             ) : (
                 <aside
@@ -207,10 +190,30 @@ export function WorkbenchPage() {
                     aria-label="left-panel"
                 >
                     <div style={panelHeaderStyle}>
-                        <h2 style={panelTitleStyle}>工作台</h2>
+                        <h2 style={panelTitleStyle}>{t('workbench.leftPanelTitle')}</h2>
                         <button type="button" style={collapseButtonStyle} onClick={() => setLeftCollapsed(true)}>
-                            收起
+                            {t('common.collapse')}
                         </button>
+                    </div>
+                    <div style={{fontSize: 12, marginBottom: 8}}>
+                        <label htmlFor="language-switch">{t('language.label')}</label>
+                        <select
+                            id="language-switch"
+                            data-testid="language-switch"
+                            value={activeLanguage}
+                            style={languageSelectStyle}
+                            onChange={(event) => {
+                                const nextLanguage = event.target.value as SupportedLanguage;
+                                setActiveLanguage(nextLanguage);
+                                void changeAppLanguage(nextLanguage);
+                            }}
+                        >
+                            {supportedLanguages.map((language) => (
+                                <option key={language} value={language}>
+                                    {t(`language.${language}`)}
+                                </option>
+                            ))}
+                        </select>
                     </div>
                     <div>
                         <button
@@ -218,18 +221,18 @@ export function WorkbenchPage() {
                             style={chipStyle(leftPanel === 'node-library')}
                             onClick={() => setLeftPanel('node-library')}
                         >
-                            节点库
+                            {t('workbench.panel.nodeLibrary')}
                         </button>
                         <button
                             type="button"
                             style={chipStyle(leftPanel === 'graph-outline')}
                             onClick={() => setLeftPanel('graph-outline')}
                         >
-                            图结构
+                            {t('workbench.panel.graphOutline')}
                         </button>
                     </div>
                     <p style={{fontSize: 13, opacity: 0.9}} data-testid="left-panel-value">
-                        当前: {toLeftPanelLabel(leftPanel)}
+                        {t('workbench.panel.current', {label: translateLeftPanel(t, leftPanel)})}
                     </p>
 
                     <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8}}>
@@ -237,32 +240,38 @@ export function WorkbenchPage() {
                             style={{...floatingCardStyle, padding: 8, background: 'rgba(30, 41, 59, 0.72)'}}
                             data-testid="summary-graph-id"
                         >
-                            <strong style={{fontSize: 12}}>图 ID</strong>
+                            <strong style={{fontSize: 12}}>{t('workbench.summary.graphId')}</strong>
                             <div style={valueStyle}>{summary.graphId}</div>
                         </article>
                         <article
                             style={{...floatingCardStyle, padding: 8, background: 'rgba(30, 41, 59, 0.72)'}}
                             data-testid="summary-node-count"
                         >
-                            <strong style={{fontSize: 12}}>节点数</strong>
+                            <strong style={{fontSize: 12}}>{t('workbench.summary.nodeCount')}</strong>
                             <div style={valueStyle}>{summary.nodeCount}</div>
                         </article>
                         <article
                             style={{...floatingCardStyle, padding: 8, background: 'rgba(30, 41, 59, 0.72)'}}
                             data-testid="summary-edge-count"
                         >
-                            <strong style={{fontSize: 12}}>边数</strong>
+                            <strong style={{fontSize: 12}}>{t('workbench.summary.edgeCount')}</strong>
                             <div style={valueStyle}>{summary.edgeCount}</div>
                         </article>
                     </div>
 
                     <div style={{marginTop: 10, fontSize: 13, lineHeight: 1.45}}>
-                        <div data-testid="selected-node">已选节点: {selectedNodeId ?? '无'}</div>
-                        <div data-testid="run-status">
-                            运行状态: {toRunStatusLabel(runStatus)}
-                            {isBusy ? '（处理中）' : ''}
+                        <div data-testid="selected-node">
+                            {t('workbench.summary.selectedNode', {nodeId: selectedNodeId ?? t('common.none')})}
                         </div>
-                        <div data-testid="run-id">运行 ID: {runId ?? '无'}</div>
+                        <div data-testid="run-status">
+                            {t('workbench.summary.runStatus', {
+                                status: translateRunStatus(t, runStatus),
+                                busySuffix: isBusy ? t('workbench.busySuffix') : '',
+                            })}
+                        </div>
+                        <div data-testid="run-id">
+                            {t('workbench.summary.runId', {runId: runId ?? t('common.none')})}
+                        </div>
                     </div>
                 </aside>
             )}
@@ -273,7 +282,7 @@ export function WorkbenchPage() {
                     style={{...collapseButtonStyle, position: 'absolute', right: 12, top: 12, zIndex: 9}}
                     onClick={() => setRightCollapsed(false)}
                 >
-                    显示右侧
+                    {t('workbench.showRight')}
                 </button>
             ) : (
                 <aside
@@ -289,9 +298,9 @@ export function WorkbenchPage() {
                     aria-label="right-panel"
                 >
                     <div style={panelHeaderStyle}>
-                        <h2 style={panelTitleStyle}>检查器</h2>
+                        <h2 style={panelTitleStyle}>{t('workbench.rightPanelTitle')}</h2>
                         <button type="button" style={collapseButtonStyle} onClick={() => setRightCollapsed(true)}>
-                            收起
+                            {t('common.collapse')}
                         </button>
                     </div>
                     <div>
@@ -300,18 +309,18 @@ export function WorkbenchPage() {
                             style={chipStyle(rightPanel === 'node-config')}
                             onClick={() => setRightPanel('node-config')}
                         >
-                            节点配置
+                            {t('workbench.panel.nodeConfig')}
                         </button>
                         <button
                             type="button"
                             style={chipStyle(rightPanel === 'run-inspector')}
                             onClick={() => setRightPanel('run-inspector')}
                         >
-                            运行洞察
+                            {t('workbench.panel.runInspector')}
                         </button>
                     </div>
                     <p style={{fontSize: 13, opacity: 0.9}} data-testid="right-panel-value">
-                        当前: {toRightPanelLabel(rightPanel)}
+                        {t('workbench.panel.current', {label: translateRightPanel(t, rightPanel)})}
                     </p>
 
                     {rightPanel === 'node-config' ? (
@@ -328,7 +337,7 @@ export function WorkbenchPage() {
                     style={{...collapseButtonStyle, position: 'absolute', left: 12, bottom: 12, zIndex: 9}}
                     onClick={() => setBottomCollapsed(false)}
                 >
-                    显示控制台
+                    {t('workbench.showConsole')}
                 </button>
             ) : (
                 <footer
@@ -344,9 +353,9 @@ export function WorkbenchPage() {
                     aria-label="runtime-console"
                 >
                     <div style={panelHeaderStyle}>
-                        <h2 style={panelTitleStyle}>运行控制台</h2>
+                        <h2 style={panelTitleStyle}>{t('workbench.bottomPanelTitle')}</h2>
                         <button type="button" style={collapseButtonStyle} onClick={() => setBottomCollapsed(true)}>
-                            收起
+                            {t('common.collapse')}
                         </button>
                     </div>
                     <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10}}>

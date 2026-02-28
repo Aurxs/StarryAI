@@ -1,6 +1,7 @@
-import {afterAll, afterEach, beforeAll} from 'vitest';
+import {afterAll, afterEach, beforeAll, beforeEach} from 'vitest';
 import {cleanup} from '@testing-library/react';
 
+import i18n, {defaultLanguage, localeStorageKey} from '../../src/shared/i18n/i18n';
 import {server} from '../mocks/server';
 
 class ResizeObserverStub {
@@ -20,6 +21,11 @@ if (!globalThis.ResizeObserver) {
 
 beforeAll(() => {
     server.listen({onUnhandledRequest: 'error'});
+});
+
+beforeEach(async () => {
+    await i18n.changeLanguage(defaultLanguage);
+    window.localStorage.removeItem(localeStorageKey);
 });
 
 afterEach(() => {

@@ -1,4 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState, type CSSProperties} from 'react';
+import {useTranslation} from 'react-i18next';
 
 import type {
     RuntimeEvent,
@@ -72,6 +73,7 @@ const eventTypes: RuntimeEventType[] = [
 const severities: RuntimeEventSeverity[] = ['debug', 'info', 'warning', 'error', 'critical'];
 
 export function RuntimeConsolePanel() {
+    const {t} = useTranslation();
     const runId = useRunStore((state) => state.runId);
     const events = useRuntimeConsoleStore((state) => state.events);
     const filters = useRuntimeConsoleStore((state) => state.filters);
@@ -134,7 +136,7 @@ export function RuntimeConsolePanel() {
             appendEvents(payload.items);
             setCursor(payload.next_cursor);
         } catch (error) {
-            setErrorMessage(`加载事件失败: ${String(error)}`);
+            setErrorMessage(t('runtimeConsole.errors.loadEventsFailed', {message: String(error)}));
         } finally {
             setIsLoading(false);
         }
@@ -159,7 +161,7 @@ export function RuntimeConsolePanel() {
             setWsConnected(true);
         };
         ws.onerror = () => {
-            setErrorMessage('WS 连接失败');
+            setErrorMessage(t('runtimeConsole.errors.wsConnectFailed'));
         };
         ws.onclose = () => {
             setWsConnected(false);
@@ -174,17 +176,21 @@ export function RuntimeConsolePanel() {
                 appendEvents([payload]);
                 setCursor(payload.event_seq + 1);
             } catch {
-                setErrorMessage('WS 消息解析失败');
+                setErrorMessage(t('runtimeConsole.errors.wsParseFailed'));
             }
         };
     };
 
     return (
         <section style={panelStyle} data-testid="runtime-console-panel">
-            <h3 style={{marginTop: 0, marginBottom: 8}}>运行事件</h3>
+            <h3 style={{marginTop: 0, marginBottom: 8}}>{t('runtimeConsole.title')}</h3>
             <div style={{fontSize: 12, marginBottom: 8}} data-testid="runtime-console-summary">
-                运行 ID={runId ?? '无'} | 游标={lastCursor} | WS={wsConnected ? '已连接' : '空闲'} | 事件数=
-                {events.length}
+                {t('runtimeConsole.summary', {
+                    runId: runId ?? t('common.none'),
+                    cursor: lastCursor,
+                    wsState: wsConnected ? t('runtimeConsole.ws.connected') : t('runtimeConsole.ws.idle'),
+                    count: events.length,
+                })}
             </div>
 
             <div>
@@ -198,7 +204,7 @@ export function RuntimeConsolePanel() {
                     style={inputStyle}
                     aria-label="filter-event-type"
                 >
-                    <option value="">事件类型: 全部</option>
+                    <option value="">{t('runtimeConsole.filters.eventTypeAll')}</option>
                     {eventTypes.map((value) => (
                         <option key={value} value={value}>
                             {value}
@@ -215,7 +221,7 @@ export function RuntimeConsolePanel() {
                     style={inputStyle}
                     aria-label="filter-severity"
                 >
-                    <option value="">级别: 全部</option>
+                    <option value="">{t('runtimeConsole.filters.severityAll')}</option>
                     {severities.map((value) => (
                         <option key={value} value={value}>
                             {value}
@@ -226,14 +232,14 @@ export function RuntimeConsolePanel() {
                     value={filters.node_id ?? ''}
                     onChange={(event) => setFilters({node_id: event.target.value || undefined})}
                     style={inputStyle}
-                    placeholder="节点 ID"
+                    placeholder={t('runtimeConsole.filters.nodeIdPlaceholder')}
                     aria-label="filter-node-id"
                 />
                 <input
                     value={filters.error_code ?? ''}
                     onChange={(event) => setFilters({error_code: event.target.value || undefined})}
                     style={inputStyle}
-                    placeholder="错误码"
+                    placeholder={t('runtimeConsole.filters.errorCodePlaceholder')}
                     aria-label="filter-error-code"
                 />
             </div>
@@ -247,7 +253,7 @@ export function RuntimeConsolePanel() {
                     }}
                     disabled={!runId || isLoading}
                 >
-                    {isLoading ? '加载中...' : '加载事件'}
+                    {isLoading ? t('runtimeConsole.actions.loadingEvents') : t('runtimeConsole.actions.loadEvents')}
                 </button>
                 <button
                     type="button"
@@ -255,7 +261,7 @@ export function RuntimeConsolePanel() {
                     onClick={subscribeWs}
                     disabled={!runId || wsConnected}
                 >
-                    订阅 WS
+                    {t('runtimeConsole.actions.subscribeWs')}
                 </button>
                 <button
                     type="button"
@@ -263,7 +269,7 @@ export function RuntimeConsolePanel() {
                     onClick={closeWs}
                     disabled={!wsConnected}
                 >
-                    取消订阅 WS
+                    {t('runtimeConsole.actions.unsubscribeWs')}
                 </button>
                 <button
                     type="button"
@@ -271,7 +277,7 @@ export function RuntimeConsolePanel() {
                     onClick={() => clearEvents()}
                     disabled={events.length === 0}
                 >
-                    清空事件
+                    {t('runtimeConsole.actions.clearEvents')}
                 </button>
             </div>
 
@@ -293,7 +299,7 @@ export function RuntimeConsolePanel() {
             >
                 {latestEvents.length === 0 ? (
                     <div data-testid="runtime-console-empty" style={{opacity: 0.72}}>
-                        暂无事件。
+                        {t('runtimeConsole.empty')}
                     </div>
                 ) : (
                     latestEvents.map((event) => (

@@ -1,0 +1,178 @@
+{
+  "app": {
+    "title": "StarryAI 工作台",
+    "subtitle": "Phase E / T2 基线框架"
+  },
+  "language": {
+    "label": "语言",
+    "zh-CN": "简体中文",
+    "en-US": "English"
+  },
+  "common": {
+    "none": "无",
+    "collapse": "收起"
+  },
+  "workbench": {
+    "showLeft": "显示左侧",
+    "showRight": "显示右侧",
+    "showConsole": "显示控制台",
+    "leftPanelTitle": "工作台",
+    "rightPanelTitle": "检查器",
+    "bottomPanelTitle": "运行控制台",
+    "panel": {
+      "nodeLibrary": "节点库",
+      "graphOutline": "图结构",
+      "nodeConfig": "节点配置",
+      "runInspector": "运行洞察",
+      "current": "当前: {{label}}"
+    },
+    "summary": {
+      "graphId": "图 ID",
+      "nodeCount": "节点数",
+      "edgeCount": "边数",
+      "selectedNode": "已选节点: {{nodeId}}",
+      "runStatus": "运行状态: {{status}}{{busySuffix}}",
+      "runId": "运行 ID: {{runId}}"
+    },
+    "busySuffix": "（处理中）"
+  },
+  "run": {
+    "status": {
+      "idle": "空闲",
+      "validating": "校验中",
+      "running": "运行中",
+      "stopped": "已停止",
+      "completed": "已完成",
+      "failed": "失败"
+    }
+  },
+  "graphEditor": {
+    "fallbackNodeTypeDescription": "兜底节点类型",
+    "deleteNode": "删除 {{nodeId}}",
+    "toolbar": {
+      "title": "节点面板",
+      "add": "添加",
+      "meta": "节点={{nodeCount}}, 边={{edgeCount}}"
+    },
+    "status": {
+      "loadingCatalog": "正在加载节点目录...",
+      "fallbackCatalog": "节点目录回退模式: {{error}}",
+      "catalogReady": "节点目录就绪（{{count}} 种）"
+    },
+    "errors": {
+      "catalogUnavailable": "节点类型不可用: {{message}}",
+      "unknownNodeType": "未知节点类型: {{typeName}}",
+      "invalidConnection": "连接无效: 缺少源/目标端口",
+      "targetPortDuplicate": "目标端口不允许重复绑定"
+    }
+  },
+  "nodeConfig": {
+    "title": "节点配置",
+    "emptyPrompt": "请先在画布上选择一个节点，再编辑标题和配置。",
+    "meta": {
+      "nodeId": "节点 ID: {{nodeId}}",
+      "typeName": "类型名: {{typeName}}"
+    },
+    "fields": {
+      "title": "标题",
+      "configJson": "配置 JSON"
+    },
+    "actions": {
+      "save": "保存",
+      "reset": "重置"
+    },
+    "errors": {
+      "mustBeObject": "配置必须是 JSON 对象。",
+      "invalidJson": "配置 JSON 格式无效。"
+    },
+    "success": {
+      "saved": "配置已保存。"
+    }
+  },
+  "graphValidation": {
+    "title": "图校验",
+    "actions": {
+      "validate": "校验图",
+      "validating": "校验中...",
+      "clear": "清空"
+    },
+    "summary": {
+      "notChecked": "还未校验。",
+      "result": "结果: {{result}} | 问题数: {{count}}",
+      "checkedAt": "校验时间: {{time}}"
+    },
+    "result": {
+      "pass": "通过",
+      "fail": "未通过"
+    },
+    "errors": {
+      "failedIssues": "图校验失败，共 {{count}} 个问题",
+      "requestFailed": "图校验请求失败: {{message}}"
+    }
+  },
+  "runControl": {
+    "title": "运行控制",
+    "actions": {
+      "start": "启动运行",
+      "stop": "停止运行",
+      "reset": "重置运行"
+    },
+    "summary": "运行 ID={{runId}} | 状态={{status}}{{busySuffix}}",
+    "busySuffix": " | 处理中",
+    "errors": {
+      "pollFailed": "运行状态轮询失败: {{message}}",
+      "startFailed": "启动运行失败: {{message}}",
+      "stopFailed": "停止运行失败: {{message}}",
+      "alreadyEnded": "当前运行已结束，无需停止。"
+    }
+  },
+  "runtimeConsole": {
+    "title": "运行事件",
+    "summary": "运行 ID={{runId}} | 游标={{cursor}} | WS={{wsState}} | 事件数={{count}}",
+    "ws": {
+      "connected": "已连接",
+      "idle": "空闲"
+    },
+    "filters": {
+      "eventTypeAll": "事件类型: 全部",
+      "severityAll": "级别: 全部",
+      "nodeIdPlaceholder": "节点 ID",
+      "errorCodePlaceholder": "错误码"
+    },
+    "actions": {
+      "loadEvents": "加载事件",
+      "loadingEvents": "加载中...",
+      "subscribeWs": "订阅 WS",
+      "unsubscribeWs": "取消订阅 WS",
+      "clearEvents": "清空事件"
+    },
+    "errors": {
+      "loadEventsFailed": "加载事件失败: {{message}}",
+      "wsConnectFailed": "WS 连接失败",
+      "wsParseFailed": "WS 消息解析失败"
+    },
+    "empty": "暂无事件。"
+  },
+  "runInsights": {
+    "title": "运行洞察",
+    "emptyPrompt": "启动一次运行后即可查看指标与诊断信息。",
+    "actions": {
+      "refresh": "刷新",
+      "refreshing": "刷新中..."
+    },
+    "errors": {
+      "loadFailed": "加载运行洞察失败: {{message}}"
+    },
+    "metrics": {
+      "status": "状态: {{status}}",
+      "graphKeyCount": "图指标键数量: {{count}}",
+      "nodeCount": "节点指标数量: {{count}}",
+      "edgeCount": "边指标数量: {{count}}"
+    },
+    "diagnostics": {
+      "failedNodes": "失败节点数: {{count}}",
+      "slowNodesTop": "慢节点 Top 数: {{count}}",
+      "edgeHotspotsTop": "热点边 Top 数: {{count}}"
+    }
+  }
+}

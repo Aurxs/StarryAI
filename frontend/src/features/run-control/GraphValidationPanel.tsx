@@ -1,4 +1,5 @@
 import {useState, type CSSProperties} from 'react';
+import {useTranslation} from 'react-i18next';
 
 import {apiClient, ApiClientError} from '../../shared/api/client';
 import {useGraphStore} from '../../shared/state/graph-store';
@@ -28,6 +29,7 @@ const buttonStyle: CSSProperties = {
 };
 
 export function GraphValidationPanel() {
+    const {t} = useTranslation();
     const graph = useGraphStore((state) => state.graph);
     const validationValid = useGraphStore((state) => state.validationValid);
     const validationIssues = useGraphStore((state) => state.validationIssues);
@@ -49,11 +51,11 @@ export function GraphValidationPanel() {
             setValidationResult(report.valid, report.issues);
             setStatus('idle');
             if (!report.valid) {
-                setError(`图校验失败，共 ${report.issues.length} 个问题`);
+                setError(t('graphValidation.errors.failedIssues', {count: report.issues.length}));
             }
         } catch (error) {
             const message = error instanceof ApiClientError ? error.message : String(error);
-            setError(`图校验请求失败: ${message}`);
+            setError(t('graphValidation.errors.requestFailed', {message}));
             setValidationResult(false, [
                 {
                     level: 'error',
@@ -69,7 +71,7 @@ export function GraphValidationPanel() {
 
     return (
         <section style={panelStyle} data-testid="graph-validation-panel">
-            <h3 style={{marginTop: 0, marginBottom: 8}}>图校验</h3>
+            <h3 style={{marginTop: 0, marginBottom: 8}}>{t('graphValidation.title')}</h3>
             <div style={{marginBottom: 8}}>
                 <button
                     type="button"
@@ -79,7 +81,7 @@ export function GraphValidationPanel() {
                     }}
                     disabled={isValidating}
                 >
-                    {isValidating ? '校验中...' : '校验图'}
+                    {isValidating ? t('graphValidation.actions.validating') : t('graphValidation.actions.validate')}
                 </button>
                 <button
                     type="button"
@@ -87,21 +89,26 @@ export function GraphValidationPanel() {
                     onClick={() => clearValidation()}
                     disabled={isValidating || validationCheckedAt === null}
                 >
-                    清空
+                    {t('graphValidation.actions.clear')}
                 </button>
             </div>
 
             {validationCheckedAt === null ? (
                 <p style={{fontSize: 12, opacity: 0.8, margin: 0}} data-testid="validation-summary">
-                    还未校验。
+                    {t('graphValidation.summary.notChecked')}
                 </p>
             ) : (
                 <div data-testid="validation-summary">
                     <p style={{fontSize: 12, marginTop: 0, marginBottom: 4}}>
-                        结果: {validationValid ? '通过' : '未通过'} | 问题数: {validationIssues.length}
+                        {t('graphValidation.summary.result', {
+                            result: validationValid ? t('graphValidation.result.pass') : t('graphValidation.result.fail'),
+                            count: validationIssues.length,
+                        })}
                     </p>
                     <p style={{fontSize: 12, marginTop: 0, opacity: 0.75}}>
-                        校验时间: {new Date(validationCheckedAt).toLocaleTimeString()}
+                        {t('graphValidation.summary.checkedAt', {
+                            time: new Date(validationCheckedAt).toLocaleTimeString(),
+                        })}
                     </p>
                 </div>
             )}

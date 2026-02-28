@@ -1,7 +1,8 @@
-import {fireEvent, render, screen} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {beforeEach, describe, expect, it} from 'vitest';
 
 import {WorkbenchPage} from '../../src/pages/workbench/WorkbenchPage';
+import {localeStorageKey} from '../../src/shared/i18n/i18n';
 import {resetGraphStore, useGraphStore} from '../../src/shared/state/graph-store';
 import {resetRunStore, useRunStore} from '../../src/shared/state/run-store';
 import {
@@ -76,5 +77,24 @@ describe('WorkbenchPage shell', () => {
         expect(useUiStore.getState().rightPanel).toBe('run-inspector');
         expect(screen.getByTestId('left-panel-value').textContent).toContain('图结构');
         expect(screen.getByTestId('right-panel-value').textContent).toContain('运行洞察');
+    });
+
+    it('switches language and persists selected locale', async () => {
+        render(<WorkbenchPage/>);
+
+        fireEvent.change(screen.getByTestId('language-switch'), {
+            target: {value: 'en-US'},
+        });
+
+        await waitFor(() => {
+            expect(
+                screen.getByRole('heading', {
+                    level: 1,
+                    name: 'StarryAI Workbench',
+                }),
+            ).toBeTruthy();
+        });
+        expect(window.localStorage.getItem(localeStorageKey)).toBe('en-US');
+        expect(screen.getByRole('button', {name: 'Node Library'})).toBeTruthy();
     });
 });

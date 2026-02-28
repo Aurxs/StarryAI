@@ -1,6 +1,8 @@
 import {useEffect, useState, type CSSProperties} from 'react';
+import {useTranslation} from 'react-i18next';
 
 import {apiClient, ApiClientError} from '../../shared/api/client';
+import {translateRunStatus} from '../../shared/i18n/label-mappers';
 import {useGraphStore} from '../../shared/state/graph-store';
 import {useRunStore, type RunUiStatus} from '../../shared/state/run-store';
 
@@ -54,26 +56,8 @@ const mapBackendStatus = (status: string): RunUiStatus => {
     }
 };
 
-const toRunStatusLabel = (status: RunUiStatus): string => {
-    switch (status) {
-        case 'idle':
-            return '空闲';
-        case 'validating':
-            return '校验中';
-        case 'running':
-            return '运行中';
-        case 'stopped':
-            return '已停止';
-        case 'completed':
-            return '已完成';
-        case 'failed':
-            return '失败';
-        default:
-            return status;
-    }
-};
-
 export function RunControlPanel() {
+    const {t} = useTranslation();
     const graph = useGraphStore((state) => state.graph);
     const runId = useRunStore((state) => state.runId);
     const status = useRunStore((state) => state.status);
@@ -110,7 +94,7 @@ export function RunControlPanel() {
                 }
                 const message = error instanceof ApiClientError ? error.message : String(error);
                 setStatus('failed');
-                setError(`运行状态轮询失败: ${message}`);
+                setError(t('runControl.errors.pollFailed', {message}));
             }
         };
 
@@ -122,7 +106,7 @@ export function RunControlPanel() {
             cancelled = true;
             window.clearInterval(timer);
         };
-    }, [runId, setError, setStatus]);
+    }, [runId, setError, setStatus, t]);
 
     const startRun = async (): Promise<void> => {
         if (isRunActive) {
@@ -140,7 +124,7 @@ export function RunControlPanel() {
         } catch (error) {
             const message = error instanceof ApiClientError ? error.message : String(error);
             setStatus('failed');
-            setError(`启动运行失败: ${message}`);
+            setError(t('runControl.errors.startFailed', {message}));
         } finally {
             setRequestBusy(false);
         }
@@ -151,7 +135,7 @@ export function RunControlPanel() {
             return;
         }
         if (!isRunActive) {
-            setError('当前运行已结束，无需停止。');
+            setError(t('runControl.errors.alreadyEnded'));
             return;
         }
         setRequestBusy(true);
@@ -162,7 +146,7 @@ export function RunControlPanel() {
         } catch (error) {
             const message = error instanceof ApiClientError ? error.message : String(error);
             setStatus('failed');
-            setError(`停止运行失败: ${message}`);
+            setError(t('runControl.errors.stopFailed', {message}));
         } finally {
             setRequestBusy(false);
         }
@@ -170,7 +154,7 @@ export function RunControlPanel() {
 
     return (
         <section style={panelStyle} data-testid="run-control-panel">
-            <h3 style={{marginTop: 0, marginBottom: 8}}>运行控制</h3>
+            <h3 style={{marginTop: 0, marginBottom: 8}}>{t('runControl.title')}</h3>
             <div style={{marginBottom: 8}}>
                 <input
                     value={streamId}
@@ -186,7 +170,7 @@ export function RunControlPanel() {
                     }}
                     disabled={requestBusy || isRunActive}
                 >
-                    启动运行
+                    {t('runControl.actions.start')}
                 </button>
                 <button
                     type="button"
@@ -196,7 +180,7 @@ export function RunControlPanel() {
                     }}
                     disabled={!runId || requestBusy || !isRunActive}
                 >
-                    停止运行
+                    {t('runControl.actions.stop')}
                 </button>
                 <button
                     type="button"
@@ -204,13 +188,16 @@ export function RunControlPanel() {
                     onClick={() => clearRun()}
                     disabled={requestBusy}
                 >
-                    重置运行
+                    {t('runControl.actions.reset')}
                 </button>
             </div>
 
             <div style={{fontSize: 12}} data-testid="run-control-summary">
-                运行 ID={runId ?? '无'} | 状态={toRunStatusLabel(status)}
-                {isBusy ? ' | 处理中' : ''}
+                {t('runControl.summary', {
+                    runId: runId ?? t('common.none'),
+                    status: translateRunStatus(t, status),
+                    busySuffix: isBusy ? t('runControl.busySuffix') : '',
+                })}
             </div>
             {lastError && (
                 <p style={{color: '#9f1239', fontSize: 12, marginBottom: 0}} data-testid="run-control-error">

@@ -17,6 +17,8 @@ StarryAI is a modular, node-based AI virtual human workflow engine (Backend + Wo
 - Graph editing update: each node now has a delete button.
 - Graph validation request fix: backend CORS support added to resolve frontend `NetworkError` and backend
   `405 (OPTIONS)`.
+- Frontend i18n: UI strings moved from hardcoded component text to language packs (`zh-CN`/`en-US`) with
+  persisted language switching.
 
 ## Core Capabilities
 

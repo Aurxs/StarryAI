@@ -1,4 +1,5 @@
 import {useCallback, useEffect, useMemo, useState, type CSSProperties, type DragEvent} from 'react';
+import {useTranslation} from 'react-i18next';
 import ReactFlow, {
     Background,
     Controls,
@@ -127,7 +128,7 @@ const deleteNodeButtonStyle: CSSProperties = {
     padding: 0,
 };
 
-const fallbackNodeTypes: NodeSpec[] = [
+const createFallbackNodeTypes = (description: string): NodeSpec[] => [
     {
         type_name: 'mock.input',
         version: '0.1.0',
@@ -144,7 +145,7 @@ const fallbackNodeTypes: NodeSpec[] = [
         ],
         sync_config: null,
         config_schema: {},
-        description: '兜底节点类型',
+        description,
     },
     {
         type_name: 'mock.output',
@@ -162,7 +163,7 @@ const fallbackNodeTypes: NodeSpec[] = [
         outputs: [],
         sync_config: null,
         config_schema: {},
-        description: '兜底节点类型',
+        description,
     },
 ];
 
@@ -192,6 +193,7 @@ const toRfEdge = (edge: EdgeSpec, highlighted = false): Edge => ({
 });
 
 const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
+    const {t} = useTranslation();
     const inputs = data.spec.inputs ?? emptyPorts;
     const outputs = data.spec.outputs ?? emptyPorts;
 
@@ -200,8 +202,8 @@ const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
             <button
                 type="button"
                 style={deleteNodeButtonStyle}
-                aria-label={`删除 ${data.nodeId}`}
-                title={`删除 ${data.nodeId}`}
+                aria-label={t('graphEditor.deleteNode', {nodeId: data.nodeId})}
+                title={t('graphEditor.deleteNode', {nodeId: data.nodeId})}
                 onClick={(event) => {
                     event.stopPropagation();
                     data.onDeleteNode(data.nodeId);
@@ -237,6 +239,7 @@ const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
 const nodeTypes = {workflowNode: WorkflowNode};
 
 const GraphEditorInner = () => {
+    const {t} = useTranslation();
     const graph = useGraphStore((state) => state.graph);
     const setEdgesInStore = useGraphStore((state) => state.setEdges);
     const upsertNode = useGraphStore((state) => state.upsertNode);
@@ -245,6 +248,10 @@ const GraphEditorInner = () => {
     const validationIssues = useGraphStore((state) => state.validationIssues);
 
     const reactFlow = useReactFlow();
+    const fallbackNodeTypes = useMemo(
+        () => createFallbackNodeTypes(t('graphEditor.fallbackNodeTypeDescription')),
+        [t],
+    );
 
     const [catalog, setCatalog] = useState<NodeSpec[]>(fallbackNodeTypes);
     const [catalogLoading, setCatalogLoading] = useState(false);
@@ -293,7 +300,7 @@ const GraphEditorInner = () => {
                 }
             } catch (error) {
                 if (!cancelled) {
-                    setCatalogError(`节点类型不可用: ${String(error)}`);
+                    setCatalogError(t('graphEditor.errors.catalogUnavailable', {message: String(error)}));
                 }
             } finally {
                 if (!cancelled) {
@@ -305,7 +312,7 @@ const GraphEditorInner = () => {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         setRfNodes(
@@ -376,7 +383,7 @@ const GraphEditorInner = () => {
         (typeName: string, position?: XYPosition) => {
             const spec = catalogByType.get(typeName);
             if (!spec) {
-                setEditorMessage(`未知节点类型: ${typeName}`);
+                setEditorMessage(t('graphEditor.errors.unknownNodeType', {typeName}));
                 return;
             }
             const nodeId = nextNodeId(graph.nodes);
@@ -392,17 +399,17 @@ const GraphEditorInner = () => {
             }));
             setEditorMessage(null);
         },
-        [catalogByType, graph.nodes, upsertNode],
+        [catalogByType, graph.nodes, t, upsertNode],
     );
 
     const onConnect = useCallback(
         (connection: Connection) => {
             if (!connection.source || !connection.target || !connection.sourceHandle || !connection.targetHandle) {
-                setEditorMessage('连接无效: 缺少源/目标端口');
+                setEditorMessage(t('graphEditor.errors.invalidConnection'));
                 return;
             }
             if (!canBindTargetPort(rfEdges, connection.target, connection.targetHandle)) {
-                setEditorMessage('目标端口不允许重复绑定');
+                setEditorMessage(t('graphEditor.errors.targetPortDuplicate'));
                 return;
             }
 
@@ -425,7 +432,7 @@ const GraphEditorInner = () => {
             });
             setEditorMessage(null);
         },
-        [rfEdges, setRfEdges, syncEdgesToStore],
+        [rfEdges, setRfEdges, syncEdgesToStore, t],
     );
 
     const onNodesDelete = useCallback(
@@ -482,7 +489,7 @@ const GraphEditorInner = () => {
     return (
         <section style={editorShellStyle} data-testid="graph-editor-shell">
             <div style={toolbarStyle}>
-                <strong style={{marginRight: 8}}>节点面板</strong>
+                <strong style={{marginRight: 8}}>{t('graphEditor.toolbar.title')}</strong>
                 {catalog.map((nodeType) => (
                     <div key={nodeType.type_name} style={{display: 'flex', alignItems: 'center', gap: 6}}>
                         <span
@@ -500,12 +507,12 @@ const GraphEditorInner = () => {
                             style={paletteButtonStyle}
                             onClick={() => addNodeAt(nodeType.type_name)}
                         >
-                            添加
+                            {t('graphEditor.toolbar.add')}
                         </button>
                     </div>
                 ))}
                 <span style={{marginLeft: 'auto', fontSize: 12, opacity: 0.75}} data-testid="graph-editor-meta">
-                    节点={graph.nodes.length}, 边={graph.edges.length}
+                    {t('graphEditor.toolbar.meta', {nodeCount: graph.nodes.length, edgeCount: graph.edges.length})}
                 </span>
             </div>
 
@@ -550,12 +557,14 @@ const GraphEditorInner = () => {
                     fontSize: 12,
                 }}
             >
-                {catalogLoading && <span data-testid="graph-editor-status">正在加载节点目录...</span>}
+                {catalogLoading && <span data-testid="graph-editor-status">{t('graphEditor.status.loadingCatalog')}</span>}
                 {!catalogLoading && catalogError && (
-                    <span data-testid="graph-editor-status">节点目录回退模式: {catalogError}</span>
+                    <span data-testid="graph-editor-status">
+                        {t('graphEditor.status.fallbackCatalog', {error: catalogError})}
+                    </span>
                 )}
                 {!catalogLoading && !catalogError && (
-                    <span data-testid="graph-editor-status">节点目录就绪（{catalog.length} 种）</span>
+                    <span data-testid="graph-editor-status">{t('graphEditor.status.catalogReady', {count: catalog.length})}</span>
                 )}
                 {editorMessage && <span style={{marginLeft: 12, color: '#fecaca'}}>{editorMessage}</span>}
             </div>
