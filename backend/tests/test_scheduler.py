@@ -10,6 +10,7 @@ import pytest
 from app.core.errors import ErrorCode
 from app.core.frame import RuntimeEventType
 from app.core.graph_builder import GraphBuilder
+from app.core.graph_runtime import GraphRuntimeState, RuntimeNodeState
 from app.core.node_async import AsyncNode
 from app.core.node_base import NodeContext
 from app.core.node_factory import NodeFactory, create_default_node_factory
@@ -632,6 +633,8 @@ def test_scheduler_continue_on_error_failure_wakes_downstream_waiters() -> None:
         assert state.node_states["n2"].metrics["continued_on_error"] is True
         assert state.node_states["n3"].status == "failed"
         assert "必需输入已不可达" in (state.node_states["n3"].last_error or "")
+        assert state.node_states["n3"].metrics["last_error_code"] == ErrorCode.NODE_INPUT_UNAVAILABLE.value
+        assert state.node_states["n3"].metrics["last_error_retryable"] is False
 
         events, _ = scheduler.get_events(since=0, limit=200)
         failed_events = [
@@ -643,6 +646,39 @@ def test_scheduler_continue_on_error_failure_wakes_downstream_waiters() -> None:
         assert failed_events[0].error_code == ErrorCode.NODE_INPUT_UNAVAILABLE.value
 
     asyncio.run(_run())
+
+
+def test_required_inputs_unavailable_detects_any_unreachable_missing_port() -> None:
+    """任一缺失必需端口不可达时，应立即判定输入不可达。"""
+
+    graph = GraphSpec(
+        graph_id="g_scheduler_required_inputs_unavailable_any",
+        nodes=[
+            NodeInstanceSpec(node_id="n1", type_name="test.meta_audio"),
+            NodeInstanceSpec(node_id="n2", type_name="test.meta_motion"),
+            NodeInstanceSpec(node_id="n3", type_name="sync.timeline"),
+        ],
+        edges=[
+            EdgeSpec(source_node="n1", source_port="audio", target_node="n3", target_port="audio"),
+            EdgeSpec(source_node="n2", source_port="motion", target_node="n3", target_port="motion"),
+        ],
+    )
+    compiled = _build_registry_with_custom_nodes().build(graph)
+    scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+    scheduler._compiled_graph = compiled
+    scheduler.runtime_state = GraphRuntimeState(
+        run_id="run_required_inputs_unavailable_any",
+        graph_id=graph.graph_id,
+        status="running",
+        node_states={
+            "n1": RuntimeNodeState(node_id="n1", status="failed"),
+            "n2": RuntimeNodeState(node_id="n2", status="running"),
+            "n3": RuntimeNodeState(node_id="n3", status="idle"),
+        },
+    )
+    scheduler._node_inputs = {"n3": {}}
+
+    assert scheduler._required_inputs_unavailable("n3", {"audio", "motion"}) is True
 
 
 def test_scheduler_critical_node_ignores_continue_on_error_and_fails_fast() -> None:

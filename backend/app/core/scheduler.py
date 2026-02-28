@@ -387,6 +387,8 @@ class GraphScheduler:
                     node_state.metrics["failed_count"] = int(
                         node_state.metrics.get("failed_count", 0)
                     ) + 1
+                    node_state.metrics["last_error_code"] = ErrorCode.NODE_INPUT_UNAVAILABLE.value
+                    node_state.metrics["last_error_retryable"] = False
                     self._emit_event(
                         RuntimeEventType.NODE_FAILED,
                         node_id=node_id,
@@ -397,6 +399,7 @@ class GraphScheduler:
                         details={"required_ports": sorted(required_ports)},
                     )
                     if policy.continue_on_error and not policy.critical:
+                        node_state.metrics["continued_on_error"] = True
                         self._notify_downstream_waiters(node_id)
                         return
                     self._fail_run(message)
@@ -918,15 +921,14 @@ class GraphScheduler:
             ]
             if not provider_nodes:
                 return True
-            # 只要某上游不是失败/停止态，就仍可能产生/转发该输入。
-            if any(
-                    self.runtime_state.node_states[src].status not in blocking_statuses
+            # 当前端口所有上游均失败/停止，端口不可达。
+            if all(
+                    self.runtime_state.node_states[src].status in blocking_statuses
                     for src in provider_nodes
             ):
-                return False
-            # 当前端口所有上游均失败/停止，端口不可达；继续检查其它 missing port。
-            continue
-        return True
+                return True
+        # 所有缺失端口都仍有可用上游，暂不判定不可达。
+        return False
 
     @staticmethod
     def _build_node_policy(config: dict[str, Any]) -> NodeExecutionPolicy:

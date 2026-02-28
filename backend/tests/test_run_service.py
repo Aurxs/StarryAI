@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from app.core.errors import ErrorCode
 from app.core.frame import RuntimeEventType
 from app.core.node_async import AsyncNode
 from app.core.node_base import NodeContext
@@ -105,6 +106,25 @@ def _continue_on_error_graph(graph_id: str = "g_service_continue") -> GraphSpec:
         edges=[
             EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="text"),
             EdgeSpec(source_node="n1", source_port="text", target_node="n3", target_port="in"),
+        ],
+    )
+
+
+def _continue_on_error_wakeup_graph(graph_id: str = "g_service_continue_wakeup") -> GraphSpec:
+    return GraphSpec(
+        graph_id=graph_id,
+        nodes=[
+            NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+            NodeInstanceSpec(
+                node_id="n2",
+                type_name="test.fail.service",
+                config={"continue_on_error": True},
+            ),
+            NodeInstanceSpec(node_id="n3", type_name="mock.output"),
+        ],
+        edges=[
+            EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="text"),
+            EdgeSpec(source_node="n2", source_port="text", target_node="n3", target_port="in"),
         ],
     )
 
@@ -411,5 +431,24 @@ def test_run_service_metrics_and_diagnostics_views() -> None:
         assert diagnostics["status"] == "failed"
         assert len(diagnostics["failed_nodes"]) >= 1
         assert "edge_hotspots_top" in diagnostics
+
+    asyncio.run(_run())
+
+
+def test_run_service_diagnostics_exposes_input_unavailable_metadata() -> None:
+    """输入不可达失败应在 diagnostics 中返回结构化错误信息。"""
+
+    async def _run() -> None:
+        service = _build_service_with_fail_node()
+        record = await service.create_run(
+            _continue_on_error_wakeup_graph("g_service_diag_input_unavailable"),
+            stream_id="stream_diag_input_unavailable",
+        )
+        await record.task
+
+        diagnostics = service.get_run_diagnostics(record.run_id)
+        failed_nodes = {item["node_id"]: item for item in diagnostics["failed_nodes"]}
+        assert failed_nodes["n3"]["error_code"] == ErrorCode.NODE_INPUT_UNAVAILABLE.value
+        assert failed_nodes["n3"]["retryable"] is False
 
     asyncio.run(_run())
