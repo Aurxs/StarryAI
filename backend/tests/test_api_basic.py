@@ -140,6 +140,19 @@ def test_graph_validate_success_and_error_paths() -> None:
         assert any(issue["code"] == "node.unknown_type" for issue in bad.json()["issues"])
 
 
+def test_graph_validate_cors_preflight() -> None:
+    with TestClient(app) as client:
+        preflight = client.options(
+            "/api/v1/graphs/validate",
+            headers={
+                "Origin": "http://127.0.0.1:5173",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+        assert preflight.status_code == 200
+        assert preflight.headers.get("access-control-allow-origin") == "http://127.0.0.1:5173"
+
+
 def test_run_events_websocket_returns_not_found_error() -> None:
     with TestClient(app) as client:
         with client.websocket_connect("/api/v1/runs/nonexistent/events") as ws:

@@ -8,6 +8,16 @@ StarryAI is a modular, node-based AI virtual human workflow engine (Backend + Wo
 - Frontend scope: desktop-only (Desktop Web).
 - Out of scope: mobile adaptation, real model inference, external network calls.
 
+## Recent Fixes (2026-02-28)
+
+- UI layout upgrade:
+  - full-screen canvas as the base layer;
+  - left/right/bottom panels as floating overlays;
+  - all three panels are collapsible.
+- Graph editing update: each node now has a delete button.
+- Graph validation request fix: backend CORS support added to resolve frontend `NetworkError` and backend
+  `405 (OPTIONS)`.
+
 ## Core Capabilities
 
 - Graph contracts and validation: `NodeSpec/GraphSpec`, `GraphBuilder`.

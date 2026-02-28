@@ -39,55 +39,87 @@ interface WorkflowNodeData {
     nodeId: string;
     title: string;
     spec: NodeSpec;
+    onDeleteNode: (nodeId: string) => void;
 }
 
 const emptyPorts: NodeSpec['inputs'] = [];
 
 const editorShellStyle: CSSProperties = {
-    marginTop: 12,
-    borderRadius: 10,
-    border: '1px solid rgba(31, 41, 51, 0.16)',
+    position: 'relative',
+    width: '100%',
+    height: '100%',
     overflow: 'hidden',
+    background:
+        'radial-gradient(circle at 20% 15%, rgba(42, 51, 66, 0.28), transparent 35%), radial-gradient(circle at 80% 85%, rgba(31, 41, 55, 0.28), transparent 42%), #111827',
 };
 
 const toolbarStyle: CSSProperties = {
     padding: 10,
     display: 'flex',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 8,
-    borderBottom: '1px solid rgba(31, 41, 51, 0.14)',
-    background: 'rgba(255,255,255,0.7)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+    background: 'rgba(17, 24, 39, 0.72)',
+    color: '#e5e7eb',
+    backdropFilter: 'blur(5px)',
+    borderRadius: 10,
+    position: 'absolute',
+    top: 12,
+    left: 372,
+    right: 392,
+    zIndex: 6,
 };
 
 const paletteChipStyle: CSSProperties = {
-    border: '1px solid rgba(31, 41, 51, 0.2)',
+    border: '1px solid rgba(255, 255, 255, 0.25)',
     borderRadius: 999,
     padding: '4px 10px',
     fontSize: 12,
     cursor: 'grab',
-    background: '#ffffff',
+    background: 'rgba(255, 255, 255, 0.1)',
+    color: '#f9fafb',
 };
 
 const paletteButtonStyle: CSSProperties = {
-    border: '1px solid rgba(31, 41, 51, 0.2)',
+    border: '1px solid rgba(255, 255, 255, 0.25)',
     borderRadius: 8,
     padding: '4px 8px',
     fontSize: 12,
     cursor: 'pointer',
-    background: '#ffffff',
+    background: 'rgba(17, 24, 39, 0.85)',
+    color: '#f9fafb',
 };
 
 const workflowNodeStyle: CSSProperties = {
     minWidth: 160,
-    border: '1px solid rgba(31, 41, 51, 0.35)',
+    border: '1px solid rgba(15, 23, 42, 0.6)',
     borderRadius: 10,
-    padding: '8px 10px',
+    padding: '8px 10px 10px',
     background: '#ffffff',
     boxShadow: '0 1px 2px rgba(0, 0, 0, 0.08)',
+    position: 'relative',
 };
 
 const getPortTop = (index: number, total: number): string =>
     `${Math.round(((index + 1) * 100) / (total + 1))}%`;
+
+const deleteNodeButtonStyle: CSSProperties = {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 18,
+    height: 18,
+    border: '1px solid rgba(127, 29, 29, 0.45)',
+    borderRadius: 999,
+    background: '#fee2e2',
+    color: '#7f1d1d',
+    cursor: 'pointer',
+    fontSize: 12,
+    lineHeight: '16px',
+    textAlign: 'center',
+    padding: 0,
+};
 
 const fallbackNodeTypes: NodeSpec[] = [
     {
@@ -159,6 +191,18 @@ const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
 
     return (
         <div style={workflowNodeStyle}>
+            <button
+                type="button"
+                style={deleteNodeButtonStyle}
+                aria-label={`Delete ${data.nodeId}`}
+                title={`Delete ${data.nodeId}`}
+                onClick={(event) => {
+                    event.stopPropagation();
+                    data.onDeleteNode(data.nodeId);
+                }}
+            >
+                ×
+            </button>
             <strong>{data.title}</strong>
             <div style={{fontSize: 11, opacity: 0.76}}>{data.spec.type_name}</div>
 
@@ -218,6 +262,19 @@ const GraphEditorInner = () => {
         [graph, validationIssues],
     );
 
+    const deleteNodeById = useCallback(
+        (nodeId: string) => {
+            removeNode(nodeId);
+            setPositions((current) => {
+                const next = {...current};
+                delete next[nodeId];
+                return next;
+            });
+            setEditorMessage(null);
+        },
+        [removeNode],
+    );
+
     useEffect(() => {
         let cancelled = false;
         const loadCatalog = async () => {
@@ -264,6 +321,7 @@ const GraphEditorInner = () => {
                         nodeId: node.node_id,
                         title: node.title || node.type_name,
                         spec,
+                        onDeleteNode: deleteNodeById,
                     },
                 };
             }),
@@ -278,7 +336,7 @@ const GraphEditorInner = () => {
                 ),
             ),
         );
-    }, [catalogByType, graph.edges, graph.nodes, positions, setRfEdges, setRfNodes, validationTargets]);
+    }, [catalogByType, deleteNodeById, graph.edges, graph.nodes, positions, setRfEdges, setRfNodes, validationTargets]);
 
     const syncEdgesToStore = useCallback(
         (edges: Edge[]) => {
@@ -421,16 +479,16 @@ const GraphEditorInner = () => {
                 <strong style={{marginRight: 8}}>Node Palette</strong>
                 {catalog.map((nodeType) => (
                     <div key={nodeType.type_name} style={{display: 'flex', alignItems: 'center', gap: 6}}>
-            <span
-                draggable
-                onDragStart={(event) => {
-                    event.dataTransfer.setData('application/x-starry-node-type', nodeType.type_name);
-                }}
-                style={paletteChipStyle}
-                title={nodeType.description || nodeType.type_name}
-            >
-              {nodeType.type_name}
-            </span>
+                        <span
+                            draggable
+                            onDragStart={(event) => {
+                                event.dataTransfer.setData('application/x-starry-node-type', nodeType.type_name);
+                            }}
+                            style={paletteChipStyle}
+                            title={nodeType.description || nodeType.type_name}
+                        >
+                            {nodeType.type_name}
+                        </span>
                         <button
                             type="button"
                             style={paletteButtonStyle}
@@ -441,11 +499,11 @@ const GraphEditorInner = () => {
                     </div>
                 ))}
                 <span style={{marginLeft: 'auto', fontSize: 12, opacity: 0.75}} data-testid="graph-editor-meta">
-          nodes={graph.nodes.length}, edges={graph.edges.length}
-        </span>
+                    nodes={graph.nodes.length}, edges={graph.edges.length}
+                </span>
             </div>
 
-            <div style={{height: 360}} onDrop={onDropCanvas} onDragOver={onDragOverCanvas}>
+            <div style={{position: 'absolute', inset: 0}} onDrop={onDropCanvas} onDragOver={onDragOverCanvas}>
                 <ReactFlow
                     nodes={rfNodes}
                     edges={rfEdges}
@@ -459,13 +517,33 @@ const GraphEditorInner = () => {
                     fitView
                     fitViewOptions={{padding: 0.2}}
                 >
-                    <Background/>
-                    <MiniMap/>
+                    <Background color="rgba(148, 163, 184, 0.22)" gap={24}/>
+                    <MiniMap
+                        pannable
+                        zoomable
+                        style={{
+                            background: 'rgba(17, 24, 39, 0.8)',
+                            border: '1px solid rgba(255, 255, 255, 0.18)',
+                        }}
+                    />
                     <Controls/>
                 </ReactFlow>
             </div>
 
-            <div style={{padding: 8, fontSize: 12}}>
+            <div
+                style={{
+                    position: 'absolute',
+                    left: 12,
+                    bottom: 12,
+                    zIndex: 6,
+                    padding: '6px 10px',
+                    borderRadius: 8,
+                    border: '1px solid rgba(255, 255, 255, 0.22)',
+                    background: 'rgba(17, 24, 39, 0.72)',
+                    color: '#e5e7eb',
+                    fontSize: 12,
+                }}
+            >
                 {catalogLoading && <span data-testid="graph-editor-status">Loading node catalog...</span>}
                 {!catalogLoading && catalogError && (
                     <span data-testid="graph-editor-status">Catalog fallback active: {catalogError}</span>
@@ -473,7 +551,7 @@ const GraphEditorInner = () => {
                 {!catalogLoading && !catalogError && (
                     <span data-testid="graph-editor-status">Catalog ready ({catalog.length} types)</span>
                 )}
-                {editorMessage && <span style={{marginLeft: 12, color: '#9f1239'}}>{editorMessage}</span>}
+                {editorMessage && <span style={{marginLeft: 12, color: '#fecaca'}}>{editorMessage}</span>}
             </div>
         </section>
     );

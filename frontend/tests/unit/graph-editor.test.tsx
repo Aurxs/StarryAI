@@ -49,4 +49,21 @@ describe('GraphEditor', () => {
         fireEvent.click(addButtons[0]!);
         expect(useGraphStore.getState().graph.nodes).toHaveLength(1);
     });
+
+    it('deletes node through in-node delete button', async () => {
+        render(<GraphEditor/>);
+
+        await waitFor(() => {
+            expect(screen.getByTestId('graph-editor-status').textContent).toContain('Catalog');
+        });
+
+        const addButtons = screen.getAllByRole('button', {name: 'Add'});
+        fireEvent.click(addButtons[0]!);
+        fireEvent.click(addButtons[1]!);
+        expect(useGraphStore.getState().graph.nodes).toHaveLength(2);
+
+        fireEvent.click(screen.getByTitle('Delete n1'));
+        expect(useGraphStore.getState().graph.nodes).toHaveLength(1);
+        expect(useGraphStore.getState().graph.nodes[0]?.node_id).toBe('n2');
+    });
 });
