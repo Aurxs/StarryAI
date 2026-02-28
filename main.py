@@ -206,16 +206,45 @@ def _is_chinese_system_language() -> bool:
 
 def _is_port_available(host: str, port: int) -> bool:
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.bind((host, port))
-            return True
+        addr_infos = socket.getaddrinfo(
+            host,
+            port,
+            family=socket.AF_UNSPEC,
+            type=socket.SOCK_STREAM,
+        )
     except OSError:
         return False
 
+    for family, sock_type, proto, _, sockaddr in addr_infos:
+        try:
+            with socket.socket(family, sock_type, proto) as sock:
+                if family == socket.AF_INET6:
+                    try:
+                        # 避免双栈行为导致与 IPv4 端口占用状态互相干扰。
+                        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+                    except OSError:
+                        pass
+                sock.bind(sockaddr)
+                return True
+        except (OSError, OverflowError):
+            continue
+    return False
 
-def _pick_available_port(name: str, host: str, start_port: int, tries: int = 50) -> int:
+
+def _pick_available_port(
+    name: str,
+    host: str,
+    start_port: int,
+    tries: int = 50,
+    excluded_ports: set[int] | None = None,
+) -> int:
+    blocked_ports = excluded_ports or set()
     for offset in range(tries):
         candidate = start_port + offset
+        if not 0 <= candidate <= 65535:
+            continue
+        if candidate in blocked_ports:
+            continue
         if _is_port_available(host, candidate):
             if candidate != start_port:
                 _log(
@@ -408,7 +437,12 @@ def run_launcher(host: str, backend_port: int, frontend_port: int, color_mode: s
     _ensure_python_deps(REPO_ROOT)
     _ensure_frontend_deps(FRONTEND_DIR)
     backend_port = _pick_available_port("backend", host, backend_port)
-    frontend_port = _pick_available_port("frontend", host, frontend_port)
+    frontend_port = _pick_available_port(
+        "frontend",
+        host,
+        frontend_port,
+        excluded_ports={backend_port},
+    )
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
