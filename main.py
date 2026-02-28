@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import locale
 import os
 import platform
 import shutil
@@ -28,6 +29,107 @@ REPO_ROOT = Path(__file__).resolve().parent
 BACKEND_DIR = REPO_ROOT / "backend"
 FRONTEND_DIR = REPO_ROOT / "frontend"
 USE_COLOR = True
+IS_ZH = False
+
+MESSAGES = {
+    "spawn_failed": {
+        "zh": "{name} 启动失败：stdout 管道不可用。",
+        "en": "{name} failed to start: stdout pipe is unavailable.",
+    },
+    "python_too_low": {
+        "zh": "Python 版本过低：需要 >= 3.12，当前为 {current}。",
+        "en": "Python version too low: requires >= 3.12, current is {current}.",
+    },
+    "npm_not_found": {
+        "zh": "未找到 `npm`，请先安装 Node.js（包含 npm）。",
+        "en": "`npm` not found. Please install Node.js (including npm) first.",
+    },
+    "python_exec_unavailable": {
+        "zh": "当前 Python 可执行文件不可用。",
+        "en": "The current Python executable is unavailable.",
+    },
+    "frontend_deps_missing_installing": {
+        "zh": "检测到 frontend/node_modules 不存在，正在执行 npm install ...",
+        "en": "Detected missing frontend/node_modules, running npm install ...",
+    },
+    "frontend_install_failed": {
+        "zh": "前端依赖安装失败，请手动执行 `cd frontend && npm install`。",
+        "en": "Frontend dependency installation failed. Run `cd frontend && npm install` manually.",
+    },
+    "python_deps_missing_installing": {
+        "zh": "检测到 Python 依赖缺失：{missing}，正在执行 pip install -r requirements.txt ...",
+        "en": "Detected missing Python dependencies: {missing}. Running pip install -r requirements.txt ...",
+    },
+    "python_install_failed": {
+        "zh": "Python 依赖安装失败，请手动执行 `{cmd}`。",
+        "en": "Python dependency installation failed. Run `{cmd}` manually.",
+    },
+    "stopping_process": {
+        "zh": "正在停止 {name} ...",
+        "en": "Stopping {name} ...",
+    },
+    "process_stop_timeout": {
+        "zh": "{name} 退出超时，强制结束。",
+        "en": "{name} did not exit in time, forcing termination.",
+    },
+    "press_ctrl_c": {
+        "zh": "按 Ctrl+C 可同时停止前后端。",
+        "en": "Press Ctrl+C to stop backend and frontend together.",
+    },
+    "process_exited": {
+        "zh": "{name} 已退出（code={code}），正在关闭其余进程。",
+        "en": "{name} exited (code={code}), shutting down remaining process.",
+    },
+    "interrupt_received": {
+        "zh": "收到中断信号，正在停止所有进程...",
+        "en": "Interrupt received, stopping all processes...",
+    },
+    "arg_desc": {
+        "zh": "一键启动 StarryAI 前后端开发环境。",
+        "en": "One-command launcher for StarryAI backend and frontend dev environment.",
+    },
+    "arg_host_help": {
+        "zh": "前后端监听地址，默认 127.0.0.1",
+        "en": "Host address for backend and frontend. Default: 127.0.0.1",
+    },
+    "arg_backend_port_help": {
+        "zh": "后端端口，默认 8000",
+        "en": "Backend port. Default: 8000",
+    },
+    "arg_frontend_port_help": {
+        "zh": "前端端口，默认 5173",
+        "en": "Frontend port. Default: 5173",
+    },
+    "arg_color_help": {
+        "zh": "日志颜色模式，默认 always",
+        "en": "Log color mode. Default: always",
+    },
+}
+
+
+def _msg(key: str, **kwargs: object) -> str:
+    lang = "zh" if IS_ZH else "en"
+    template = MESSAGES[key][lang]
+    return template.format(**kwargs)
+
+
+def _is_chinese_system_language() -> bool:
+    """根据系统语言判断是否应显示中文。"""
+    env_langs = (
+        os.getenv("LC_ALL", "").strip(),
+        os.getenv("LC_MESSAGES", "").strip(),
+        os.getenv("LANG", "").strip(),
+    )
+    if any(lang.lower().startswith("zh") for lang in env_langs if lang):
+        return True
+
+    locale_langs: list[str] = []
+    try:
+        locale_langs.append(locale.getlocale()[0] or "")
+    except Exception:
+        pass
+
+    return any(lang.lower().startswith("zh") for lang in locale_langs if lang)
 
 
 def _resolve_use_color(color_mode: str) -> bool:
@@ -95,7 +197,7 @@ def _spawn_process(
         bufsize=1,
     )
     if process.stdout is None:
-        raise RuntimeError(f"{name} 启动失败：stdout 管道不可用。")
+        raise RuntimeError(_msg("spawn_failed", name=name))
     thread = threading.Thread(
         target=_prefixed_stream_reader,
         args=(process.stdout, name),
@@ -106,10 +208,13 @@ def _spawn_process(
 
 
 def _check_required_commands() -> None:
+    if sys.version_info < (3, 12):
+        current = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+        raise RuntimeError(_msg("python_too_low", current=current))
     if shutil.which("npm") is None:
-        raise RuntimeError("未找到 `npm`，请先安装 Node.js（包含 npm）。")
+        raise RuntimeError(_msg("npm_not_found"))
     if shutil.which(sys.executable) is None:
-        raise RuntimeError("当前 Python 可执行文件不可用。")
+        raise RuntimeError(_msg("python_exec_unavailable"))
 
 
 def _ensure_frontend_deps(frontend_dir: Path) -> None:
@@ -117,7 +222,7 @@ def _ensure_frontend_deps(frontend_dir: Path) -> None:
     if node_modules.exists():
         return
 
-    _log("launcher", "检测到 frontend/node_modules 不存在，正在执行 npm install ...")
+    _log("launcher", _msg("frontend_deps_missing_installing"))
     install_cmd = ["npm", "install"]
     result = subprocess.run(
         install_cmd,
@@ -125,7 +230,7 @@ def _ensure_frontend_deps(frontend_dir: Path) -> None:
         text=True,
     )
     if result.returncode != 0:
-        raise RuntimeError("前端依赖安装失败，请手动执行 `cd frontend && npm install`。")
+        raise RuntimeError(_msg("frontend_install_failed"))
 
 
 def _ensure_python_deps(repo_root: Path) -> None:
@@ -136,8 +241,7 @@ def _ensure_python_deps(repo_root: Path) -> None:
 
     _log(
         "launcher",
-        "检测到 Python 依赖缺失："
-        f"{', '.join(missing)}，正在执行 pip install -r requirements.txt ...",
+        _msg("python_deps_missing_installing", missing=", ".join(missing)),
     )
     result = subprocess.run(
         [sys.executable, "-m", "pip", "install", "-r", str(repo_root / "requirements.txt")],
@@ -145,17 +249,15 @@ def _ensure_python_deps(repo_root: Path) -> None:
         text=True,
     )
     if result.returncode != 0:
-        raise RuntimeError(
-            "Python 依赖安装失败，请手动执行 "
-            f"`{sys.executable} -m pip install -r requirements.txt`。"
-        )
+        cmd = f"{sys.executable} -m pip install -r requirements.txt"
+        raise RuntimeError(_msg("python_install_failed", cmd=cmd))
 
 
 def _terminate_process(process: subprocess.Popen[str], name: str) -> None:
     if process.poll() is not None:
         return
 
-    _log("launcher", f"正在停止 {name} ...")
+    _log("launcher", _msg("stopping_process", name=name))
     if platform.system().lower().startswith("win"):
         process.send_signal(signal.CTRL_BREAK_EVENT)
     else:
@@ -164,13 +266,15 @@ def _terminate_process(process: subprocess.Popen[str], name: str) -> None:
     try:
         process.wait(timeout=8)
     except subprocess.TimeoutExpired:
-        _log("launcher", f"{name} 退出超时，强制结束。")
+        _log("launcher", _msg("process_stop_timeout", name=name))
         process.kill()
         process.wait(timeout=3)
 
 
 def run_launcher(host: str, backend_port: int, frontend_port: int, color_mode: str) -> int:
     global USE_COLOR
+    global IS_ZH
+    IS_ZH = _is_chinese_system_language()
     USE_COLOR = _resolve_use_color(color_mode)
 
     _check_required_commands()
@@ -217,7 +321,7 @@ def run_launcher(host: str, backend_port: int, frontend_port: int, color_mode: s
 
     _log("launcher", f"Backend:  http://{host}:{backend_port}")
     _log("launcher", f"Frontend: http://{host}:{frontend_port}")
-    _log("launcher", "按 Ctrl+C 可同时停止前后端。")
+    _log("launcher", _msg("press_ctrl_c"))
 
     backend_proc = _spawn_process(backend_cmd, REPO_ROOT, env, "backend")
     frontend_proc = _spawn_process(frontend_cmd, FRONTEND_DIR, env, "frontend")
@@ -229,7 +333,7 @@ def run_launcher(host: str, backend_port: int, frontend_port: int, color_mode: s
             for name, proc in procs:
                 code = proc.poll()
                 if code is not None:
-                    _log("launcher", f"{name} 已退出（code={code}），正在关闭其余进程。")
+                    _log("launcher", _msg("process_exited", name=name, code=code))
                     for other_name, other_proc in procs:
                         if other_proc is not proc:
                             _terminate_process(other_proc, other_name)
@@ -237,32 +341,35 @@ def run_launcher(host: str, backend_port: int, frontend_port: int, color_mode: s
             time.sleep(0.3)
     except KeyboardInterrupt:
         print()
-        _log("launcher", "收到中断信号，正在停止所有进程...")
+        _log("launcher", _msg("interrupt_received"))
         for name, proc in procs:
             _terminate_process(proc, name)
         return 0
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="一键启动 StarryAI 前后端开发环境。")
-    parser.add_argument("--host", default="127.0.0.1", help="前后端监听地址，默认 127.0.0.1")
+    global IS_ZH
+    IS_ZH = _is_chinese_system_language()
+
+    parser = argparse.ArgumentParser(description=_msg("arg_desc"))
+    parser.add_argument("--host", default="127.0.0.1", help=_msg("arg_host_help"))
     parser.add_argument(
         "--backend-port",
         type=int,
         default=8000,
-        help="后端端口，默认 8000",
+        help=_msg("arg_backend_port_help"),
     )
     parser.add_argument(
         "--frontend-port",
         type=int,
         default=5173,
-        help="前端端口，默认 5173",
+        help=_msg("arg_frontend_port_help"),
     )
     parser.add_argument(
         "--color",
         choices=["auto", "always", "never"],
         default="always",
-        help="日志颜色模式，默认 always",
+        help=_msg("arg_color_help"),
     )
     return parser.parse_args()
 
