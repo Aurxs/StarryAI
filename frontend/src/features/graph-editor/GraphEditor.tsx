@@ -1439,6 +1439,7 @@ const GraphEditorInner = () => {
                 >
                     <button
                         type="button"
+                        className="button-hover-exempt"
                         onClick={runContextCopy}
                         style={buildContextActionStyle('copy')}
                         onMouseEnter={() => setHoveredContextAction('copy')}
@@ -1449,6 +1450,7 @@ const GraphEditorInner = () => {
                     </button>
                     <button
                         type="button"
+                        className="button-hover-exempt"
                         onClick={runContextDuplicate}
                         style={buildContextActionStyle('duplicate')}
                         onMouseEnter={() => setHoveredContextAction('duplicate')}
@@ -1460,6 +1462,7 @@ const GraphEditorInner = () => {
                     <div style={{height: 1, background: '#dde2eb', margin: '4px 4px'}}/>
                     <button
                         type="button"
+                        className="button-hover-exempt"
                         onClick={runContextDelete}
                         style={buildContextActionStyle('delete')}
                         onMouseEnter={() => setHoveredContextAction('delete')}
@@ -1510,6 +1513,7 @@ const GraphEditorInner = () => {
                 >
                     <button
                         type="button"
+                        className="button-hover-exempt"
                         title={t('graphEditor.zoom.decrease')}
                         onClick={() => applyZoomDelta(-0.1)}
                         style={{
@@ -1523,6 +1527,7 @@ const GraphEditorInner = () => {
                     </button>
                     <button
                         type="button"
+                        className="button-hover-exempt"
                         data-testid="zoom-ratio-button"
                         onClick={() => setZoomMenuOpen(!zoomMenuOpen)}
                         style={buildZoomActionStyle('ratio')}
@@ -1533,6 +1538,7 @@ const GraphEditorInner = () => {
                     </button>
                     <button
                         type="button"
+                        className="button-hover-exempt"
                         title={t('graphEditor.zoom.increase')}
                         onClick={() => applyZoomDelta(0.1)}
                         style={{
@@ -1567,6 +1573,7 @@ const GraphEditorInner = () => {
                             <div key={preset}>
                                 <button
                                     type="button"
+                                    className="button-hover-exempt"
                                     onClick={() => {
                                         const viewport = reactFlow.getViewport();
                                         const nextZoom = safeZoomRatio(preset);

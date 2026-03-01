@@ -612,6 +612,7 @@ export function WorkbenchPage() {
                         {panelExpanded ? (
                             <button
                                 type="button"
+                                className="button-hover-exempt"
                                 style={{
                                     ...projectNameBaseStyle,
                                     width: '100%',
@@ -656,6 +657,7 @@ export function WorkbenchPage() {
                         ) : (
                             <button
                                 type="button"
+                                className="button-hover-exempt"
                                 style={{
                                     ...projectNameBaseStyle,
                                     width: '100%',
@@ -683,6 +685,7 @@ export function WorkbenchPage() {
                     />
                     <button
                         type="button"
+                        className="icon-hover-button"
                         style={{...floatingButtonStyle, width: 28, height: 28, padding: 0, flexShrink: 0}}
                         onClick={() => {
                             if (panelExpanded) {
@@ -872,6 +875,7 @@ export function WorkbenchPage() {
                     type="button"
                     title={t('workbench.actions.undo')}
                     aria-label={t('workbench.actions.undo')}
+                    className="icon-hover-button"
                     style={{
                         ...floatingButtonStyle,
                         width: 32,
@@ -890,6 +894,7 @@ export function WorkbenchPage() {
                     type="button"
                     title={t('workbench.actions.redo')}
                     aria-label={t('workbench.actions.redo')}
+                    className="icon-hover-button"
                     style={{
                         ...floatingButtonStyle,
                         width: 32,
@@ -908,6 +913,7 @@ export function WorkbenchPage() {
                     type="button"
                     title={t('workbench.history.toggle')}
                     aria-label={t('workbench.history.toggle')}
+                    className="icon-hover-button"
                     style={{
                         ...floatingButtonStyle,
                         width: 32,
