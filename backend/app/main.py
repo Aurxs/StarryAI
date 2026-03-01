@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes_graphs import router as graphs_router
 from app.api.routes_node_types import router as node_types_router
+from app.api.routes_observability import router as observability_router
 from app.api.routes_runs import router as runs_router
 from app.api.ws_runs import router as ws_runs_router
 
@@ -25,6 +26,8 @@ app.add_middleware(
         "http://127.0.0.1:4173",
         "http://localhost:4173",
     ],
+    # Allow local dev hosts with dynamic ports (e.g. Vite auto-switch to 5174+).
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -34,6 +37,7 @@ app.add_middleware(
 app.include_router(node_types_router)
 app.include_router(graphs_router)
 app.include_router(runs_router)
+app.include_router(observability_router)
 app.include_router(ws_runs_router)
 
 

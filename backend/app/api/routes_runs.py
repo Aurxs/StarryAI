@@ -15,7 +15,12 @@ from app.schemas.runs import (
     RunStatusResponse,
     StopRunResponse,
 )
-from app.services.run_service import InvalidRunRequestError, RunNotFoundError, get_run_service
+from app.services.run_service import (
+    InvalidRunRequestError,
+    RunCapacityExceededError,
+    RunNotFoundError,
+    get_run_service,
+)
 
 # 运行控制相关路由。
 router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
@@ -39,6 +44,11 @@ async def create_run(req: CreateRunRequest) -> dict[str, object]:
     except InvalidRunRequestError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"message": str(exc)},
+        ) from exc
+    except RunCapacityExceededError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={"message": str(exc)},
         ) from exc
 

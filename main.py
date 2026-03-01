@@ -99,6 +99,10 @@ MESSAGES = {
         "zh": "前端: http://{host}:{port}",
         "en": "Frontend: http://{host}:{port}",
     },
+    "frontend_api_base_url": {
+        "zh": "前端 API 基址: {url}",
+        "en": "Frontend API base: {url}",
+    },
     "port_busy_switching": {
         "zh": "{name} 端口 {old_port} 已被占用，自动切换到 {new_port}。",
         "en": "{name} port {old_port} is in use, switching to {new_port}.",
@@ -446,6 +450,9 @@ def run_launcher(host: str, backend_port: int, frontend_port: int, color_mode: s
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    backend_api_host = "127.0.0.1" if host == "0.0.0.0" else host
+    backend_api_base_url = f"http://{backend_api_host}:{backend_port}"
+    env["VITE_API_BASE_URL"] = backend_api_base_url
     if USE_COLOR:
         # 强制子进程保留颜色输出，并移除与 FORCE_COLOR 冲突的变量。
         env["FORCE_COLOR"] = "1"
@@ -484,6 +491,7 @@ def run_launcher(host: str, backend_port: int, frontend_port: int, color_mode: s
 
     _log("launcher", _msg("backend_url", host=host, port=backend_port))
     _log("launcher", _msg("frontend_url", host=host, port=frontend_port))
+    _log("launcher", _msg("frontend_api_base_url", url=backend_api_base_url))
     _log("launcher", _msg("press_ctrl_c"))
 
     backend_proc = _spawn_process(backend_cmd, REPO_ROOT, env, "backend")

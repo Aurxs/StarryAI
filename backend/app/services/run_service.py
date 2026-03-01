@@ -25,6 +25,10 @@ class InvalidRunRequestError(ValueError):
     """运行请求参数非法。"""
 
 
+class RunCapacityExceededError(RuntimeError):
+    """运行实例数量超出服务配置上限。"""
+
+
 @dataclass(slots=True)
 class RunRecord:
     """运行实例记录。"""
@@ -66,12 +70,14 @@ class RunService:
             node_factory_builder: Callable[[], NodeFactory] | None = None,
             max_retained_runs: int = 500,
             retention_ttl_s: float = 3600.0,
+            max_active_runs: int = 0,
     ) -> None:
         self.registry = registry or create_default_registry()
         self.scheduler_config = scheduler_config or SchedulerConfig()
         self.node_factory_builder = node_factory_builder or create_default_node_factory
         self.max_retained_runs = max(1, max_retained_runs)
         self.retention_ttl_s = max(0.0, retention_ttl_s)
+        self.max_active_runs = max(0, int(max_active_runs))
         self.builder = GraphBuilder(self.registry)
 
         self._runs: dict[str, RunRecord] = {}
@@ -81,24 +87,25 @@ class RunService:
         """创建并启动一个运行实例。"""
         normalized_stream_id = self._normalize_stream_id(stream_id)
         compiled_graph = self.builder.build(graph)
-        run_id = f"run_{uuid.uuid4().hex[:12]}"
-        scheduler = GraphScheduler(
-            config=self.scheduler_config,
-            node_factory=self.node_factory_builder(),
-        )
-        task = asyncio.create_task(
-            scheduler.run(compiled_graph, run_id=run_id, stream_id=normalized_stream_id),
-            name=f"run:{run_id}",
-        )
-        record = RunRecord(
-            run_id=run_id,
-            graph_id=graph.graph_id,
-            stream_id=normalized_stream_id,
-            created_at=time.time(),
-            scheduler=scheduler,
-            task=task,
-        )
         async with self._lock:
+            self._ensure_capacity_locked()
+            run_id = f"run_{uuid.uuid4().hex[:12]}"
+            scheduler = GraphScheduler(
+                config=self.scheduler_config,
+                node_factory=self.node_factory_builder(),
+            )
+            task = asyncio.create_task(
+                scheduler.run(compiled_graph, run_id=run_id, stream_id=normalized_stream_id),
+                name=f"run:{run_id}",
+            )
+            record = RunRecord(
+                run_id=run_id,
+                graph_id=graph.graph_id,
+                stream_id=normalized_stream_id,
+                created_at=time.time(),
+                scheduler=scheduler,
+                task=task,
+            )
             self._runs[run_id] = record
             self._prune_runs_locked(now=time.time())
         return record
@@ -206,6 +213,9 @@ class RunService:
     def get_run_diagnostics(self, run_id: str) -> dict[str, Any]:
         """获取运行诊断视图。"""
         snapshot = self.get_run_snapshot(run_id)
+        graph_metrics = snapshot.get("metrics")
+        if not isinstance(graph_metrics, dict):
+            graph_metrics = {}
         failed_nodes: list[dict[str, Any]] = []
         slow_nodes: list[dict[str, Any]] = []
 
@@ -247,6 +257,7 @@ class RunService:
             if int(edge.get("queue_peak_size", 0)) > 0
         ]
         edge_hotspots.sort(key=lambda item: item["queue_peak_size"], reverse=True)
+        event_window = self._build_event_window_metrics(graph_metrics)
 
         return {
             "run_id": snapshot["run_id"],
@@ -257,6 +268,64 @@ class RunService:
             "failed_nodes": failed_nodes,
             "slow_nodes_top": slow_nodes[:5],
             "edge_hotspots_top": edge_hotspots[:5],
+            "event_window": event_window,
+            "capacity": {
+                "max_active_runs": self.max_active_runs,
+                "active_runs": self._count_active_runs(),
+                "retained_runs": len(self._runs),
+            },
+        }
+
+    def get_service_metrics_snapshot(self) -> dict[str, Any]:
+        """返回服务级聚合指标（用于运维采集）。"""
+        status_counts: dict[str, int] = {
+            "running": 0,
+            "completed": 0,
+            "failed": 0,
+            "stopped": 0,
+            "idle": 0,
+        }
+        event_total = 0
+        event_retained = 0
+        event_dropped = 0
+        for record in self._runs.values():
+            status = record.status
+            status_counts[status] = int(status_counts.get(status, 0)) + 1
+            runtime = record.scheduler.runtime_state
+            if runtime is None:
+                continue
+            event_total += int(runtime.metrics.get("event_total", 0))
+            event_retained += int(runtime.metrics.get("event_retained", 0))
+            event_dropped += int(runtime.metrics.get("event_dropped", 0))
+
+        capacity_limit = self.max_active_runs
+        active_runs = self._count_active_runs()
+        if capacity_limit > 0:
+            capacity_utilization = round(active_runs / capacity_limit, 6)
+        else:
+            capacity_utilization = 0.0
+        if event_total > 0:
+            events_drop_ratio = round(event_dropped / event_total, 6)
+            events_retention_ratio = round(event_retained / event_total, 6)
+        else:
+            events_drop_ratio = 0.0
+            events_retention_ratio = 0.0
+
+        return {
+            "runs_retained": len(self._runs),
+            "runs_active": active_runs,
+            "runs_completed": status_counts.get("completed", 0),
+            "runs_failed": status_counts.get("failed", 0),
+            "runs_stopped": status_counts.get("stopped", 0),
+            "runs_idle": status_counts.get("idle", 0),
+            "run_capacity_limit": capacity_limit,
+            "run_capacity_utilization": capacity_utilization,
+            "runs_status_counts": status_counts,
+            "events_total": event_total,
+            "events_retained": event_retained,
+            "events_dropped": event_dropped,
+            "events_drop_ratio": events_drop_ratio,
+            "events_retention_ratio": events_retention_ratio,
         }
 
     async def stop_all(self) -> None:
@@ -302,6 +371,44 @@ class RunService:
             self._runs.pop(run_id, None)
 
     @staticmethod
+    def _build_event_window_metrics(graph_metrics: dict[str, Any]) -> dict[str, Any]:
+        """构造事件窗口诊断指标。"""
+        event_total = int(graph_metrics.get("event_total", 0))
+        event_retained = int(graph_metrics.get("event_retained", 0))
+        event_dropped = int(graph_metrics.get("event_dropped", 0))
+        drop_ratio = (
+            float(graph_metrics.get("event_drop_ratio", 0.0))
+            if event_total > 0
+            else 0.0
+        )
+        retention_ratio = (
+            float(graph_metrics.get("event_retention_ratio", 0.0))
+            if event_total > 0
+            else 0.0
+        )
+        return {
+            "event_total": event_total,
+            "event_retained": event_retained,
+            "event_dropped": event_dropped,
+            "drop_ratio": drop_ratio,
+            "retention_ratio": retention_ratio,
+        }
+
+    def _ensure_capacity_locked(self) -> None:
+        """校验当前运行并发是否超过上限。"""
+        if self.max_active_runs <= 0:
+            return
+        active_runs = sum(1 for record in self._runs.values() if not record.task.done())
+        if active_runs >= self.max_active_runs:
+            raise RunCapacityExceededError(
+                f"并发运行已达上限: active={active_runs}, limit={self.max_active_runs}"
+            )
+
+    def _count_active_runs(self) -> int:
+        """统计当前活跃运行数。"""
+        return sum(1 for record in self._runs.values() if not record.task.done())
+
+    @staticmethod
     def _normalize_stream_id(raw_value: Any) -> str:
         """规范化 stream_id，并拒绝空白或非字符串值。"""
         if not isinstance(raw_value, str):
@@ -331,6 +438,7 @@ def reset_run_service_for_testing() -> None:
 
 __all__ = [
     "InvalidRunRequestError",
+    "RunCapacityExceededError",
     "RunNotFoundError",
     "RunRecord",
     "RunService",

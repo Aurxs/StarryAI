@@ -14,9 +14,9 @@ from app.core.node_async import AsyncNode
 from app.core.node_base import NodeContext
 from app.core.node_factory import NodeFactory, create_default_node_factory
 from app.core.registry import create_default_registry
-from app.core.scheduler import GraphScheduler
+from app.core.scheduler import GraphScheduler, SchedulerConfig
 from app.core.spec import EdgeSpec, GraphSpec, NodeInstanceSpec, NodeMode, NodeSpec, PortSpec
-from app.services.run_service import RunNotFoundError, RunRecord, RunService
+from app.services.run_service import RunCapacityExceededError, RunNotFoundError, RunRecord, RunService
 
 
 class SlowPassNode(AsyncNode):
@@ -252,6 +252,37 @@ def test_run_service_snapshot_includes_task_error_without_runtime_state() -> Non
     asyncio.run(_run())
 
 
+def test_run_service_diagnostics_defaults_when_runtime_missing() -> None:
+    """runtime_state 缺失时 diagnostics 仍应返回可消费的窗口指标。"""
+
+    async def _run() -> None:
+        service = RunService()
+        scheduler = GraphScheduler()
+
+        async def _boom() -> Any:
+            raise RuntimeError("task exploded before runtime init")
+
+        task = asyncio.create_task(_boom())
+        await asyncio.gather(task, return_exceptions=True)
+        record = RunRecord(
+            run_id="run_diag_task_error",
+            graph_id="g_diag_task_error",
+            stream_id="stream_diag_task_error",
+            created_at=time.time(),
+            scheduler=scheduler,
+            task=task,
+        )
+        service._runs[record.run_id] = record
+
+        diagnostics = service.get_run_diagnostics(record.run_id)
+        assert diagnostics["status"] == "failed"
+        assert diagnostics["event_window"]["event_total"] == 0
+        assert diagnostics["event_window"]["event_dropped"] == 0
+        assert diagnostics["event_window"]["drop_ratio"] == 0.0
+
+    asyncio.run(_run())
+
+
 def test_run_service_not_found_paths() -> None:
     """不存在的 run_id 应抛 RunNotFoundError。"""
     service = RunService()
@@ -380,6 +411,23 @@ def test_run_service_prunes_completed_runs_when_over_limit() -> None:
     asyncio.run(_run())
 
 
+def test_run_service_rejects_create_when_active_runs_reach_limit() -> None:
+    """active run 达到上限时，应拒绝新建运行实例。"""
+
+    async def _run() -> None:
+        service = _build_service_with_slow_node()
+        service.max_active_runs = 1
+        active = await service.create_run(_slow_graph("g_service_capacity_active"))
+
+        await asyncio.sleep(0.05)
+        with pytest.raises(RunCapacityExceededError):
+            await service.create_run(_slow_graph("g_service_capacity_rejected"))
+
+        await service.stop_run(active.run_id)
+
+    asyncio.run(_run())
+
+
 def test_run_service_continue_on_error_completes_run() -> None:
     """continue_on_error 非关键节点失败不应拖垮整图。"""
 
@@ -431,6 +479,29 @@ def test_run_service_metrics_and_diagnostics_views() -> None:
         assert diagnostics["status"] == "failed"
         assert len(diagnostics["failed_nodes"]) >= 1
         assert "edge_hotspots_top" in diagnostics
+        assert "event_window" in diagnostics
+        assert "capacity" in diagnostics
+        assert diagnostics["event_window"]["event_total"] >= 1
+        assert diagnostics["capacity"]["retained_runs"] >= 1
+
+    asyncio.run(_run())
+
+
+def test_run_service_diagnostics_event_window_reports_drop_ratio() -> None:
+    """事件窗口启用裁剪后，diagnostics 应返回 drop/retention 指标。"""
+
+    async def _run() -> None:
+        service = RunService(scheduler_config=SchedulerConfig(max_retained_events=3))
+        record = await service.create_run(_basic_graph("g_service_event_window"), stream_id="stream_event_window")
+        await record.task
+
+        diagnostics = service.get_run_diagnostics(record.run_id)
+        event_window = diagnostics["event_window"]
+        assert event_window["event_total"] > 0
+        assert event_window["event_retained"] <= 3
+        assert event_window["event_dropped"] >= 1
+        assert 0.0 <= float(event_window["drop_ratio"]) <= 1.0
+        assert 0.0 <= float(event_window["retention_ratio"]) <= 1.0
 
     asyncio.run(_run())
 
@@ -450,5 +521,29 @@ def test_run_service_diagnostics_exposes_input_unavailable_metadata() -> None:
         failed_nodes = {item["node_id"]: item for item in diagnostics["failed_nodes"]}
         assert failed_nodes["n3"]["error_code"] == ErrorCode.NODE_INPUT_UNAVAILABLE.value
         assert failed_nodes["n3"]["retryable"] is False
+
+    asyncio.run(_run())
+
+
+def test_run_service_service_metrics_snapshot() -> None:
+    """服务级指标快照应返回可观测聚合值。"""
+
+    async def _run() -> None:
+        service = RunService()
+        record = await service.create_run(_basic_graph("g_service_metrics_snapshot"), stream_id="stream_metrics")
+        await record.task
+
+        snapshot = service.get_service_metrics_snapshot()
+        assert snapshot["runs_retained"] >= 1
+        assert snapshot["runs_completed"] >= 1
+        assert snapshot["runs_active"] == 0
+        assert snapshot["events_total"] >= 1
+        assert snapshot["events_retained"] >= 1
+        assert snapshot["events_dropped"] >= 0
+        assert "runs_status_counts" in snapshot
+        assert snapshot["runs_status_counts"]["completed"] >= 1
+        assert 0.0 <= float(snapshot["run_capacity_utilization"]) <= 1.0
+        assert 0.0 <= float(snapshot["events_drop_ratio"]) <= 1.0
+        assert 0.0 <= float(snapshot["events_retention_ratio"]) <= 1.0
 
     asyncio.run(_run())

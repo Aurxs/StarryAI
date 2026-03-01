@@ -64,3 +64,6 @@ test.md
 # Graph persistence
 /saved_graphs/*
 !/saved_graphs/.gitkeep
+
+# Phase F perf artifacts
+/artifacts/

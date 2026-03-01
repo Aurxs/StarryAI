@@ -115,9 +115,9 @@ test('completes add-node -> auto-review -> run flow with fixed stream id', async
     await page.goto('/');
 
     await page.getByTitle('新增节点').click();
-    await page.getByRole('button', {name: '添加到画布'}).first().click();
+    await page.locator('article').filter({hasText: 'mock.input'}).first().click();
     await page.getByTitle('新增节点').click();
-    await page.getByRole('button', {name: '添加到画布'}).nth(1).click();
+    await page.locator('article').filter({hasText: 'mock.output'}).first().click();
 
     await expect(page.getByTestId('review-bar')).toContainText('无问题');
     await expect(page.getByRole('button', {name: '测试运行'})).toBeEnabled();
@@ -203,7 +203,7 @@ test('blocks run when review has error and shows issue drawer', async ({page}) =
 
     await page.goto('/');
     await page.getByTitle('新增节点').click();
-    await page.getByRole('button', {name: '添加到画布'}).first().click();
+    await page.locator('article').filter({hasText: 'mock.output'}).first().click();
 
     await expect(page.getByTestId('review-bar')).toContainText('有1个问题');
     await expect(page.getByRole('button', {name: '测试运行'})).toBeDisabled();

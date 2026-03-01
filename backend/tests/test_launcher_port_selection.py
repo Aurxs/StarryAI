@@ -107,3 +107,54 @@ def test_pick_available_port_respects_excluded_ports(
     assert backend_port == 8001
     assert frontend_port == 8002
     assert checked_ports == [8000, 8001, 8002]
+
+
+def test_run_launcher_injects_backend_api_base_into_frontend_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launcher = _load_launcher_module()
+
+    monkeypatch.setattr(launcher, "_check_required_commands", lambda: None)
+    monkeypatch.setattr(launcher, "_ensure_python_deps", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(launcher, "_ensure_frontend_deps", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(launcher, "_resolve_use_color", lambda _mode: False)
+    monkeypatch.setattr(launcher, "_is_chinese_system_language", lambda: False)
+    monkeypatch.setattr(launcher, "_log", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(launcher, "_terminate_process", lambda *_args, **_kwargs: None)
+
+    picked_ports = iter([8001, 5174])
+    monkeypatch.setattr(
+        launcher,
+        "_pick_available_port",
+        lambda *_args, **_kwargs: next(picked_ports),
+    )
+
+    captured_frontend_env: dict[str, str] = {}
+
+    class FakeProcess:
+        pid = 12345
+
+        def poll(self) -> int:
+            return 0
+
+    def fake_spawn(
+        _cmd: list[str],
+        _cwd: Path,
+        env: dict[str, str],
+        name: str,
+    ) -> FakeProcess:
+        if name == "frontend":
+            captured_frontend_env.update(env)
+        return FakeProcess()
+
+    monkeypatch.setattr(launcher, "_spawn_process", fake_spawn)
+
+    exit_code = launcher.run_launcher(
+        host="127.0.0.1",
+        backend_port=8000,
+        frontend_port=5173,
+        color_mode="never",
+    )
+
+    assert exit_code == 0
+    assert captured_frontend_env["VITE_API_BASE_URL"] == "http://127.0.0.1:8001"

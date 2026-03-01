@@ -30,11 +30,36 @@ StarryAI 是一个模块化、节点式 AI 虚拟人工作流引擎（Backend + 
   - 连线时即时类型校验，不合法直接拒绝。
 - 图状态管理升级：
   - 新增撤回/重做与操作历史记录（图编辑场景）。
+- Phase F 初版启动（后端）：
+  - 新增性能基线模块 `backend/app/perf/baseline.py`；
+  - 新增基线脚本 `backend/scripts/run_perf_baseline.py`；
+  - 新增对应测试 `backend/tests/test_perf_baseline.py`。
+- Phase F 运行时加固第一批（后端）：
+  - 调度器支持事件保留窗口（`max_retained_events`），降低长时运行内存风险；
+  - RunService 支持并发运行上限（`max_active_runs`）；
+  - `POST /api/v1/runs` 在并发超限时返回 `429`。
+- Phase F 运行时加固第二批（后端）：
+  - 图级事件指标补充 `event_drop_ratio/event_retention_ratio`；
+  - diagnostics 增加 `event_window/capacity` 视图，便于排查“事件裁剪命中”和“容量上限命中”。
+- Phase F 观测增强第一批（后端）：
+  - 新增 `GET /metrics`，支持 Prometheus 文本格式抓取服务级聚合指标。
+- Phase F 观测增强第二批（后端）：
+  - `/metrics` 新增标签指标 `starryai_runs_status{status=...}`；
+  - 新增 `starryai_run_capacity_utilization` 与 `starryai_events_drop_ratio`；
+  - 新增建议阈值指标：`starryai_recommend_capacity_utilization_warning`、`starryai_recommend_events_drop_ratio_warning`。
+- 接口兼容修复（后端）：
+  - CORS 支持本地动态端口（`localhost/127.0.0.1:*`），修复前端端口自动切换后“图列表加载失败”问题。
+- 运行链路修复（启动器 + 前端）：
+  - 启动器会把真实后端地址注入前端环境变量 `VITE_API_BASE_URL`，避免后端端口自动切换后请求打到错误端口；
+  - 前端 API 客户端新增请求超时（默认 10s），防止“点击运行后一直显示运行中但无后端响应”。
 
 ## 核心能力
 
 - 图协议与校验：`NodeSpec/GraphSpec`、`GraphBuilder`。
 - 运行闭环：`GraphScheduler` + `RunService` + runs REST/WS。
+- 运行时边界保护：事件窗口裁剪、并发运行上限控制。
+- 运行态诊断细化：事件窗口比例与容量状态直出。
+- 运维采集入口：`/metrics`（Prometheus 文本格式）。
 - 同步编排：`sync.timeline`（`barrier/window_join/clock_lock`，含 `drop/reclock`）。
 - 结构化事件：`event_id/event_seq/severity/component/error_code`。
 - 观测接口：`/runs/{id}/metrics`、`/runs/{id}/diagnostics`。
@@ -47,7 +72,7 @@ StarryAI 是一个模块化、节点式 AI 虚拟人工作流引擎（Backend + 
 - Phase C（已完成）：同步编排初版与同步事件增强。
 - Phase D（已完成）：结构化事件、错误治理、重试/超时、观测接口。
 - Phase E（已完成）：前端工作台闭环与前后端联调、E2E 基线。
-- Phase F（待推进）：性能、稳定性、测试矩阵与工程化增强。
+- Phase F（进行中）：性能、稳定性、测试矩阵与工程化增强。
 
 ## 技术栈
 
@@ -77,10 +102,17 @@ npm install
 npm run dev
 ```
 
+4. 执行 Phase F 性能基线（可选）
+
+```bash
+python backend/scripts/run_perf_baseline.py --runs-per-scenario 10 --concurrency 4
+```
+
 ## 常用接口
 
 - `GET /`
 - `GET /health`
+- `GET /metrics`
 - `GET /api/v1/node-types`
 - `POST /api/v1/graphs/validate`
 - `POST /api/v1/runs`
@@ -95,8 +127,23 @@ npm run dev
 
 ```bash
 python -m pytest -q backend/tests
-python -m ruff check backend/app backend/tests
+python -m ruff check backend/app backend/tests backend/scripts
 python -m mypy backend/app
+```
+
+CI 对齐本地门禁（推荐）：
+
+```bash
+bash scripts/ci_local.sh --backend-only
+# 或全量（含前端与 e2e）
+bash scripts/ci_local.sh
+```
+
+Phase F 性能基线（按需）：
+
+```bash
+python backend/scripts/run_perf_baseline.py --runs-per-scenario 10 --concurrency 4
+python backend/scripts/run_perf_baseline.py --runs-per-scenario 6 --concurrency 2 --soak-seconds 60
 ```
 
 ## 目录
@@ -105,10 +152,12 @@ python -m mypy backend/app
 backend/
   app/
     core/      # 协议、图模型、调度
+    perf/      # Phase F 性能基线工具
     nodes/     # 内置节点
     api/       # FastAPI 路由
     schemas/   # API DTO
     services/  # 运行服务
+  scripts/     # 开发与压测脚本
   tests/
 frontend/
   src/
@@ -125,3 +174,4 @@ frontend/
 - 开发计划：`Plan.md`
 - 结构说明：`description.md`
 - 测试基线：`test.md`
+- CI 工作流：`.github/workflows/ci.yml`

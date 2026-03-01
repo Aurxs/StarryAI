@@ -15,7 +15,7 @@ from app.core.node_async import AsyncNode
 from app.core.node_base import NodeContext
 from app.core.node_factory import NodeFactory, create_default_node_factory
 from app.core.registry import create_default_registry
-from app.core.scheduler import GraphScheduler
+from app.core.scheduler import GraphScheduler, SchedulerConfig
 from app.core.spec import EdgeSpec, GraphSpec, NodeInstanceSpec, NodeMode, NodeSpec, PortSpec, SyncConfig
 
 
@@ -734,6 +734,49 @@ def test_scheduler_clamps_negative_event_cursor() -> None:
         events, next_cursor = scheduler.get_events(since=-99, limit=2)
         assert len(events) <= 2
         assert next_cursor == len(events)
+
+    asyncio.run(_run())
+
+
+def test_scheduler_event_retention_window_and_cursor_clamp() -> None:
+    """启用事件保留上限时，应裁剪旧事件并保持游标单调。"""
+
+    async def _run() -> None:
+        graph = GraphSpec(
+            graph_id="g_scheduler_event_retention",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+                NodeInstanceSpec(node_id="n2", type_name="mock.output"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="in"),
+            ],
+        )
+        compiled = GraphBuilder(create_default_registry()).build(graph)
+        scheduler = GraphScheduler(config=SchedulerConfig(max_retained_events=3))
+        state = await scheduler.run(compiled, run_id="run_scheduler_event_retention")
+        assert state.status == "completed"
+
+        # since=0 会被钳制到当前保留窗口起点。
+        retained_events, next_cursor = scheduler.get_events(since=0, limit=20)
+        assert len(retained_events) == 3
+        assert next_cursor > len(retained_events)
+        assert retained_events[-1].event_type == RuntimeEventType.RUN_STOPPED
+        assert [item.event_seq for item in retained_events] == sorted(
+            item.event_seq for item in retained_events
+        )
+
+        # 旧游标被钳制后也应继续可分页读取，不倒退。
+        stale_page, stale_cursor = scheduler.get_events(since=1, limit=1)
+        assert len(stale_page) == 1
+        assert stale_cursor >= 1
+
+        metrics = state.metrics
+        assert metrics["event_total"] > metrics["event_retained"]
+        assert metrics["event_retained"] == 3
+        assert metrics["event_dropped"] >= 1
+        assert 0.0 <= float(metrics["event_drop_ratio"]) <= 1.0
+        assert 0.0 <= float(metrics["event_retention_ratio"]) <= 1.0
 
     asyncio.run(_run())
 

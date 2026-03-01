@@ -251,6 +251,22 @@ def test_create_run_returns_422_for_blank_stream_id() -> None:
         assert resp.status_code == 422
 
 
+def test_create_run_returns_429_when_capacity_exceeded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """active run 达到上限时 create_run 应返回 429。"""
+    custom_service = _build_slow_run_service()
+    custom_service.max_active_runs = 1
+    monkeypatch.setattr(run_service_module, "_run_service_singleton", custom_service)
+
+    with TestClient(app) as client:
+        first = client.post("/api/v1/runs", json=_slow_graph_payload())
+        assert first.status_code == 200
+
+        second = client.post("/api/v1/runs", json=_slow_graph_payload())
+        assert second.status_code == 429
+        detail = second.json()["detail"]
+        assert "并发运行已达上限" in detail["message"]
+
+
 def test_run_endpoints_return_404_when_missing() -> None:
     """不存在 run_id 时，status/events/stop 都应返回 404。"""
     with TestClient(app) as client:
@@ -383,6 +399,10 @@ def test_run_metrics_and_diagnostics_endpoints() -> None:
         assert "failed_nodes" in diagnostics_body
         assert "slow_nodes_top" in diagnostics_body
         assert "edge_hotspots_top" in diagnostics_body
+        assert "event_window" in diagnostics_body
+        assert "capacity" in diagnostics_body
+        assert diagnostics_body["event_window"]["event_total"] >= 1
+        assert diagnostics_body["capacity"]["retained_runs"] >= 1
 
 
 def test_run_metrics_and_diagnostics_return_404_when_missing() -> None:

@@ -34,6 +34,7 @@ export class ApiClientError extends Error {
 export interface ApiClientOptions {
     baseUrl?: string;
     fetchImpl?: typeof fetch;
+    requestTimeoutMs?: number;
 }
 
 export interface ApiClient {
@@ -54,6 +55,7 @@ export interface ApiClient {
 }
 
 const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8000';
+const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
 
@@ -66,12 +68,23 @@ const normalizeRequiredText = (label: string, value: string): string => {
 };
 
 const normalizeBaseUrl = (rawValue?: string): string => {
-    const fallback = DEFAULT_API_BASE_URL;
+    const fallback = import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL;
     const base = (rawValue ?? fallback).trim();
     if (!base) {
         return fallback;
     }
     return trimTrailingSlash(base);
+};
+
+const normalizeTimeoutMs = (rawValue?: number): number => {
+    const envRaw = import.meta.env.VITE_API_TIMEOUT_MS?.trim();
+    const envValue = envRaw ? Number(envRaw) : Number.NaN;
+    const fallback = Number.isFinite(envValue) ? envValue : DEFAULT_REQUEST_TIMEOUT_MS;
+    const candidate = rawValue ?? fallback;
+    if (!Number.isFinite(candidate)) {
+        return fallback;
+    }
+    return Math.max(1, Math.floor(candidate));
 };
 
 const asRecord = (payload: unknown): Record<string, unknown> | null => {
@@ -145,6 +158,7 @@ const applyRunEventParams = (url: URL, params?: GetRunEventsParams): void => {
 
 export const createApiClient = (options: ApiClientOptions = {}): ApiClient => {
     const baseUrl = normalizeBaseUrl(options.baseUrl);
+    const requestTimeoutMs = normalizeTimeoutMs(options.requestTimeoutMs);
 
     const buildUrl = (path: string): URL => new URL(path, `${baseUrl}/`);
 
@@ -160,14 +174,37 @@ export const createApiClient = (options: ApiClientOptions = {}): ApiClient => {
         }
 
         let response: Response;
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        let timeoutTriggered = false;
+        const timeoutController = new AbortController();
+        const requestSignal = init?.signal ?? timeoutController.signal;
+        if (!init?.signal) {
+            timeoutId = setTimeout(() => {
+                timeoutTriggered = true;
+                timeoutController.abort();
+            }, requestTimeoutMs);
+        }
         try {
             const fetchImpl = options.fetchImpl ?? fetch;
             response = await fetchImpl(buildUrl(path), {
                 ...init,
                 headers,
+                signal: requestSignal,
             });
         } catch (error) {
+            if (timeoutTriggered) {
+                throw new ApiClientError(
+                    `Request timed out after ${requestTimeoutMs}ms`,
+                    'network',
+                    null,
+                    String(error),
+                );
+            }
             throw new ApiClientError('Network request failed', 'network', null, String(error));
+        } finally {
+            if (timeoutId !== null) {
+                clearTimeout(timeoutId);
+            }
         }
 
         const rawText = await response.text();

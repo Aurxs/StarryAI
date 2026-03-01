@@ -110,6 +110,40 @@ def test_root_and_health_endpoints() -> None:
         assert health.json()["status"] == "ok"
 
 
+def test_metrics_endpoint_returns_prometheus_payload() -> None:
+    with TestClient(app) as client:
+        create = client.post(
+            "/api/v1/runs",
+            json={
+                "graph": _basic_graph_payload()["graph"],
+                "stream_id": "stream_metrics",
+            },
+        )
+        assert create.status_code == 200
+        run_id = create.json()["run_id"]
+
+        for _ in range(40):
+            status_resp = client.get(f"/api/v1/runs/{run_id}")
+            assert status_resp.status_code == 200
+            if status_resp.json()["status"] in {"completed", "failed", "stopped"}:
+                break
+            time.sleep(0.05)
+
+        metrics = client.get("/metrics")
+        assert metrics.status_code == 200
+        assert "text/plain" in metrics.headers["content-type"]
+        body = metrics.text
+        assert "# HELP starryai_runs_retained" in body
+        assert "starryai_runs_retained " in body
+        assert "starryai_runs_completed_total " in body
+        assert "starryai_events_total_total " in body
+        assert 'starryai_runs_status{status="completed"} ' in body
+        assert "starryai_run_capacity_utilization " in body
+        assert "starryai_events_drop_ratio " in body
+        assert "starryai_recommend_capacity_utilization_warning 0.8" in body
+        assert "starryai_recommend_events_drop_ratio_warning 0.05" in body
+
+
 def test_list_node_types_contains_builtin_specs() -> None:
     with TestClient(app) as client:
         resp = client.get("/api/v1/node-types")
@@ -140,17 +174,34 @@ def test_graph_validate_success_and_error_paths() -> None:
         assert any(issue["code"] == "node.unknown_type" for issue in bad.json()["issues"])
 
 
-def test_graph_validate_cors_preflight() -> None:
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+    ],
+)
+def test_graph_validate_cors_preflight(origin: str) -> None:
     with TestClient(app) as client:
         preflight = client.options(
             "/api/v1/graphs/validate",
             headers={
-                "Origin": "http://127.0.0.1:5173",
+                "Origin": origin,
                 "Access-Control-Request-Method": "POST",
             },
         )
         assert preflight.status_code == 200
-        assert preflight.headers.get("access-control-allow-origin") == "http://127.0.0.1:5173"
+        assert preflight.headers.get("access-control-allow-origin") == origin
+
+
+def test_graph_list_cors_allows_dynamic_local_port() -> None:
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/v1/graphs",
+            headers={"Origin": "http://127.0.0.1:5174"},
+        )
+        assert response.status_code == 200
+        assert response.headers.get("access-control-allow-origin") == "http://127.0.0.1:5174"
 
 
 def test_run_events_websocket_returns_not_found_error() -> None:

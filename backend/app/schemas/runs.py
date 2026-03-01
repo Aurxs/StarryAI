@@ -107,3 +107,5 @@ class RunDiagnosticsResponse(BaseModel):
     failed_nodes: list[dict[str, Any]] = Field(default_factory=list)
     slow_nodes_top: list[dict[str, Any]] = Field(default_factory=list)
     edge_hotspots_top: list[dict[str, Any]] = Field(default_factory=list)
+    event_window: dict[str, Any] = Field(default_factory=dict)
+    capacity: dict[str, Any] = Field(default_factory=dict)

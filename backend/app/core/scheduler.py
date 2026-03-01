@@ -52,6 +52,8 @@ class SchedulerConfig:
     default_edge_queue_maxsize: int = 0
     # 边队列轮询间隔（秒），用于 stop 后快速从等待中退出。
     queue_poll_timeout_s: float = 0.05
+    # 内存中保留的最大事件条数；<=0 表示不裁剪。
+    max_retained_events: int = 5000
 
 
 @dataclass(slots=True)
@@ -91,6 +93,8 @@ class GraphScheduler:
 
         # _events: 运行期间积累的结构化事件列表。
         self._events: list[RuntimeEvent] = []
+        # _events_cursor_base: 当前 _events[0] 对应的全局游标偏移。
+        self._events_cursor_base = 0
         # _event_seq: 运行内事件单调序号（用于稳定排序与定位）。
         self._event_seq = 0
         # _stop_event: 全局停止信号；节点与边任务都依赖它判断退出。
@@ -175,14 +179,24 @@ class GraphScheduler:
         cursor = max(since, 0)
         fetch_limit = max(limit, 0)
 
-        if fetch_limit == 0 or cursor >= len(self._events):
+        if fetch_limit == 0:
+            return [], cursor
+
+        # 事件裁剪后，_events 仅保留窗口内内容；游标基于全局序号偏移计算。
+        earliest_cursor = self._events_cursor_base
+        latest_cursor = self._events_cursor_base + len(self._events)
+        if cursor < earliest_cursor:
+            cursor = earliest_cursor
+        if cursor >= latest_cursor:
             return [], cursor
 
         normalized_node_id = (node_id or "").strip() or None
         normalized_error_code = (error_code or "").strip() or None
+        local_index = cursor - self._events_cursor_base
         items: list[RuntimeEvent] = []
-        while cursor < len(self._events) and len(items) < fetch_limit:
-            event = self._events[cursor]
+        while local_index < len(self._events) and len(items) < fetch_limit:
+            event = self._events[local_index]
+            local_index += 1
             cursor += 1
             if not self._event_matches_filters(
                     event,
@@ -211,6 +225,7 @@ class GraphScheduler:
         self._stream_id = self._normalize_stream_id(stream_id)
 
         self._events.clear()
+        self._events_cursor_base = 0
         self._event_seq = 0
         # stop_requested_before_run: 记录 run 入口前是否已经收到 stop 请求。
         stop_requested_before_run = self._stop_requested
@@ -707,6 +722,7 @@ class GraphScheduler:
             details=details or {},
         )
         self._events.append(event)
+        self._trim_events_if_needed()
         self._update_runtime_metrics_on_event(event)
         print(
             "[RuntimeEvent]",
@@ -718,6 +734,22 @@ class GraphScheduler:
             f"node={event.node_id or '-'}",
             f"msg={event.message or '-'}",
         )
+
+    def _trim_events_if_needed(self) -> None:
+        """按配置裁剪内存事件，避免长时运行无界增长。"""
+        max_retained = int(self.config.max_retained_events)
+        if max_retained <= 0:
+            return
+        overflow = len(self._events) - max_retained
+        if overflow <= 0:
+            return
+        del self._events[:overflow]
+        self._events_cursor_base += overflow
+        if self.runtime_state is not None:
+            self.runtime_state.metrics["event_dropped"] = int(
+                self.runtime_state.metrics.get("event_dropped", 0)
+            ) + overflow
+            self.runtime_state.metrics["event_retained"] = len(self._events)
 
     @staticmethod
     def _edge_key(edge: EdgeSpec) -> EdgeKey:
@@ -735,6 +767,8 @@ class GraphScheduler:
         """构造运行时聚合指标初始值。"""
         return {
             "event_total": 0,
+            "event_retained": 0,
+            "event_dropped": 0,
             "event_warning": 0,
             "event_error": 0,
             "node_retry_events": 0,
@@ -754,6 +788,7 @@ class GraphScheduler:
             return
         metrics = self.runtime_state.metrics
         metrics["event_total"] = int(metrics.get("event_total", 0)) + 1
+        metrics["event_retained"] = len(self._events)
         if event.severity == RuntimeEventSeverity.WARNING:
             metrics["event_warning"] = int(metrics.get("event_warning", 0)) + 1
         if event.severity in {RuntimeEventSeverity.ERROR, RuntimeEventSeverity.CRITICAL}:
@@ -800,6 +835,17 @@ class GraphScheduler:
         self.runtime_state.metrics["node_timeout_total"] = node_timeout_total
         self.runtime_state.metrics["edge_forwarded_frames"] = edge_forwarded_total
         self.runtime_state.metrics["edge_queue_peak_max"] = edge_queue_peak_max
+        event_total = int(self.runtime_state.metrics.get("event_total", 0))
+        event_dropped = int(self.runtime_state.metrics.get("event_dropped", 0))
+        event_retained = int(self.runtime_state.metrics.get("event_retained", 0))
+        if event_total > 0:
+            self.runtime_state.metrics["event_drop_ratio"] = round(event_dropped / event_total, 6)
+            self.runtime_state.metrics["event_retention_ratio"] = round(
+                event_retained / event_total, 6
+            )
+        else:
+            self.runtime_state.metrics["event_drop_ratio"] = 0.0
+            self.runtime_state.metrics["event_retention_ratio"] = 0.0
 
     async def _execute_node_with_policy(
             self,

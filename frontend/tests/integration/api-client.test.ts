@@ -1,5 +1,5 @@
 import {http, HttpResponse} from 'msw';
-import {describe, expect, it} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 
 import type {GraphSpec} from '../../src/entities/workbench/types';
 import {ApiClientError, createApiClient} from '../../src/shared/api/client';
@@ -14,6 +14,41 @@ const graphFixture: GraphSpec = {
 };
 
 describe('API client', () => {
+    afterEach(() => {
+        vi.unstubAllEnvs();
+    });
+
+    it('uses VITE_API_BASE_URL as default base URL when baseUrl is omitted', () => {
+        vi.stubEnv('VITE_API_BASE_URL', 'http://127.0.0.1:18080/');
+        const client = createApiClient();
+        expect(client.getBaseUrl()).toBe('http://127.0.0.1:18080');
+    });
+
+    it('fails fast when request times out', async () => {
+        const hangingFetch: typeof fetch = ((_input: URL | RequestInfo, init?: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+                const signal = init?.signal;
+                signal?.addEventListener(
+                    'abort',
+                    () => reject(new DOMException('Aborted', 'AbortError')),
+                    {once: true},
+                );
+            })) as typeof fetch;
+
+        const client = createApiClient({
+            baseUrl: 'http://127.0.0.1:8000',
+            fetchImpl: hangingFetch,
+            requestTimeoutMs: 20,
+        });
+
+        await expect(client.listNodeTypes()).rejects.toMatchObject({
+            name: 'ApiClientError',
+            kind: 'network',
+            status: null,
+            message: 'Request timed out after 20ms',
+        } satisfies Partial<ApiClientError>);
+    });
+
     it('loads node types via listNodeTypes (normal path)', async () => {
         const client = createApiClient({baseUrl: 'http://127.0.0.1:8000'});
         const payload = await client.listNodeTypes();
