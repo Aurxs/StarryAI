@@ -66,6 +66,7 @@
       "savedGraphsLabel": "Saved Graphs",
       "emptySaved": "No saved graphs",
       "actions": {
+        "new": "New",
         "save": "Save",
         "load": "Load",
         "delete": "Delete",
@@ -75,9 +76,11 @@
       },
       "confirm": {
         "overwriteDirty": "Current graph has unsaved changes. Continue and overwrite?",
+        "createNewDirty": "Current graph has unsaved changes. Creating a new graph will clear the canvas. Continue?",
         "deleteGraph": "Delete graph {{graphId}}?"
       },
       "success": {
+        "created": "Created graph {{graphId}}",
         "saved": "Saved graph {{graphId}}",
         "loaded": "Loaded graph {{graphId}}",
         "deleted": "Deleted graph {{graphId}}",

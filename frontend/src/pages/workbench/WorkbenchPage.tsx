@@ -92,6 +92,15 @@ const PANEL_COLLAPSED_HEADER_FIXED_WIDTH = 41;
 const PANEL_COLLAPSED_EXTRA_WIDTH = 16;
 const IGNORED_REVIEW_ISSUE_CODES = new Set(['graph.empty_nodes']);
 const INFO_POPUP_TOP = 104;
+const DEFAULT_NEW_GRAPH_BASE_ID = 'graph_new';
+
+const isEditableElement = (target: EventTarget | null): boolean => {
+    if (!(target instanceof HTMLElement)) {
+        return false;
+    }
+    const tag = target.tagName.toLowerCase();
+    return target.isContentEditable || tag === 'input' || tag === 'textarea' || tag === 'select';
+};
 
 const estimateProjectNameWidth = (text: string): number => {
     return Array.from(text).reduce((total, char) => {
@@ -106,6 +115,18 @@ const estimateProjectNameWidth = (text: string): number => {
         }
         return total + 8.1;
     }, 0);
+};
+
+const buildUniqueGraphId = (baseId: string, existingIds: Set<string>): string => {
+    const normalizedBaseId = baseId.trim() || DEFAULT_NEW_GRAPH_BASE_ID;
+    if (!existingIds.has(normalizedBaseId)) {
+        return normalizedBaseId;
+    }
+    let suffix = 1;
+    while (existingIds.has(`${normalizedBaseId}_${suffix}`)) {
+        suffix += 1;
+    }
+    return `${normalizedBaseId}_${suffix}`;
 };
 
 export function WorkbenchPage() {
@@ -123,6 +144,7 @@ export function WorkbenchPage() {
     const redo = useGraphStore((state) => state.redo);
     const selectNode = useGraphStore((state) => state.selectNode);
     const setGraphMeta = useGraphStore((state) => state.setGraphMeta);
+    const resetGraph = useGraphStore((state) => state.resetGraph);
     const replaceGraph = useGraphStore((state) => state.replaceGraph);
     const setValidationResult = useGraphStore((state) => state.setValidationResult);
 
@@ -434,7 +456,28 @@ export function WorkbenchPage() {
     useEffect(() => {
         const loadSavedGraphs = async (): Promise<void> => {
             try {
-                await pullSavedGraphs();
+                const items = await pullSavedGraphs();
+                const state = useGraphStore.getState();
+                const currentGraph = state.graph;
+                if (state.isDirty || currentGraph.nodes.length > 0 || currentGraph.edges.length > 0) {
+                    return;
+                }
+                const currentGraphId = currentGraph.graph_id.trim();
+                if (currentGraphId !== DEFAULT_NEW_GRAPH_BASE_ID) {
+                    return;
+                }
+                const savedGraphIds = new Set(
+                    items.map((item) => item.graph_id.trim()).filter(Boolean),
+                );
+                const resolvedGraphId = buildUniqueGraphId(DEFAULT_NEW_GRAPH_BASE_ID, savedGraphIds);
+                if (resolvedGraphId === currentGraphId) {
+                    return;
+                }
+                replaceGraph({
+                    ...currentGraph,
+                    graph_id: resolvedGraphId,
+                });
+                setProjectNameDraft(resolvedGraphId);
             } catch (error) {
                 const message = toClientErrorMessage(error);
                 showInfoPopup(t('workbench.persistence.errors.listFailed', {message}));
@@ -479,6 +522,45 @@ export function WorkbenchPage() {
             setIsPersisting(false);
         }
     };
+
+    const createNewGraph = (): void => {
+        if (isDirty) {
+            const confirmed = window.confirm(t('workbench.persistence.confirm.createNewDirty'));
+            if (!confirmed) {
+                return;
+            }
+        }
+        const savedGraphIds = new Set(
+            savedGraphs.map((item) => item.graph_id.trim()).filter(Boolean),
+        );
+        const nextGraphId = buildUniqueGraphId(DEFAULT_NEW_GRAPH_BASE_ID, savedGraphIds);
+        resetGraph(nextGraphId);
+        setProjectNameDraft(nextGraphId);
+        setProjectNameSelected(false);
+        setProjectNameEditing(false);
+        showInfoPopup(t('workbench.persistence.success.created', {graphId: nextGraphId}));
+    };
+
+    useEffect(() => {
+        const onSaveShortcut = (event: KeyboardEvent) => {
+            if (isEditableElement(event.target)) {
+                return;
+            }
+            const commandPressed = event.metaKey || event.ctrlKey;
+            if (!commandPressed || event.key.toLowerCase() !== 's') {
+                return;
+            }
+            event.preventDefault();
+            if (isPersisting) {
+                return;
+            }
+            void saveCurrentGraph();
+        };
+        window.addEventListener('keydown', onSaveShortcut);
+        return () => {
+            window.removeEventListener('keydown', onSaveShortcut);
+        };
+    }, [isPersisting, saveCurrentGraph]);
 
     const loadSavedGraph = async (graphId: string): Promise<void> => {
         if (isDirty) {
@@ -715,6 +797,14 @@ export function WorkbenchPage() {
                     }}
                 >
                         <div style={{display: 'flex', gap: 6, marginBottom: 8}}>
+                            <button
+                                type="button"
+                                style={floatingButtonStyle}
+                                onClick={createNewGraph}
+                                disabled={isPersisting}
+                            >
+                                {t('workbench.persistence.actions.new')}
+                            </button>
                             <button
                                 type="button"
                                 style={floatingButtonStyle}

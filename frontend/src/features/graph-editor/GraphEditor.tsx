@@ -59,7 +59,9 @@ import {
     extractPortFromHandle,
     getSchemaColor,
     isSchemaCompatible,
+    readNodePositionsFromMetadata,
     simplifyFrameSchema,
+    writeNodePositionsToMetadata,
 } from './utils';
 
 interface WorkflowNodeData {
@@ -406,6 +408,7 @@ const GraphEditorInner = () => {
     const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
     const setNodesInStore = useGraphStore((state) => state.setNodes);
     const setEdgesInStore = useGraphStore((state) => state.setEdges);
+    const setMetadataInStore = useGraphStore((state) => state.setMetadata);
     const upsertNode = useGraphStore((state) => state.upsertNode);
     const removeNode = useGraphStore((state) => state.removeNode);
     const selectNode = useGraphStore((state) => state.selectNode);
@@ -428,7 +431,6 @@ const GraphEditorInner = () => {
     const [catalog, setCatalog] = useState<NodeSpec[]>(fallbackNodeTypes);
     const [editorMessage, setEditorMessage] = useState<string | null>(null);
     const [isEditorToastLeaving, setIsEditorToastLeaving] = useState(false);
-    const [positions, setPositions] = useState<Record<string, XYPosition>>({});
     const [zoomRatio, setZoomRatio] = useState(DEFAULT_ZOOM_RATIO);
     const [activeConnectionColor, setActiveConnectionColor] = useState(DEFAULT_EDGE_COLOR);
     const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -440,6 +442,7 @@ const GraphEditorInner = () => {
     const canvasViewportRef = useRef<HTMLDivElement | null>(null);
     const zoomControlRef = useRef<HTMLDivElement | null>(null);
     const handledFitCanvasTickRef = useRef(0);
+    const handledAutoLayoutTickRef = useRef(0);
 
     const clipboardRef = useRef<ReturnType<typeof buildGraphClipboardSnapshot>>(null);
     const pasteCountRef = useRef(0);
@@ -465,6 +468,12 @@ const GraphEditorInner = () => {
     const validationTargets = useMemo(
         () => deriveValidationTargets(graph, validationIssues),
         [graph, validationIssues],
+    );
+    const graphNodeIds = useMemo(() => graph.nodes.map((node) => node.node_id), [graph.nodes]);
+    const graphNodeIdSet = useMemo(() => new Set(graphNodeIds), [graphNodeIds]);
+    const positions = useMemo(
+        () => readNodePositionsFromMetadata(graph.metadata, graphNodeIdSet),
+        [graph.metadata, graphNodeIdSet],
     );
 
     const isInspectorOpen = selectedNodeId !== null;
@@ -515,6 +524,33 @@ const GraphEditorInner = () => {
             setEdgesInStore(specs);
         },
         [setEdgesInStore],
+    );
+
+    const updateNodePositions = useCallback(
+        (
+            updater: (current: Record<string, XYPosition>) => Record<string, XYPosition>,
+            nodeIds = graphNodeIds,
+        ) => {
+            const currentPositions = readNodePositionsFromMetadata(graph.metadata, graphNodeIdSet);
+            for (const nodeId of nodeIds) {
+                if (currentPositions[nodeId]) {
+                    continue;
+                }
+                const flowNode = reactFlow.getNode(nodeId);
+                if (!flowNode?.position) {
+                    continue;
+                }
+                const {x, y} = flowNode.position;
+                if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                    continue;
+                }
+                currentPositions[nodeId] = {x, y};
+            }
+            const nextPositions = updater(currentPositions);
+            const nextMetadata = writeNodePositionsToMetadata(graph.metadata, nextPositions, nodeIds);
+            setMetadataInStore(nextMetadata);
+        },
+        [graph.metadata, graphNodeIdSet, graphNodeIds, reactFlow, setMetadataInStore],
     );
 
     const closeNodeContextMenu = useCallback(() => {
@@ -595,7 +631,10 @@ const GraphEditorInner = () => {
         }
         setNodesInStore(pasteResult.nodes);
         setEdgesInStore(pasteResult.edges);
-        setPositions(pasteResult.positions);
+        updateNodePositions(
+            () => pasteResult.positions,
+            pasteResult.nodes.map((node) => node.node_id),
+        );
         setSelectedNodeIds(pasteResult.createdNodeIds);
         selectNode(pasteResult.createdNodeIds[0] ?? null);
         setEditorMessage(
@@ -604,7 +643,7 @@ const GraphEditorInner = () => {
             }),
         );
         return true;
-    }, [getNodePosition, graph, positions, selectNode, setEdgesInStore, setNodesInStore, t]);
+    }, [getNodePosition, graph, positions, selectNode, setEdgesInStore, setNodesInStore, t, updateNodePositions]);
 
     const deleteNodesByIds = useCallback(
         (nodeIds: string[]) => {
@@ -615,17 +654,20 @@ const GraphEditorInner = () => {
             for (const nodeId of normalizedNodeIds) {
                 removeNode(nodeId);
             }
-            setPositions((current) => {
+            const remainingNodeIds = graph.nodes
+                .map((node) => node.node_id)
+                .filter((nodeId) => !normalizedNodeIds.includes(nodeId));
+            updateNodePositions((current) => {
                 const next = {...current};
                 for (const nodeId of normalizedNodeIds) {
                     delete next[nodeId];
                 }
                 return next;
-            });
+            }, remainingNodeIds);
             setSelectedNodeIds((current) => current.filter((nodeId) => !normalizedNodeIds.includes(nodeId)));
             setEditorMessage(null);
         },
-        [removeNode],
+        [graph.nodes, removeNode, updateNodePositions],
     );
 
     const resolveOutputPort = useCallback((nodeId: string, portName: string): PortSpec | null => {
@@ -694,13 +736,17 @@ const GraphEditorInner = () => {
                 title: spec.type_name,
                 config: {},
             });
-            setPositions((current) => ({
-                ...current,
-                [nodeId]: position ?? reactFlow.screenToFlowPosition({x: 320, y: 200}),
-            }));
+            const nodePosition = position ?? reactFlow.screenToFlowPosition({x: 320, y: 200});
+            updateNodePositions(
+                (current) => ({
+                    ...current,
+                    [nodeId]: nodePosition,
+                }),
+                [...graphNodeIds, nodeId],
+            );
             setEditorMessage(null);
         },
-        [catalogByType, graph.nodes, reactFlow, t, upsertNode],
+        [catalogByType, graph.nodes, graphNodeIds, reactFlow, t, updateNodePositions, upsertNode],
     );
 
     useEffect(() => {
@@ -799,15 +845,17 @@ const GraphEditorInner = () => {
     }, [fitCanvasRequestTick, fitCanvasToVisibleArea]);
 
     useEffect(() => {
-        if (autoLayoutRequestTick <= 0) {
+        if (autoLayoutRequestTick <= 0 || autoLayoutRequestTick === handledAutoLayoutTickRef.current) {
             return;
         }
-        setPositions((current) => ({
+        handledAutoLayoutTickRef.current = autoLayoutRequestTick;
+        const autoLayoutPositions = buildSimpleAutoLayout(graph);
+        updateNodePositions((current) => ({
             ...current,
-            ...buildSimpleAutoLayout(graph),
+            ...autoLayoutPositions,
         }));
         setEditorMessage(t('graphEditor.status.autoLayoutDone'));
-    }, [autoLayoutRequestTick, graph, t]);
+    }, [autoLayoutRequestTick, graph, t, updateNodePositions]);
 
     const resolveCopyCandidateNodeIds = useCallback((): string[] => {
         if (selectedNodeIds.length > 0) {
@@ -1136,12 +1184,15 @@ const GraphEditorInner = () => {
         [deleteNodesByIds],
     );
 
-    const onNodeDragStop = useCallback((_event: unknown, node: Node) => {
-        setPositions((current) => ({
-            ...current,
-            [node.id]: node.position,
-        }));
-    }, []);
+    const onNodeDragStop = useCallback(
+        (_event: unknown, node: Node) => {
+            updateNodePositions((current) => ({
+                ...current,
+                [node.id]: node.position,
+            }));
+        },
+        [updateNodePositions],
+    );
 
     const onNodeClick = useCallback(
         (_event: unknown, node: Node) => {

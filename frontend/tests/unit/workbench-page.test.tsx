@@ -1,12 +1,18 @@
 import {fireEvent, render, screen, waitFor} from '@testing-library/react';
-import {beforeEach, describe, expect, it} from 'vitest';
+import {http, HttpResponse} from 'msw';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 import {WorkbenchPage} from '../../src/pages/workbench/WorkbenchPage';
 import {resetGraphStore, useGraphStore} from '../../src/shared/state/graph-store';
 import {resetRunStore, useRunStore} from '../../src/shared/state/run-store';
 import {resetUiStore, useUiStore} from '../../src/shared/state/ui-store';
+import {server} from '../mocks/server';
 
 describe('WorkbenchPage shell', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
     beforeEach(() => {
         resetGraphStore();
         resetRunStore();
@@ -186,5 +192,76 @@ describe('WorkbenchPage shell', () => {
         await waitFor(() => {
             expect(screen.getByLabelText('review-drawer').textContent).not.toContain('graph.empty_nodes');
         });
+    });
+
+    it('supports Ctrl/Cmd+S save shortcut', async () => {
+        let capturedGraphId: string | null = null;
+        server.use(
+            http.put('*/api/v1/graphs/:graphId', async ({params, request}) => {
+                const body = (await request.json()) as Record<string, unknown>;
+                capturedGraphId = String(body.graph_id ?? params.graphId ?? '');
+                return HttpResponse.json({
+                    graph_id: params.graphId,
+                    version: '0.1.0',
+                    updated_at: 1_700_000_123,
+                });
+            }),
+        );
+
+        render(<WorkbenchPage/>);
+
+        fireEvent.keyDown(window, {key: 's', ctrlKey: true});
+        await waitFor(() => {
+            expect(capturedGraphId).toBe('graph_new');
+        });
+    });
+
+    it('creates a new graph from persistence panel', async () => {
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+        useGraphStore.getState().upsertNode({
+            node_id: 'n1',
+            type_name: 'mock.input',
+            title: 'Input',
+            config: {},
+        });
+
+        render(<WorkbenchPage/>);
+        fireEvent.click(screen.getByTestId('graph-panel-expand'));
+
+        await waitFor(() => {
+            expect(screen.getByRole('button', {name: '新建'})).toBeTruthy();
+        });
+
+        fireEvent.click(screen.getByRole('button', {name: '新建'}));
+
+        await waitFor(() => {
+            const graph = useGraphStore.getState().graph;
+            expect(graph.nodes).toHaveLength(0);
+            expect(graph.edges).toHaveLength(0);
+            expect(graph.graph_id).toBe('graph_new');
+        });
+        expect(window.confirm).toHaveBeenCalledTimes(1);
+    });
+
+    it('adds numeric suffix for default new graph id when saved graphs conflict', async () => {
+        server.use(
+            http.get('*/api/v1/graphs', () =>
+                HttpResponse.json({
+                    count: 2,
+                    items: [
+                        {graph_id: 'graph_new', version: '0.1.0', updated_at: 1_700_000_001},
+                        {graph_id: 'graph_new_1', version: '0.1.0', updated_at: 1_700_000_002},
+                    ],
+                }),
+            ),
+        );
+
+        render(<WorkbenchPage/>);
+
+        await waitFor(() => {
+            expect(useGraphStore.getState().graph.graph_id).toBe('graph_new_2');
+        });
+        expect(useGraphStore.getState().isDirty).toBe(false);
     });
 });

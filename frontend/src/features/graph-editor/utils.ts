@@ -9,6 +9,18 @@ import type {
 
 export const SOURCE_HANDLE_PREFIX = 'out:';
 export const TARGET_HANDLE_PREFIX = 'in:';
+export const UI_LAYOUT_METADATA_KEY = 'ui_layout';
+export const NODE_POSITIONS_METADATA_KEY = 'node_positions';
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const toFiniteNumber = (value: unknown): number | null => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+    }
+    return null;
+};
 
 export const buildEdgeId = (
     sourceNode: string,
@@ -393,4 +405,85 @@ export const deriveValidationTargets = (
     }
 
     return {nodeIds, edgeIds};
+};
+
+export const readNodePositionsFromMetadata = (
+    metadata: Record<string, unknown>,
+    allowedNodeIds?: Set<string>,
+): Record<string, XYPosition> => {
+    const layout = metadata[UI_LAYOUT_METADATA_KEY];
+    if (!isRecord(layout)) {
+        return {};
+    }
+    const rawPositions = layout[NODE_POSITIONS_METADATA_KEY];
+    if (!isRecord(rawPositions)) {
+        return {};
+    }
+
+    const positions: Record<string, XYPosition> = {};
+    for (const [nodeId, rawPosition] of Object.entries(rawPositions)) {
+        const normalizedNodeId = nodeId.trim();
+        if (!normalizedNodeId) {
+            continue;
+        }
+        if (allowedNodeIds && !allowedNodeIds.has(normalizedNodeId)) {
+            continue;
+        }
+        if (!isRecord(rawPosition)) {
+            continue;
+        }
+        const x = toFiniteNumber(rawPosition.x);
+        const y = toFiniteNumber(rawPosition.y);
+        if (x === null || y === null) {
+            continue;
+        }
+        positions[normalizedNodeId] = {x, y};
+    }
+    return positions;
+};
+
+export const writeNodePositionsToMetadata = (
+    metadata: Record<string, unknown>,
+    positions: Record<string, XYPosition>,
+    nodeIds?: string[],
+): Record<string, unknown> => {
+    const allowedNodeIds = nodeIds
+        ? new Set(nodeIds.map((nodeId) => nodeId.trim()).filter(Boolean))
+        : null;
+    const sanitizedPositions: Record<string, XYPosition> = {};
+
+    for (const [nodeId, position] of Object.entries(positions)) {
+        const normalizedNodeId = nodeId.trim();
+        if (!normalizedNodeId) {
+            continue;
+        }
+        if (allowedNodeIds && !allowedNodeIds.has(normalizedNodeId)) {
+            continue;
+        }
+        if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) {
+            continue;
+        }
+        sanitizedPositions[normalizedNodeId] = {
+            x: position.x,
+            y: position.y,
+        };
+    }
+
+    const nextMetadata: Record<string, unknown> = {...metadata};
+    const rawLayout = metadata[UI_LAYOUT_METADATA_KEY];
+    const nextLayout: Record<string, unknown> = isRecord(rawLayout) ? {...rawLayout} : {};
+
+    if (Object.keys(sanitizedPositions).length === 0) {
+        delete nextLayout[NODE_POSITIONS_METADATA_KEY];
+        if (Object.keys(nextLayout).length === 0) {
+            delete nextMetadata[UI_LAYOUT_METADATA_KEY];
+        } else {
+            nextMetadata[UI_LAYOUT_METADATA_KEY] = nextLayout;
+        }
+        return nextMetadata;
+    }
+
+    nextLayout[NODE_POSITIONS_METADATA_KEY] = sanitizedPositions;
+    nextMetadata[UI_LAYOUT_METADATA_KEY] = nextLayout;
+    return nextMetadata;
 };

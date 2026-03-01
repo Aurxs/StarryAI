@@ -66,6 +66,7 @@
       "savedGraphsLabel": "已保存图",
       "emptySaved": "暂无已保存图",
       "actions": {
+        "new": "新建",
         "save": "保存",
         "load": "加载",
         "delete": "删除",
@@ -75,9 +76,11 @@
       },
       "confirm": {
         "overwriteDirty": "当前图有未保存更改，加载后将被覆盖，是否继续？",
+        "createNewDirty": "当前图有未保存更改，新建图将清空当前画布，是否继续？",
         "deleteGraph": "确认删除图 {{graphId}} 吗？"
       },
       "success": {
+        "created": "已新建图 {{graphId}}",
         "saved": "已保存图 {{graphId}}",
         "loaded": "已加载图 {{graphId}}",
         "deleted": "已删除图 {{graphId}}",

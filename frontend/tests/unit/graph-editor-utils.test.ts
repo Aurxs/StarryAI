@@ -13,7 +13,9 @@ import {
     extractPortFromHandle,
     getSchemaColor,
     isSchemaCompatible,
+    readNodePositionsFromMetadata,
     simplifyFrameSchema,
+    writeNodePositionsToMetadata,
 } from '../../src/features/graph-editor/utils';
 
 describe('graph-editor utils', () => {
@@ -215,5 +217,50 @@ describe('graph-editor utils', () => {
         expect(clonedEdge).toBeTruthy();
         expect(clonedEdge?.source_port).toBe('text');
         expect(clonedEdge?.target_port).toBe('in');
+    });
+
+    it('reads valid node positions from metadata and ignores malformed entries', () => {
+        const positions = readNodePositionsFromMetadata(
+            {
+                ui_layout: {
+                    node_positions: {
+                        n1: {x: 100, y: 200},
+                        n2: {x: 50, y: 'bad'},
+                        n3: 'bad',
+                    },
+                },
+            },
+            new Set(['n1', 'n2']),
+        );
+
+        expect(positions).toEqual({
+            n1: {x: 100, y: 200},
+        });
+    });
+
+    it('writes node positions into metadata and preserves unrelated metadata keys', () => {
+        const metadata = writeNodePositionsToMetadata(
+            {
+                owner: 'tester',
+                ui_layout: {
+                    viewport: {x: 1, y: 2, zoom: 0.7},
+                },
+            },
+            {
+                n1: {x: 88, y: 144},
+                n2: {x: Number.NaN, y: 12},
+            },
+            ['n1', 'n3'],
+        );
+
+        expect(metadata).toEqual({
+            owner: 'tester',
+            ui_layout: {
+                viewport: {x: 1, y: 2, zoom: 0.7},
+                node_positions: {
+                    n1: {x: 88, y: 144},
+                },
+            },
+        });
     });
 });

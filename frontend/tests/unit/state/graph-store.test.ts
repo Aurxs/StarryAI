@@ -10,7 +10,7 @@ describe('graph store', () => {
 
     it('starts with a clean default graph', () => {
         const state = useGraphStore.getState();
-        expect(state.graph.graph_id).toBe('graph_phase_e');
+        expect(state.graph.graph_id).toBe('graph_new');
         expect(state.graph.nodes).toHaveLength(0);
         expect(state.graph.edges).toHaveLength(0);
         expect(state.selectedNodeId).toBeNull();
@@ -63,7 +63,7 @@ describe('graph store', () => {
     it('ignores blank graph id when setting meta (edge path)', () => {
         useGraphStore.getState().setGraphMeta('   ', '2.0.0');
         const state = useGraphStore.getState();
-        expect(state.graph.graph_id).toBe('graph_phase_e');
+        expect(state.graph.graph_id).toBe('graph_new');
         expect(state.graph.version).toBe('2.0.0');
     });
 
@@ -110,6 +110,28 @@ describe('graph store', () => {
         expect(state.validationValid).toBeNull();
         expect(state.validationIssues).toHaveLength(0);
         expect(state.validationCheckedAt).toBeNull();
+    });
+
+    it('updates graph metadata without appending undo history (edge path)', () => {
+        useGraphStore.getState().setMetadata({
+            ui_layout: {
+                node_positions: {
+                    n1: {x: 120, y: 240},
+                },
+            },
+        });
+
+        const state = useGraphStore.getState();
+        expect(state.graph.metadata).toEqual({
+            ui_layout: {
+                node_positions: {
+                    n1: {x: 120, y: 240},
+                },
+            },
+        });
+        expect(state.isDirty).toBe(true);
+        expect(state.canUndo).toBe(false);
+        expect(state.historyEntries).toHaveLength(0);
     });
 
     it('supports undo/redo and records operation history (edge path)', () => {

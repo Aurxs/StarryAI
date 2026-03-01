@@ -27,6 +27,7 @@ export interface GraphState {
     _future: GraphCheckpoint[];
     _historySeed: number;
     setGraphMeta: (graphId: string, version?: string) => void;
+    setMetadata: (metadata: Record<string, unknown>) => void;
     setNodes: (nodes: NodeInstanceSpec[]) => void;
     setEdges: (edges: EdgeSpec[]) => void;
     upsertNode: (node: NodeInstanceSpec) => void;
@@ -56,8 +57,9 @@ interface InternalGraphState extends GraphState {
 }
 
 const HISTORY_LIMIT = 100;
+const DEFAULT_GRAPH_ID = 'graph_new';
 
-const createDefaultGraph = (graphId = 'graph_phase_e'): GraphSpec => ({
+const createDefaultGraph = (graphId = DEFAULT_GRAPH_ID): GraphSpec => ({
     graph_id: graphId,
     version: '0.1.0',
     nodes: [],
@@ -161,6 +163,22 @@ export const useGraphStore = create<GraphState>((set) => ({
                 version: version.trim() || state.graph.version,
             };
             return commitGraphUpdate(state, nextGraph, '更新图元信息');
+        }),
+    setMetadata: (metadata) =>
+        set((current) => {
+            const state = current as InternalGraphState;
+            const nextGraph = {
+                ...state.graph,
+                metadata,
+            };
+            if (sameGraph(state.graph, nextGraph)) {
+                return state;
+            }
+            return {
+                graph: nextGraph,
+                selectedNodeId: sanitizeSelectedNode(nextGraph, state.selectedNodeId),
+                isDirty: true,
+            };
         }),
     setNodes: (nodes) =>
         set((current) => {
@@ -321,7 +339,7 @@ export const useGraphStore = create<GraphState>((set) => ({
     clearValidation: () => set(() => createEmptyValidationState()),
     resetGraph: (graphId) =>
         set(() => ({
-            graph: createDefaultGraph(graphId?.trim() || 'graph_phase_e'),
+            graph: createDefaultGraph(graphId?.trim() || DEFAULT_GRAPH_ID),
             selectedNodeId: null,
             isDirty: false,
             ...createEmptyHistoryState(),
