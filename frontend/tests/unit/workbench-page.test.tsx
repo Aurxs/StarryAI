@@ -19,7 +19,7 @@ describe('WorkbenchPage shell', () => {
         expect(screen.getByTestId('graph-persistence-panel')).toBeTruthy();
         expect(screen.getByTestId('project-name-display')).toBeTruthy();
         expect(screen.getByTestId('graph-panel-expand')).toBeTruthy();
-        expect(screen.getByRole('button', {name: '▶ 测试运行'})).toBeTruthy();
+        expect(screen.getByRole('button', {name: '测试运行'})).toBeTruthy();
         expect(screen.getByTestId('review-bar').textContent).toContain('无问题');
     });
 
@@ -72,7 +72,7 @@ describe('WorkbenchPage shell', () => {
         });
         useGraphStore.getState().patchNode('n1', {title: 'Input Updated'});
 
-        fireEvent.click(screen.getByRole('button', {name: '⏱'}));
+        fireEvent.click(screen.getByRole('button', {name: '打开操作历史'}));
         await waitFor(() => {
             expect(screen.getByLabelText('history-drawer')).toBeTruthy();
         });
@@ -91,17 +91,17 @@ describe('WorkbenchPage shell', () => {
         expect(useGraphStore.getState().graph.nodes).toHaveLength(1);
 
         await waitFor(() => {
-            expect((screen.getByRole('button', {name: '↶'}) as HTMLButtonElement).disabled).toBe(false);
+            expect((screen.getByRole('button', {name: '撤销'}) as HTMLButtonElement).disabled).toBe(false);
         });
-        fireEvent.click(screen.getByRole('button', {name: '↶'}));
+        fireEvent.click(screen.getByRole('button', {name: '撤销'}));
         await waitFor(() => {
             expect(useGraphStore.getState().graph.nodes).toHaveLength(0);
         });
 
         await waitFor(() => {
-            expect((screen.getByRole('button', {name: '↷'}) as HTMLButtonElement).disabled).toBe(false);
+            expect((screen.getByRole('button', {name: '重做'}) as HTMLButtonElement).disabled).toBe(false);
         });
-        fireEvent.click(screen.getByRole('button', {name: '↷'}));
+        fireEvent.click(screen.getByRole('button', {name: '重做'}));
         await waitFor(() => {
             expect(useGraphStore.getState().graph.nodes).toHaveLength(1);
         });
@@ -110,7 +110,7 @@ describe('WorkbenchPage shell', () => {
     it('gates run action until review has no errors', async () => {
         render(<WorkbenchPage/>);
 
-        const runButton = screen.getByRole('button', {name: '▶ 测试运行'}) as HTMLButtonElement;
+        const runButton = screen.getByRole('button', {name: '测试运行'}) as HTMLButtonElement;
         expect(runButton.disabled).toBe(true);
 
         useGraphStore.setState((state) => ({
@@ -130,7 +130,7 @@ describe('WorkbenchPage shell', () => {
 
         useGraphStore.getState().setValidationResult(true, []);
         await waitFor(() => {
-            expect((screen.getByRole('button', {name: '▶ 测试运行'}) as HTMLButtonElement).disabled).toBe(false);
+            expect((screen.getByRole('button', {name: '测试运行'}) as HTMLButtonElement).disabled).toBe(false);
         });
 
         useRunStore.getState().setError(null);

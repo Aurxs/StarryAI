@@ -39,6 +39,10 @@
       "start": "测试运行",
       "running": "运行中"
     },
+    "actions": {
+      "undo": "撤销",
+      "redo": "重做"
+    },
     "review": {
       "title": "图审查结果",
       "pending": "审查",
@@ -49,6 +53,7 @@
     },
     "history": {
       "title": "操作历史",
+      "toggle": "打开操作历史",
       "empty": "暂无图编辑操作"
     },
     "inspector": {

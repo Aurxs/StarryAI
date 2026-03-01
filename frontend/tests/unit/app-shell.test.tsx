@@ -10,7 +10,7 @@ describe('App shell baseline', () => {
         expect(screen.getByTestId('graph-persistence-panel')).toBeTruthy();
         expect(screen.getByTestId('project-name-display')).toBeTruthy();
         expect(screen.getByTestId('graph-panel-expand')).toBeTruthy();
-        expect(screen.getByRole('button', {name: '▶ 测试运行'})).toBeTruthy();
+        expect(screen.getByRole('button', {name: '测试运行'})).toBeTruthy();
         expect(screen.getByTestId('review-bar')).toBeTruthy();
     });
 
@@ -18,7 +18,7 @@ describe('App shell baseline', () => {
         render(<App/>);
 
         expect(screen.getByLabelText('quick-tools')).toBeTruthy();
-        expect(screen.getByRole('button', {name: '↖'})).toBeTruthy();
-        expect(screen.getByRole('button', {name: '✋'})).toBeTruthy();
+        expect(screen.getByRole('button', {name: '指针模式'})).toBeTruthy();
+        expect(screen.getByRole('button', {name: '手模式'})).toBeTruthy();
     });
 });

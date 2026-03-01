@@ -39,6 +39,10 @@
       "start": "Run Test",
       "running": "Running"
     },
+    "actions": {
+      "undo": "Undo",
+      "redo": "Redo"
+    },
     "review": {
       "title": "Graph Review",
       "pending": "Review",
@@ -49,6 +53,7 @@
     },
     "history": {
       "title": "History",
+      "toggle": "Open history",
       "empty": "No graph edits yet"
     },
     "inspector": {

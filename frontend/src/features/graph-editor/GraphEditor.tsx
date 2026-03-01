@@ -9,6 +9,7 @@ import {
     type MouseEvent as ReactMouseEvent,
     type TouchEvent as ReactTouchEvent,
 } from 'react';
+import {Expand, Hand, LayoutGrid, MousePointer2, Plus} from 'lucide-react';
 import {useTranslation} from 'react-i18next';
 import ReactFlow, {
     Background,
@@ -150,6 +151,9 @@ const quickToolButtonStyle: CSSProperties = {
     color: '#475569',
     cursor: 'pointer',
     padding: 0,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
 };
 
 const clampZoom = (value: number): number => Math.max(0.2, Math.min(2, value));
@@ -1131,14 +1135,16 @@ const GraphEditorInner = () => {
                 <button
                     type="button"
                     title={t('graphEditor.quick.add')}
+                    aria-label={t('graphEditor.quick.add')}
                     style={quickToolButtonStyle}
                     onClick={() => setNodeLibraryOpen(true)}
                 >
-                    +
+                    <Plus size={16} aria-hidden="true"/>
                 </button>
                 <button
                     type="button"
                     title={t('graphEditor.quick.pointer')}
+                    aria-label={t('graphEditor.quick.pointer')}
                     onClick={() => setEditorMode('pointer')}
                     style={{
                         ...quickToolButtonStyle,
@@ -1147,11 +1153,12 @@ const GraphEditorInner = () => {
                         color: editorMode === 'pointer' ? '#1d4ed8' : '#475569',
                     }}
                 >
-                    ↖
+                    <MousePointer2 size={16} aria-hidden="true"/>
                 </button>
                 <button
                     type="button"
                     title={t('graphEditor.quick.hand')}
+                    aria-label={t('graphEditor.quick.hand')}
                     onClick={() => setEditorMode('hand')}
                     style={{
                         ...quickToolButtonStyle,
@@ -1160,23 +1167,25 @@ const GraphEditorInner = () => {
                         color: editorMode === 'hand' ? '#1d4ed8' : '#475569',
                     }}
                 >
-                    ✋
+                    <Hand size={16} aria-hidden="true"/>
                 </button>
                 <button
                     type="button"
                     title={t('graphEditor.quick.arrange')}
+                    aria-label={t('graphEditor.quick.arrange')}
                     style={quickToolButtonStyle}
                     onClick={() => useUiStore.getState().requestAutoLayout()}
                 >
-                    ⤓
+                    <LayoutGrid size={16} aria-hidden="true"/>
                 </button>
                 <button
                     type="button"
                     title={t('graphEditor.quick.fit')}
+                    aria-label={t('graphEditor.quick.fit')}
                     style={quickToolButtonStyle}
                     onClick={() => useUiStore.getState().requestFitCanvas()}
                 >
-                    ⤢
+                    <Expand size={16} aria-hidden="true"/>
                 </button>
             </aside>
 

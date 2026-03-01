@@ -120,13 +120,13 @@ test('completes add-node -> auto-review -> run flow with fixed stream id', async
     await page.getByRole('button', {name: '添加到画布'}).nth(1).click();
 
     await expect(page.getByTestId('review-bar')).toContainText('无问题');
-    await expect(page.getByRole('button', {name: '▶ 测试运行'})).toBeEnabled();
+    await expect(page.getByRole('button', {name: '测试运行'})).toBeEnabled();
 
-    await page.getByRole('button', {name: '▶ 测试运行'}).click();
+    await page.getByRole('button', {name: '测试运行'}).click();
     await expect(page.getByText('运行状态: 已完成')).toBeVisible();
     expect((capturedCreateBody as { stream_id?: string } | null)?.stream_id).toBe('stream_frontend');
 
-    await page.getByRole('button', {name: '⏱'}).click();
+    await page.getByRole('button', {name: '打开操作历史'}).click();
     await expect(page.getByLabel('history-drawer')).toContainText('新增节点');
 });
 
@@ -206,7 +206,7 @@ test('blocks run when review has error and shows issue drawer', async ({page}) =
     await page.getByRole('button', {name: '添加到画布'}).first().click();
 
     await expect(page.getByTestId('review-bar')).toContainText('有1个问题');
-    await expect(page.getByRole('button', {name: '▶ 测试运行'})).toBeDisabled();
+    await expect(page.getByRole('button', {name: '测试运行'})).toBeDisabled();
 
     await page.getByTestId('review-bar').click();
     await expect(page.getByLabel('review-drawer')).toContainText('node.required_input_unconnected');

@@ -1,4 +1,5 @@
 import {useEffect, useMemo, useRef, useState, type CSSProperties} from 'react';
+import {History, Play, Redo2, Undo2} from 'lucide-react';
 import {useTranslation} from 'react-i18next';
 
 import type {GraphSummary} from '../../entities/workbench/types';
@@ -776,7 +777,10 @@ export function WorkbenchPage() {
                         fontWeight: 700,
                     }}
                 >
-                    ▶ {runButtonText()}
+                    <span style={{display: 'inline-flex', alignItems: 'center', gap: 6}}>
+                        <Play size={15} aria-hidden="true"/>
+                        <span>{runButtonText()}</span>
+                    </span>
                 </button>
                 <div style={{fontSize: 12, marginTop: 6}}>
                     {t('workbench.summary.runStatus', {
@@ -813,21 +817,61 @@ export function WorkbenchPage() {
                     alignItems: 'center',
                 }}
             >
-                <button type="button" style={{...floatingButtonStyle, width: 32, height: 32, padding: 0}} onClick={() => undo()} disabled={!canUndo}>
-                    ↶
-                </button>
-                <button type="button" style={{...floatingButtonStyle, width: 32, height: 32, padding: 0}} onClick={() => redo()} disabled={!canRedo}>
-                    ↷
+                <button
+                    type="button"
+                    title={t('workbench.actions.undo')}
+                    aria-label={t('workbench.actions.undo')}
+                    style={{
+                        ...floatingButtonStyle,
+                        width: 32,
+                        height: 32,
+                        padding: 0,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                    }}
+                    onClick={() => undo()}
+                    disabled={!canUndo}
+                >
+                    <Undo2 size={15} aria-hidden="true"/>
                 </button>
                 <button
                     type="button"
-                    style={{...floatingButtonStyle, width: 32, height: 32, padding: 0}}
+                    title={t('workbench.actions.redo')}
+                    aria-label={t('workbench.actions.redo')}
+                    style={{
+                        ...floatingButtonStyle,
+                        width: 32,
+                        height: 32,
+                        padding: 0,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                    }}
+                    onClick={() => redo()}
+                    disabled={!canRedo}
+                >
+                    <Redo2 size={15} aria-hidden="true"/>
+                </button>
+                <button
+                    type="button"
+                    title={t('workbench.history.toggle')}
+                    aria-label={t('workbench.history.toggle')}
+                    style={{
+                        ...floatingButtonStyle,
+                        width: 32,
+                        height: 32,
+                        padding: 0,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                    }}
                     onClick={() => {
                         setHistoryDrawerOpen(!historyDrawerOpen);
                         setReviewDrawerOpen(false);
                     }}
                 >
-                    ⏱
+                    <History size={15} aria-hidden="true"/>
                 </button>
                 {historyDrawerOpen && (
                     <aside

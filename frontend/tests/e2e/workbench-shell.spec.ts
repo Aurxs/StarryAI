@@ -6,7 +6,7 @@ test('shows new workbench shell controls', async ({page}) => {
     await expect(page.getByTestId('graph-persistence-panel')).toBeVisible();
     await expect(page.getByTestId('project-name-display')).toBeVisible();
     await expect(page.getByTestId('graph-panel-expand')).toBeVisible();
-    await expect(page.getByRole('button', {name: '▶ 测试运行'})).toBeVisible();
+    await expect(page.getByRole('button', {name: '测试运行'})).toBeVisible();
     await expect(page.getByTestId('review-bar')).toBeVisible();
     await expect(page.getByLabel('quick-tools')).toBeVisible();
 });
