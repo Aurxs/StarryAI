@@ -20,6 +20,8 @@ import ReactFlow, {
     ReactFlowProvider,
     applyEdgeChanges,
     applyNodeChanges,
+    getNodesBounds,
+    getViewportForBounds,
     type Connection,
     type Edge,
     type Node,
@@ -83,6 +85,8 @@ const BOTTOM_RIGHT_SHIFT_TRANSITION = `right 180ms ${NON_LINEAR_EASE}`;
 const DEFAULT_EDGE_COLOR = '#64748b';
 const DEFAULT_ZOOM_RATIO = 0.7;
 const PASTE_OFFSET: XYPosition = {x: 48, y: 48};
+const INSPECTOR_OVERLAY_WIDTH = 352;
+const FIT_CANVAS_PADDING = 0.18;
 
 interface NodeContextMenuState {
     nodeId: string;
@@ -349,6 +353,8 @@ const GraphEditorInner = () => {
     const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
     const [nodeContextMenu, setNodeContextMenu] = useState<NodeContextMenuState | null>(null);
     const [hoveredContextAction, setHoveredContextAction] = useState<ContextMenuActionKey | null>(null);
+    const canvasViewportRef = useRef<HTMLDivElement | null>(null);
+    const handledFitCanvasTickRef = useRef(0);
 
     const clipboardRef = useRef<ReturnType<typeof buildGraphClipboardSnapshot>>(null);
     const pasteCountRef = useRef(0);
@@ -377,8 +383,38 @@ const GraphEditorInner = () => {
     );
 
     const isInspectorOpen = selectedNodeId !== null;
-    const bottomRightOffset = isInspectorOpen ? 352 : 0;
+    const bottomRightOffset = isInspectorOpen ? INSPECTOR_OVERLAY_WIDTH : 0;
     const isHandMode = editorMode === 'hand';
+
+    const fitCanvasToVisibleArea = useCallback(() => {
+        if (rfNodes.length === 0) {
+            return;
+        }
+        const viewportContainer = canvasViewportRef.current;
+        if (!viewportContainer) {
+            reactFlow.fitView({padding: FIT_CANVAS_PADDING});
+            return;
+        }
+        const containerWidth = viewportContainer.clientWidth;
+        const containerHeight = viewportContainer.clientHeight;
+        if (containerWidth <= 0 || containerHeight <= 0) {
+            reactFlow.fitView({padding: FIT_CANVAS_PADDING});
+            return;
+        }
+        const visibleWidth = Math.max(
+            containerWidth - (isInspectorOpen ? INSPECTOR_OVERLAY_WIDTH : 0),
+            containerWidth * 0.35,
+        );
+        const bounds = getNodesBounds(rfNodes);
+        const viewport = getViewportForBounds(bounds, visibleWidth, containerHeight, 0.2, 2, FIT_CANVAS_PADDING);
+        const nextZoom = safeZoomRatio(viewport.zoom);
+        reactFlow.setViewport({
+            x: safeViewportAxis(viewport.x),
+            y: safeViewportAxis(viewport.y),
+            zoom: nextZoom,
+        });
+        setZoomRatio(nextZoom);
+    }, [isInspectorOpen, reactFlow, rfNodes]);
 
     const syncEdgesToStore = useCallback(
         (edges: Edge[]) => {
@@ -662,16 +698,14 @@ const GraphEditorInner = () => {
     ]);
 
     useEffect(() => {
-        if (fitCanvasRequestTick <= 0) {
+        if (fitCanvasRequestTick <= 0 || fitCanvasRequestTick === handledFitCanvasTickRef.current) {
             return;
         }
+        handledFitCanvasTickRef.current = fitCanvasRequestTick;
         window.requestAnimationFrame(() => {
-            reactFlow.fitView({
-                duration: 180,
-                padding: 0.18,
-            });
+            fitCanvasToVisibleArea();
         });
-    }, [fitCanvasRequestTick, reactFlow]);
+    }, [fitCanvasRequestTick, fitCanvasToVisibleArea]);
 
     useEffect(() => {
         if (autoLayoutRequestTick <= 0) {
@@ -1218,6 +1252,7 @@ const GraphEditorInner = () => {
             )}
 
             <div
+                ref={canvasViewportRef}
                 style={{position: 'absolute', inset: 0}}
                 onDrop={onDropCanvas}
                 onDragOver={onDragOverCanvas}
