@@ -15,6 +15,7 @@ import argparse
 import atexit
 import functools
 import importlib.util
+import ipaddress
 import locale
 import os
 import platform
@@ -262,6 +263,27 @@ def _pick_available_port(
     )
 
 
+def _normalize_backend_api_host(host: str) -> str:
+    if host == "0.0.0.0":
+        return "127.0.0.1"
+    if host == "::":
+        return "::1"
+    return host
+
+
+def _format_host_for_url(host: str) -> str:
+    if host.startswith("[") and host.endswith("]"):
+        return host
+    try:
+        if ipaddress.ip_address(host).version == 6:
+            return f"[{host}]"
+    except ValueError:
+        if ":" in host:
+            # Some IPv6 forms include zone id (e.g. fe80::1%lo0) and fail ip_address parsing.
+            return f"[{host}]"
+    return host
+
+
 def _resolve_use_color(color_mode: str) -> bool:
     """解析颜色模式开关。"""
     mode = color_mode.strip().lower()
@@ -450,8 +472,8 @@ def run_launcher(host: str, backend_port: int, frontend_port: int, color_mode: s
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
-    backend_api_host = "127.0.0.1" if host == "0.0.0.0" else host
-    backend_api_base_url = f"http://{backend_api_host}:{backend_port}"
+    backend_api_host = _normalize_backend_api_host(host)
+    backend_api_base_url = f"http://{_format_host_for_url(backend_api_host)}:{backend_port}"
     env["VITE_API_BASE_URL"] = backend_api_base_url
     if USE_COLOR:
         # 强制子进程保留颜色输出，并移除与 FORCE_COLOR 冲突的变量。

@@ -109,8 +109,19 @@ def test_pick_available_port_respects_excluded_ports(
     assert checked_ports == [8000, 8001, 8002]
 
 
+@pytest.mark.parametrize(
+    ("host", "expected_api_base"),
+    [
+        ("127.0.0.1", "http://127.0.0.1:8001"),
+        ("0.0.0.0", "http://127.0.0.1:8001"),
+        ("::1", "http://[::1]:8001"),
+        ("::", "http://[::1]:8001"),
+    ],
+)
 def test_run_launcher_injects_backend_api_base_into_frontend_env(
     monkeypatch: pytest.MonkeyPatch,
+    host: str,
+    expected_api_base: str,
 ) -> None:
     launcher = _load_launcher_module()
 
@@ -150,11 +161,11 @@ def test_run_launcher_injects_backend_api_base_into_frontend_env(
     monkeypatch.setattr(launcher, "_spawn_process", fake_spawn)
 
     exit_code = launcher.run_launcher(
-        host="127.0.0.1",
+        host=host,
         backend_port=8000,
         frontend_port=5173,
         color_mode="never",
     )
 
     assert exit_code == 0
-    assert captured_frontend_env["VITE_API_BASE_URL"] == "http://127.0.0.1:8001"
+    assert captured_frontend_env["VITE_API_BASE_URL"] == expected_api_base

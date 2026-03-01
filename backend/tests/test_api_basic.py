@@ -137,6 +137,8 @@ def test_metrics_endpoint_returns_prometheus_payload() -> None:
         assert "starryai_runs_retained " in body
         assert "starryai_runs_completed_total " in body
         assert "starryai_events_total_total " in body
+        assert "# TYPE starryai_events_total_total gauge" in body
+        assert "# TYPE starryai_events_dropped_total gauge" in body
         assert 'starryai_runs_status{status="completed"} ' in body
         assert "starryai_run_capacity_utilization " in body
         assert "starryai_events_drop_ratio " in body
