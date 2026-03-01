@@ -181,6 +181,8 @@ def test_graph_validate_success_and_error_paths() -> None:
     [
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
+        "http://localhost:5174",
+        "http://[::1]:5173",
     ],
 )
 def test_graph_validate_cors_preflight(origin: str) -> None:
@@ -196,14 +198,22 @@ def test_graph_validate_cors_preflight(origin: str) -> None:
         assert preflight.headers.get("access-control-allow-origin") == origin
 
 
-def test_graph_list_cors_allows_dynamic_local_port() -> None:
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://127.0.0.1:5174",
+        "http://localhost:4173",
+        "http://[::1]:5173",
+    ],
+)
+def test_graph_list_cors_allows_dynamic_local_port(origin: str) -> None:
     with TestClient(app) as client:
         response = client.get(
             "/api/v1/graphs",
-            headers={"Origin": "http://127.0.0.1:5174"},
+            headers={"Origin": origin},
         )
         assert response.status_code == 200
-        assert response.headers.get("access-control-allow-origin") == "http://127.0.0.1:5174"
+        assert response.headers.get("access-control-allow-origin") == origin
 
 
 def test_run_events_websocket_returns_not_found_error() -> None:

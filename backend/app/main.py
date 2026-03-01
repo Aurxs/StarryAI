@@ -27,7 +27,8 @@ app.add_middleware(
         "http://localhost:4173",
     ],
     # Allow local dev hosts with dynamic ports (e.g. Vite auto-switch to 5174+).
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    # Include IPv6 loopback host used by launcher when running with --host ::/::1.
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
