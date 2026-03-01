@@ -53,6 +53,39 @@
     },
     "inspector": {
       "title": "Node Inspector"
+    },
+    "persistence": {
+      "title": "Graph Repository",
+      "graphIdLabel": "Graph ID",
+      "graphIdPlaceholder": "Enter graph id (e.g. graph_demo)",
+      "savedGraphsLabel": "Saved Graphs",
+      "emptySaved": "No saved graphs",
+      "actions": {
+        "save": "Save",
+        "load": "Load",
+        "delete": "Delete",
+        "refresh": "Refresh",
+        "expand": "Expand graph repository",
+        "collapse": "Collapse graph repository"
+      },
+      "confirm": {
+        "overwriteDirty": "Current graph has unsaved changes. Continue and overwrite?",
+        "deleteGraph": "Delete graph {{graphId}}?"
+      },
+      "success": {
+        "saved": "Saved graph {{graphId}}",
+        "loaded": "Loaded graph {{graphId}}",
+        "deleted": "Deleted graph {{graphId}}",
+        "refreshed": "Graph list refreshed"
+      },
+      "errors": {
+        "emptyGraphId": "Graph ID cannot be empty",
+        "noSelectedGraph": "Select a saved graph first",
+        "listFailed": "Failed to load graph list: {{message}}",
+        "saveFailed": "Failed to save graph: {{message}}",
+        "loadFailed": "Failed to load graph: {{message}}",
+        "deleteFailed": "Failed to delete graph: {{message}}"
+      }
     }
   },
   "run": {

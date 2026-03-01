@@ -65,6 +65,28 @@ export interface GraphValidationReport {
     issues: ValidationIssue[];
 }
 
+export interface GraphSummary {
+    graph_id: string;
+    version: string;
+    updated_at: number;
+}
+
+export interface GraphListResponse {
+    count: number;
+    items: GraphSummary[];
+}
+
+export interface SaveGraphResponse {
+    graph_id: string;
+    version: string;
+    updated_at: number;
+}
+
+export interface DeleteGraphResponse {
+    graph_id: string;
+    deleted: boolean;
+}
+
 export type RuntimeEventType =
     | 'run_started'
     | 'run_stopped'

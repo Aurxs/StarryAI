@@ -41,6 +41,7 @@ import type {EdgeSpec, NodeInstanceSpec, NodeSpec, PortSpec} from '../../entitie
 import {apiClient} from '../../shared/api/client';
 import {useGraphStore} from '../../shared/state/graph-store';
 import {useUiStore} from '../../shared/state/ui-store';
+import {InfoPopup} from '../../shared/ui/InfoPopup';
 import {
     SOURCE_HANDLE_PREFIX,
     TARGET_HANDLE_PREFIX,
@@ -1314,29 +1315,17 @@ const GraphEditorInner = () => {
             </div>
 
             {editorMessage && (
-                <div
-                    style={{
-                        position: 'absolute',
-                        right: 10 + bottomRightOffset,
-                        top: EDITOR_TOAST_TOP,
-                        zIndex: 6,
-                        padding: '9px 12px',
-                        borderRadius: 12,
-                        border: '1px solid #dce3ee',
-                        boxShadow: '0 12px 22px rgba(15, 23, 42, 0.08)',
-                        background: 'rgba(255, 255, 255, 0.96)',
-                        color: '#334155',
-                        fontSize: 12,
-                        lineHeight: 1.45,
-                        maxWidth: 360,
-                        transform: isEditorToastLeaving ? 'translateX(28px)' : 'translateX(0)',
-                        opacity: isEditorToastLeaving ? 0 : 1,
-                        transition: `transform ${EDITOR_TOAST_EXIT_MS}ms ${NON_LINEAR_EASE}, opacity ${EDITOR_TOAST_EXIT_MS}ms ${NON_LINEAR_EASE}, ${BOTTOM_RIGHT_SHIFT_TRANSITION}`,
-                        pointerEvents: 'none',
-                    }}
-                >
-                    <span data-testid="graph-editor-status">{editorMessage}</span>
-                </div>
+                <InfoPopup
+                    message={editorMessage}
+                    leaving={isEditorToastLeaving}
+                    right={10 + bottomRightOffset}
+                    top={EDITOR_TOAST_TOP}
+                    zIndex={6}
+                    exitMs={EDITOR_TOAST_EXIT_MS}
+                    ease={NON_LINEAR_EASE}
+                    extraTransition={BOTTOM_RIGHT_SHIFT_TRANSITION}
+                    testId="graph-editor-status"
+                />
             )}
 
             {nodeContextMenu && (

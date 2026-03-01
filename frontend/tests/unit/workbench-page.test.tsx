@@ -2,7 +2,6 @@ import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {beforeEach, describe, expect, it} from 'vitest';
 
 import {WorkbenchPage} from '../../src/pages/workbench/WorkbenchPage';
-import {localeStorageKey} from '../../src/shared/i18n/i18n';
 import {resetGraphStore, useGraphStore} from '../../src/shared/state/graph-store';
 import {resetRunStore, useRunStore} from '../../src/shared/state/run-store';
 import {resetUiStore, useUiStore} from '../../src/shared/state/ui-store';
@@ -14,10 +13,12 @@ describe('WorkbenchPage shell', () => {
         resetUiStore();
     });
 
-    it('renders project switcher, run action and review bar', () => {
+    it('renders collapsed persistence panel, run action and review bar', () => {
         render(<WorkbenchPage/>);
 
-        expect(screen.getByRole('button', {name: '当前项目名称 ↓'})).toBeTruthy();
+        expect(screen.getByTestId('graph-persistence-panel')).toBeTruthy();
+        expect(screen.getByTestId('project-name-display')).toBeTruthy();
+        expect(screen.getByTestId('graph-panel-expand')).toBeTruthy();
         expect(screen.getByRole('button', {name: '▶ 测试运行'})).toBeTruthy();
         expect(screen.getByTestId('review-bar').textContent).toContain('无问题');
     });
@@ -30,18 +31,34 @@ describe('WorkbenchPage shell', () => {
         expect(useUiStore.getState().editorMode).toBe('hand');
     });
 
-    it('opens project menu and switches language with persistence', async () => {
+    it('expands panel below collapsed row and renders saved list surface', async () => {
         render(<WorkbenchPage/>);
 
-        fireEvent.click(screen.getByRole('button', {name: '当前项目名称 ↓'}));
-        fireEvent.change(screen.getByTestId('language-switch'), {
-            target: {value: 'en-US'},
-        });
+        fireEvent.click(screen.getByTestId('graph-panel-expand'));
 
         await waitFor(() => {
-            expect(screen.getByRole('button', {name: '▶ Run Test'})).toBeTruthy();
+            expect(screen.getByRole('button', {name: '保存'})).toBeTruthy();
         });
-        expect(window.localStorage.getItem(localeStorageKey)).toBe('en-US');
+        expect(screen.getByText('暂无已保存图')).toBeTruthy();
+        expect(screen.getByTestId('graph-panel-collapse')).toBeTruthy();
+    });
+
+    it('underlines on click and edits on double click in collapsed mode', async () => {
+        render(<WorkbenchPage/>);
+
+        const nameButton = screen.getByTestId('project-name-display') as HTMLButtonElement;
+        fireEvent.click(nameButton);
+        expect(nameButton.style.textDecoration).toContain('underline');
+
+        fireEvent.doubleClick(nameButton);
+
+        const input = screen.getByLabelText('project-name-input') as HTMLInputElement;
+        fireEvent.change(input, {target: {value: 'graph_renamed'}});
+        fireEvent.blur(input);
+
+        await waitFor(() => {
+            expect(useGraphStore.getState().graph.graph_id).toBe('graph_renamed');
+        });
     });
 
     it('records history entries and opens history drawer', async () => {

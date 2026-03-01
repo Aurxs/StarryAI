@@ -53,6 +53,39 @@
     },
     "inspector": {
       "title": "节点编辑"
+    },
+    "persistence": {
+      "title": "项目图仓库",
+      "graphIdLabel": "图 ID",
+      "graphIdPlaceholder": "输入图 ID（例如 graph_demo）",
+      "savedGraphsLabel": "已保存图",
+      "emptySaved": "暂无已保存图",
+      "actions": {
+        "save": "保存",
+        "load": "加载",
+        "delete": "删除",
+        "refresh": "刷新",
+        "expand": "展开图仓库",
+        "collapse": "收起图仓库"
+      },
+      "confirm": {
+        "overwriteDirty": "当前图有未保存更改，加载后将被覆盖，是否继续？",
+        "deleteGraph": "确认删除图 {{graphId}} 吗？"
+      },
+      "success": {
+        "saved": "已保存图 {{graphId}}",
+        "loaded": "已加载图 {{graphId}}",
+        "deleted": "已删除图 {{graphId}}",
+        "refreshed": "已刷新图列表"
+      },
+      "errors": {
+        "emptyGraphId": "图 ID 不能为空",
+        "noSelectedGraph": "请先选择一个已保存图",
+        "listFailed": "图列表加载失败: {{message}}",
+        "saveFailed": "图保存失败: {{message}}",
+        "loadFailed": "图加载失败: {{message}}",
+        "deleteFailed": "图删除失败: {{message}}"
+      }
     }
   },
   "run": {

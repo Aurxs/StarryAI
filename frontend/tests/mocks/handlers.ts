@@ -1,6 +1,20 @@
 import {http, HttpResponse} from 'msw';
 
 export const handlers = [
+    http.get('*/api/v1/graphs', () =>
+        HttpResponse.json({
+            count: 0,
+            items: [],
+        }),
+    ),
+    http.post('*/api/v1/graphs/validate', async ({request}) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({
+            graph_id: body.graph_id ?? 'graph_for_tests',
+            valid: true,
+            issues: [],
+        });
+    }),
     http.get('*/api/v1/node-types', () =>
         HttpResponse.json({
             count: 2,

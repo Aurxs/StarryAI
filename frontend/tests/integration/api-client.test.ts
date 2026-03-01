@@ -128,6 +128,71 @@ describe('API client', () => {
         } satisfies Partial<ApiClientError>);
     });
 
+    it('supports graph persistence CRUD endpoints (normal path)', async () => {
+        const graphSaved: GraphSpec = {
+            ...graphFixture,
+            graph_id: 'graph_saved_t1',
+            nodes: [
+                {
+                    node_id: 'n1',
+                    type_name: 'mock.input',
+                    title: 'Input',
+                    config: {},
+                },
+            ],
+        };
+
+        server.use(
+            http.get('*/api/v1/graphs', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            graph_id: 'graph_saved_t1',
+                            version: '0.1.0',
+                            updated_at: 1_700_000_000.0,
+                        },
+                    ],
+                }),
+            ),
+            http.put('*/api/v1/graphs/:graphId', ({params}) =>
+                HttpResponse.json({
+                    graph_id: params.graphId,
+                    version: '0.1.0',
+                    updated_at: 1_700_000_001.0,
+                }),
+            ),
+            http.get('*/api/v1/graphs/:graphId', ({params}) =>
+                HttpResponse.json({
+                    ...graphSaved,
+                    graph_id: params.graphId,
+                }),
+            ),
+            http.delete('*/api/v1/graphs/:graphId', ({params}) =>
+                HttpResponse.json({
+                    graph_id: params.graphId,
+                    deleted: true,
+                }),
+            ),
+        );
+
+        const client = createApiClient({baseUrl: 'http://127.0.0.1:8000'});
+        const listed = await client.listGraphs();
+        expect(listed.count).toBe(1);
+        expect(listed.items[0]?.graph_id).toBe('graph_saved_t1');
+
+        const saved = await client.saveGraph(graphSaved);
+        expect(saved.graph_id).toBe('graph_saved_t1');
+
+        const loaded = await client.getGraph('graph_saved_t1');
+        expect(loaded.graph_id).toBe('graph_saved_t1');
+        expect(loaded.nodes).toHaveLength(1);
+
+        const deleted = await client.deleteGraph('graph_saved_t1');
+        expect(deleted.deleted).toBe(true);
+        expect(deleted.graph_id).toBe('graph_saved_t1');
+    });
+
     it('builds websocket URL with secure protocol and filters (normal + edge)', () => {
         const client = createApiClient({baseUrl: 'https://api.starryai.test/'});
         const wsUrl = client.buildRunEventsWsUrl('run_ws_t1', {

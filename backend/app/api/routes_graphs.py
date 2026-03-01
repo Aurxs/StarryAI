@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 
 from app.core.graph_builder import GraphBuilder
 from app.core.registry import create_default_registry
 from app.core.spec import GraphSpec
+from app.schemas.graphs import (
+    DeleteGraphResponse,
+    GraphListResponse,
+    GraphSummaryResponse,
+    SaveGraphResponse,
+)
+from app.services.graph_repository import (
+    GraphNotFoundError,
+    GraphRepositoryError,
+    get_graph_repository,
+)
 
 # 图配置相关路由。
 router = APIRouter(prefix="/api/v1/graphs", tags=["graphs"])
@@ -23,3 +34,105 @@ async def validate_graph(graph: GraphSpec) -> dict[str, object]:
     builder = GraphBuilder(create_default_registry())
     report = builder.validate(graph)
     return report.model_dump(mode="json")
+
+
+@router.get("")
+async def list_graphs() -> dict[str, object]:
+    """返回已保存图列表。"""
+    repository = get_graph_repository()
+    try:
+        records = repository.list_graphs()
+    except GraphRepositoryError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
+    items = [
+        GraphSummaryResponse(
+            graph_id=record.graph_id,
+            version=record.version,
+            updated_at=record.updated_at,
+        )
+        for record in records
+    ]
+    return GraphListResponse(count=len(items), items=items).model_dump(mode="json")
+
+
+@router.get("/{graph_id}")
+async def get_graph(graph_id: str) -> dict[str, object]:
+    """按 graph_id 获取已保存图。"""
+    repository = get_graph_repository()
+    try:
+        graph = repository.get_graph(graph_id)
+    except GraphNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except GraphRepositoryError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"message": str(exc)},
+        ) from exc
+    return graph.model_dump(mode="json")
+
+
+@router.put("/{graph_id}")
+async def save_graph(graph_id: str, graph: GraphSpec) -> dict[str, object]:
+    """保存图定义。"""
+    normalized_graph_id = graph_id.strip()
+    if not normalized_graph_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"message": "graph_id 不能为空"},
+        )
+    if graph.graph_id != normalized_graph_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"message": "路径 graph_id 与请求体 graph.graph_id 不一致"},
+        )
+
+    repository = get_graph_repository()
+    try:
+        summary = repository.save_graph(graph)
+    except GraphRepositoryError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"message": str(exc)},
+        ) from exc
+
+    return SaveGraphResponse(
+        graph_id=summary.graph_id,
+        version=summary.version,
+        updated_at=summary.updated_at,
+    ).model_dump(mode="json")
+
+
+@router.delete("/{graph_id}")
+async def delete_graph(graph_id: str) -> dict[str, object]:
+    """删除指定已保存图。"""
+    repository = get_graph_repository()
+    try:
+        repository.delete_graph(graph_id)
+    except GraphNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except GraphRepositoryError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"message": str(exc)},
+        ) from exc
+
+    return DeleteGraphResponse(graph_id=graph_id, deleted=True).model_dump(mode="json")

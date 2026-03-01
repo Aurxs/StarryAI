@@ -41,6 +41,7 @@ export interface GraphState {
     setValidationResult: (valid: boolean, issues: ValidationIssue[]) => void;
     clearValidation: () => void;
     resetGraph: (graphId?: string) => void;
+    replaceGraph: (graph: GraphSpec) => void;
 }
 
 interface GraphCheckpoint {
@@ -322,6 +323,14 @@ export const useGraphStore = create<GraphState>((set) => ({
         set(() => ({
             graph: createDefaultGraph(graphId?.trim() || 'graph_phase_e'),
             selectedNodeId: null,
+            isDirty: false,
+            ...createEmptyHistoryState(),
+            ...createEmptyValidationState(),
+        })),
+    replaceGraph: (graph) =>
+        set((current) => ({
+            graph: cloneGraph(graph),
+            selectedNodeId: sanitizeSelectedNode(graph, current.selectedNodeId),
             isDirty: false,
             ...createEmptyHistoryState(),
             ...createEmptyValidationState(),

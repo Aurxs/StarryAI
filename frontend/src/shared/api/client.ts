@@ -1,7 +1,9 @@
 import type {
     CreateRunRequest,
     CreateRunResponse,
+    DeleteGraphResponse,
     GetRunEventsParams,
+    GraphListResponse,
     GraphSpec,
     GraphValidationReport,
     NodeTypesResponse,
@@ -9,6 +11,7 @@ import type {
     RunEventsResponse,
     RunMetricsResponse,
     RunStatusResponse,
+    SaveGraphResponse,
     StopRunResponse,
 } from '../../entities/workbench/types';
 
@@ -37,6 +40,10 @@ export interface ApiClient {
     getBaseUrl: () => string;
     listNodeTypes: () => Promise<NodeTypesResponse>;
     validateGraph: (graph: GraphSpec) => Promise<GraphValidationReport>;
+    listGraphs: () => Promise<GraphListResponse>;
+    getGraph: (graphId: string) => Promise<GraphSpec>;
+    saveGraph: (graph: GraphSpec) => Promise<SaveGraphResponse>;
+    deleteGraph: (graphId: string) => Promise<DeleteGraphResponse>;
     createRun: (request: CreateRunRequest) => Promise<CreateRunResponse>;
     stopRun: (runId: string) => Promise<StopRunResponse>;
     getRunStatus: (runId: string) => Promise<RunStatusResponse>;
@@ -183,6 +190,11 @@ export const createApiClient = (options: ApiClientOptions = {}): ApiClient => {
         return `/api/v1/runs/${encodeURIComponent(normalizedRunId)}${suffix}`;
     };
 
+    const buildGraphPath = (graphId: string, suffix = ''): string => {
+        const normalizedGraphId = normalizeRequiredText('graphId', graphId);
+        return `/api/v1/graphs/${encodeURIComponent(normalizedGraphId)}${suffix}`;
+    };
+
     const buildRunEventsWsUrl = (runId: string, params?: GetRunEventsParams): string => {
         const base = buildUrl(buildRunPath(runId, '/events'));
         base.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -197,6 +209,17 @@ export const createApiClient = (options: ApiClientOptions = {}): ApiClient => {
             requestJson<GraphValidationReport>('/api/v1/graphs/validate', {
                 method: 'POST',
                 body: JSON.stringify(graph),
+            }),
+        listGraphs: () => requestJson<GraphListResponse>('/api/v1/graphs'),
+        getGraph: (graphId: string) => requestJson<GraphSpec>(buildGraphPath(graphId)),
+        saveGraph: (graph: GraphSpec) =>
+            requestJson<SaveGraphResponse>(buildGraphPath(graph.graph_id), {
+                method: 'PUT',
+                body: JSON.stringify(graph),
+            }),
+        deleteGraph: (graphId: string) =>
+            requestJson<DeleteGraphResponse>(buildGraphPath(graphId), {
+                method: 'DELETE',
             }),
         createRun: (request: CreateRunRequest) => {
             const normalizedStreamId = normalizeRequiredText('stream_id', request.stream_id);

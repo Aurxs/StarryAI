@@ -137,4 +137,45 @@ describe('graph store', () => {
         expect(useGraphStore.getState().graph.nodes).toHaveLength(2);
         expect(useGraphStore.getState().historyEntries.length).toBeGreaterThan(0);
     });
+
+    it('replaces graph snapshot and resets dirty/history/validation state', () => {
+        useGraphStore.getState().upsertNode({
+            node_id: 'n1',
+            type_name: 'mock.input',
+            title: 'n1',
+            config: {},
+        });
+        useGraphStore.getState().setValidationResult(false, [
+            {
+                level: 'error',
+                code: 'graph.error',
+                message: 'error',
+            },
+        ]);
+
+        useGraphStore.getState().replaceGraph({
+            graph_id: 'graph_loaded',
+            version: '1.0.0',
+            nodes: [
+                {
+                    node_id: 'n2',
+                    type_name: 'mock.output',
+                    title: 'n2',
+                    config: {},
+                },
+            ],
+            edges: [],
+            metadata: {},
+        });
+
+        const state = useGraphStore.getState();
+        expect(state.graph.graph_id).toBe('graph_loaded');
+        expect(state.graph.nodes.map((node) => node.node_id)).toEqual(['n2']);
+        expect(state.isDirty).toBe(false);
+        expect(state.canUndo).toBe(false);
+        expect(state.canRedo).toBe(false);
+        expect(state.historyEntries).toHaveLength(0);
+        expect(state.validationValid).toBeNull();
+        expect(state.validationIssues).toHaveLength(0);
+    });
 });
