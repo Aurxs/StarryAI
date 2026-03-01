@@ -96,6 +96,27 @@ StarryAI 是一个模块化、节点式 AI 虚拟人工作流引擎（Backend + 
     - `npm run test --prefix frontend`（`116 passed`）
     - `npm run build --prefix frontend`（通过）
     - `npm run test:e2e --prefix frontend -- tests/e2e/workbench-flow.spec.ts`（`4 passed`）
+- 节点单文件化迁移第一批（已完成）：
+  - 新增核心抽象：`node_config`、`node_definition`、`sync_protocol`；
+  - 新增自动发现核心模块：`backend/app/core/node_discovery.py`；
+  - 支持通过 `STARRYAI_NODE_DIRS` 扩展自定义节点目录扫描；
+  - `create_default_registry/create_default_node_factory` 已支持显式 `search_dirs` 注入；
+  - 同步协议已基类化：`SyncNode` 统一提供同步包构造/解析，执行器解析阶段支持默认字段补齐；
+  - 同步组规则已收紧：后端不再默认 `sync_group`，并在图校验阶段检查“发起器/执行节点组一致性”；
+  - `SyncCoordinator` 新增已决 round 回收（TTL + 上限），避免长时运行 round 状态堆积；
+  - registry / node_factory 已切换到 discovery 纯主路径（不再保留 legacy/shadow/fallback）；
+  - 已完成 async 节点单文件迁移：
+    - `mock.input`、`mock.llm`、`mock.tts`、`mock.motion`、`mock.output`、`audio.play.base`；
+  - 已完成 sync 节点单文件迁移：
+    - `sync.initiator.dual`、`audio.play.sync`、`motion.play.sync`；
+  - 修复发现链路循环依赖：`nodes/__init__.py` 轻量化，`node_factory` 改为模块级导入；
+  - `BaseNode` 新增 `ConfigModel/self.cfg/config_schema` 能力并保留 `self.config` 兼容；
+  - 新增节点开发指南：`backend/app/nodes/README.md`；
+  - 新增测试：`test_node_base_config.py`、`test_node_definition.py`、`test_sync_protocol.py`、`test_node_discovery.py`；
+  - 当前验证：
+    - `python -m pytest -q backend/tests`（`176 passed`）
+    - `python -m ruff check backend/app backend/tests backend/scripts`（通过）
+    - `python -m mypy backend/app`（通过）
 
 ## 核心能力
 
@@ -236,3 +257,14 @@ frontend/
 - 结构说明：`description.md`
 - 测试基线：`test.md`
 - CI 工作流：`.github/workflows/ci.yml`
+
+## 节点单文件化迁移（进行中）
+
+1. 目标：新增节点只需新增 `backend/app/nodes/*.py` 单文件（定义+配置+实现+导出）。
+2. 主路径：节点发现已统一到 `backend/app/core/node_discovery.py`（不再保留 `nodes` 侧兼容 discovery）。
+3. 扩展入口：
+   - 环境变量 `STARRYAI_NODE_DIRS`；
+   - `create_default_registry/create_default_node_factory(search_dirs=[...])`。
+4. 行为要求：迁移期间保持现有 API、图校验与运行语义不变。
+5. 同步节点要求：同步 envelope 由基类统一封装/解析，业务节点不再手写协议细节。
+6. 数据边界：`saved_graphs/` 属于示例数据，不纳入兼容门禁。

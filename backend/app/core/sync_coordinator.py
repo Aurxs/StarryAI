@@ -25,6 +25,7 @@ class _RoundState:
     participants: set[str]
     ready_nodes: set[str] = field(default_factory=set)
     decision: SyncCommitDecision | None = None
+    finalized_at: float | None = None
     created_at: float = field(default_factory=time.monotonic)
     timeout_deadline: float = 0.0
     commit_lead_ms: int = 50
@@ -34,9 +35,11 @@ class _RoundState:
 class SyncCoordinator:
     """运行内同步协调器（内存版）。"""
 
-    def __init__(self) -> None:
+    def __init__(self, *, decided_ttl_s: float = 30.0, max_decided_rounds: int = 2048) -> None:
         self._rounds: dict[tuple[str, str, int], _RoundState] = {}
         self._map_lock = asyncio.Lock()
+        self._decided_ttl_s = max(0.0, float(decided_ttl_s))
+        self._max_decided_rounds = max(1, int(max_decided_rounds))
 
     async def ready(
         self,
@@ -64,33 +67,40 @@ class SyncCoordinator:
         async with state.condition:
             if node_id not in state.participants:
                 if state.decision is None:
-                    state.decision = SyncCommitDecision(
+                    self._set_decision_locked(
+                        state,
+                        SyncCommitDecision(
                         committed=False,
                         commit_at=None,
                         reason=f"unknown_participant:{node_id}",
+                        ),
                     )
-                    state.condition.notify_all()
+                assert state.decision is not None
                 return state.decision
 
             state.ready_nodes.add(node_id)
             if state.decision is None and state.ready_nodes.issuperset(state.participants):
                 commit_at = time.monotonic() + (state.commit_lead_ms / 1000.0)
-                state.decision = SyncCommitDecision(
+                self._set_decision_locked(
+                    state,
+                    SyncCommitDecision(
                     committed=True,
                     commit_at=commit_at,
                     reason="all_ready",
+                    ),
                 )
-                state.condition.notify_all()
 
             while state.decision is None:
                 remaining_s = state.timeout_deadline - time.monotonic()
                 if remaining_s <= 0:
-                    state.decision = SyncCommitDecision(
+                    self._set_decision_locked(
+                        state,
+                        SyncCommitDecision(
                         committed=False,
                         commit_at=None,
                         reason="ready_timeout",
+                        ),
                     )
-                    state.condition.notify_all()
                     break
                 try:
                     await asyncio.wait_for(state.condition.wait(), timeout=remaining_s)
@@ -98,7 +108,10 @@ class SyncCoordinator:
                     continue
 
             assert state.decision is not None
-            return state.decision
+            decision = state.decision
+
+        await self._prune_decided_rounds()
+        return decision
 
     async def abort_by_node(self, *, node_id: str, reason: str) -> None:
         """当节点失败/停止时，主动中止其所在的未决同步轮。"""
@@ -111,12 +124,15 @@ class SyncCoordinator:
             async with state.condition:
                 if state.decision is not None:
                     continue
-                state.decision = SyncCommitDecision(
-                    committed=False,
-                    commit_at=None,
-                    reason=reason,
+                self._set_decision_locked(
+                    state,
+                    SyncCommitDecision(
+                        committed=False,
+                        commit_at=None,
+                        reason=reason,
+                    ),
                 )
-                state.condition.notify_all()
+        await self._prune_decided_rounds()
 
     async def _get_or_create_round(
         self,
@@ -138,3 +154,47 @@ class SyncCoordinator:
             self._rounds[key] = state
             return state
 
+    @staticmethod
+    def _set_decision_locked(state: _RoundState, decision: SyncCommitDecision) -> None:
+        if state.decision is not None:
+            return
+        state.decision = decision
+        state.finalized_at = time.monotonic()
+        state.condition.notify_all()
+
+    async def _prune_decided_rounds(self) -> None:
+        now = time.monotonic()
+        async with self._map_lock:
+            decided_items = [
+                (key, state)
+                for key, state in self._rounds.items()
+                if state.decision is not None
+            ]
+
+            # 先按 TTL 删除过期决策轮次。
+            if self._decided_ttl_s > 0:
+                expired_keys = [
+                    key
+                    for key, state in decided_items
+                    if state.finalized_at is not None
+                    and (now - state.finalized_at) >= self._decided_ttl_s
+                ]
+                for key in expired_keys:
+                    self._rounds.pop(key, None)
+                expired_key_set = set(expired_keys)
+                decided_items = [
+                    item for item in decided_items
+                    if item[0] not in expired_key_set
+                ]
+
+            # 再按上限删除最旧的已决轮次。
+            overflow = len(decided_items) - self._max_decided_rounds
+            if overflow <= 0:
+                return
+            decided_items.sort(
+                key=lambda item: (
+                    item[1].finalized_at if item[1].finalized_at is not None else float("-inf")
+                )
+            )
+            for key, _state in decided_items[:overflow]:
+                self._rounds.pop(key, None)

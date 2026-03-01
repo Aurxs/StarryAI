@@ -7,6 +7,7 @@ from typing import Any
 
 from .node_base import BaseNode
 from .spec import NodeSpec, SyncConfig
+from .sync_protocol import SyncMeta, build_sync_envelope, parse_sync_envelope
 
 
 @dataclass(slots=True)
@@ -61,3 +62,14 @@ class SyncNode(BaseNode):
         super().__init__(node_id=node_id, spec=spec, config=config)
         self.sync_config = sync_config or spec.sync_config
         self.state = SyncState()
+
+    @staticmethod
+    def build_sync_payload(*, data: Any, sync: SyncMeta | dict[str, Any]) -> dict[str, Any]:
+        """构造标准同步 envelope。"""
+        return build_sync_envelope(data=data, sync=sync)
+
+    @staticmethod
+    def unpack_sync_payload(payload: Any) -> tuple[Any, dict[str, Any]]:
+        """解析标准同步 envelope，返回业务数据与同步元信息。"""
+        data, sync_meta = parse_sync_envelope(payload)
+        return data, sync_meta.model_dump(mode="json")

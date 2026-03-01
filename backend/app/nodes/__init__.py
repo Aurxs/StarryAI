@@ -1,26 +1,8 @@
-"""内置节点实现导出。
+"""内置节点包入口。
 
-这些节点用于 MVP 阶段演示和测试，不依赖真实模型或外部服务。
+说明：
+- 仅保留包级注释，避免在包导入阶段触发重量级模块导入导致循环依赖。
+- 节点实现类请从具体模块导入。
 """
 
-from .audio_play_base import AudioPlayBaseNode
-from .audio_play_sync import AudioPlaySyncNode
-from .mock_input import MockInputNode
-from .mock_llm import MockLLMNode
-from .mock_motion import MockMotionNode
-from .mock_output import MockOutputNode
-from .mock_tts import MockTTSNode
-from .motion_play_sync import MotionPlaySyncNode
-from .sync_initiator_dual import SyncInitiatorDualNode
-
-__all__ = [
-    "AudioPlayBaseNode",
-    "AudioPlaySyncNode",
-    "MockInputNode",
-    "MockLLMNode",
-    "MockMotionNode",
-    "MockOutputNode",
-    "MockTTSNode",
-    "MotionPlaySyncNode",
-    "SyncInitiatorDualNode",
-]
+__all__: list[str] = []

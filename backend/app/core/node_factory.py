@@ -7,22 +7,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from app.core.node_base import BaseNode
+from app.core.node_discovery import NodeDiscoveryError, discover_node_definitions
 from app.core.spec import NodeInstanceSpec, NodeSpec
-from app.nodes import (
-    AudioPlayBaseNode,
-    AudioPlaySyncNode,
-    MockInputNode,
-    MockLLMNode,
-    MockMotionNode,
-    MockOutputNode,
-    MockTTSNode,
-    MotionPlaySyncNode,
-    SyncInitiatorDualNode,
-)
 
 
 class NodeFactoryError(ValueError):
@@ -57,20 +48,42 @@ class NodeFactory:
         return impl_cls(node_id=node.node_id, spec=spec, config=node.config)
 
 
-def create_default_node_factory() -> NodeFactory:
+def create_default_node_factory(
+    *,
+    package_name: str | None = "app.nodes",
+    package_names: Sequence[str] | None = None,
+    search_dirs: Sequence[str | Path] | None = None,
+    strict: bool = True,
+) -> NodeFactory:
     """创建默认节点工厂并注入内置节点实现。"""
     factory = NodeFactory()
-    factory.bulk_register(
-        {
-            "mock.input": MockInputNode,
-            "mock.llm": MockLLMNode,
-            "mock.tts": MockTTSNode,
-            "mock.motion": MockMotionNode,
-            "sync.initiator.dual": SyncInitiatorDualNode,
-            "audio.play.base": AudioPlayBaseNode,
-            "audio.play.sync": AudioPlaySyncNode,
-            "motion.play.sync": MotionPlaySyncNode,
-            "mock.output": MockOutputNode,
-        }
-    )
+    try:
+        discovered_mappings = _build_discovered_mappings(
+            package_name=package_name,
+            package_names=package_names,
+            search_dirs=search_dirs,
+            strict=strict,
+        )
+    except NodeDiscoveryError as exc:
+        raise NodeFactoryError(f"节点发现失败: {exc}") from exc
+    factory.bulk_register(discovered_mappings)
     return factory
+
+
+def _build_discovered_mappings(
+    *,
+    package_name: str | None = "app.nodes",
+    package_names: Sequence[str] | None = None,
+    search_dirs: Sequence[str | Path] | None = None,
+    strict: bool = True,
+) -> dict[str, type[BaseNode]]:
+    mappings: dict[str, type[BaseNode]] = {}
+    definitions = discover_node_definitions(
+        package_name=package_name,
+        package_names=package_names,
+        search_dirs=search_dirs,
+        strict=strict,
+    )
+    for definition in definitions:
+        mappings[definition.spec.type_name] = definition.impl_cls
+    return mappings

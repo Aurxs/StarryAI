@@ -85,10 +85,35 @@ def test_sync_initiator_dual_wraps_two_inputs_into_sync_envelopes() -> None:
         assert output["out_a"]["data"] == {"audio": 1}
         assert output["out_b"]["data"] == {"motion": 1}
         assert output["out_a"]["sync"]["sync_group"] == "g1"
+        assert output["out_a"]["sync"]["stream_id"] == "s_custom"
+        assert output["out_a"]["sync"]["seq"] == 3
         assert output["out_a"]["sync"]["sync_round"] == 3
         assert output["out_a"]["sync"]["sync_key"] == "s_custom:g1:3"
+        assert output["out_a"]["sync"]["ready_timeout_ms"] == 800
+        assert output["out_a"]["sync"]["commit_lead_ms"] == 50
+        assert isinstance(output["out_a"]["sync"]["issued_at"], float)
         assert output["out_b"]["sync"]["sync_key"] == "s_custom:g1:3"
         assert output["__node_metrics"]["sync_packets_emitted"] == 2
+
+    asyncio.run(_run())
+
+
+def test_sync_initiator_dual_requires_explicit_sync_group() -> None:
+    async def _run() -> None:
+        registry = create_default_registry()
+        node = SyncInitiatorDualNode(
+            "n4",
+            registry.get("sync.initiator.dual"),
+            config={},
+        )
+        try:
+            await node.process(
+                inputs={"in_a": {"audio": 1}, "in_b": {"motion": 1}},
+                context=_context(node_id="n4", stream_id="s_custom"),
+            )
+            raise AssertionError("expected sync_group missing to fail")
+        except ValueError as exc:
+            assert "sync_group" in str(exc)
 
     asyncio.run(_run())
 
@@ -171,6 +196,77 @@ def test_sync_executor_aborts_on_ready_timeout() -> None:
     asyncio.run(_run())
 
 
+def test_sync_executor_requires_sync_group_in_payload() -> None:
+    async def _run() -> None:
+        registry = create_default_registry()
+        coordinator = SyncCoordinator()
+        participants = {"g_missing": ["n5", "n6"]}
+        audio_node = AudioPlaySyncNode(
+            "n5",
+            registry.get("audio.play.sync"),
+            config={"sync_group": "g_missing", "ready_timeout_ms": 60, "commit_lead_ms": 10},
+        )
+
+        try:
+            await audio_node.process(
+                inputs={"in": {"data": {"audio": 1}, "sync": {"sync_round": 0}}},
+                context=_context(
+                    node_id="n5",
+                    coordinator=coordinator,
+                    participants=participants,
+                ),
+            )
+            raise AssertionError("expected sync_group missing to fail")
+        except ValueError as exc:
+            assert "sync_group" in str(exc)
+
+    asyncio.run(_run())
+
+
+def test_sync_executor_uses_sync_round_only_for_compat() -> None:
+    async def _run() -> None:
+        registry = create_default_registry()
+        coordinator = SyncCoordinator()
+        participants = {"g_seq_only": ["n5", "n6"]}
+
+        audio_node = AudioPlaySyncNode(
+            "n5",
+            registry.get("audio.play.sync"),
+            config={"sync_group": "g_seq_only", "ready_timeout_ms": 300, "commit_lead_ms": 10},
+        )
+        motion_node = MotionPlaySyncNode(
+            "n6",
+            registry.get("motion.play.sync"),
+            config={"sync_group": "g_seq_only", "ready_timeout_ms": 300, "commit_lead_ms": 10},
+        )
+
+        payload_audio = {"data": {"audio": 1}, "sync": {"sync_group": "g_seq_only", "seq": 1}}
+        payload_motion = {"data": {"motion": 1}, "sync": {"sync_group": "g_seq_only", "seq": 2}}
+
+        out_audio, out_motion = await asyncio.gather(
+            audio_node.process(
+                inputs={"in": payload_audio},
+                context=_context(
+                    node_id="n5",
+                    coordinator=coordinator,
+                    participants=participants,
+                ),
+            ),
+            motion_node.process(
+                inputs={"in": payload_motion},
+                context=_context(
+                    node_id="n6",
+                    coordinator=coordinator,
+                    participants=participants,
+                ),
+            ),
+        )
+        assert out_audio["__node_metrics"]["sync_committed"] == 1
+        assert out_motion["__node_metrics"]["sync_committed"] == 1
+
+    asyncio.run(_run())
+
+
 def test_mock_output_node_consumes_any_payload() -> None:
     async def _run() -> None:
         registry = create_default_registry()
@@ -179,4 +275,3 @@ def test_mock_output_node_consumes_any_payload() -> None:
         assert output == {}
 
     asyncio.run(_run())
-

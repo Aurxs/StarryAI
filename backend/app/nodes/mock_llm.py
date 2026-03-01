@@ -6,6 +6,13 @@ from typing import Any
 
 from app.core.node_async import AsyncNode
 from app.core.node_base import NodeContext
+from app.core.node_config import CommonNodeConfig
+from app.core.node_definition import NodeDefinition
+from app.core.spec import NodeMode, NodeSpec, PortSpec
+
+
+class MockLLMConfig(CommonNodeConfig):
+    """Mock LLM 节点配置。"""
 
 
 class MockLLMNode(AsyncNode):
@@ -19,6 +26,8 @@ class MockLLMNode(AsyncNode):
     - 不调用真实模型，仅进行字符串拼接模拟。
     """
 
+    ConfigModel = MockLLMConfig
+
     async def process(self, inputs: dict[str, Any], context: NodeContext) -> dict[str, Any]:
         """处理 prompt 并返回模拟答案。"""
         _ = context
@@ -29,3 +38,20 @@ class MockLLMNode(AsyncNode):
         # 生成可观察的 mock 输出，便于验证流程连通。
         answer = f"[MockLLM回复] 已收到: {prompt}"
         return {"answer": answer}
+
+
+MOCK_LLM_SPEC = NodeSpec(
+    type_name="mock.llm",
+    mode=NodeMode.ASYNC,
+    inputs=[PortSpec(name="prompt", frame_schema="text.final", required=True)],
+    outputs=[PortSpec(name="answer", frame_schema="text.final", required=True)],
+    description="模拟 LLM 节点（输入完整文本，输出完整回复）",
+    config_schema=MockLLMConfig.model_json_schema(),
+)
+
+
+NODE_DEFINITION = NodeDefinition(
+    spec=MOCK_LLM_SPEC,
+    impl_cls=MockLLMNode,
+    config_model=MockLLMConfig,
+)

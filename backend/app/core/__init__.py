@@ -19,6 +19,9 @@ from .errors import (
     classify_exception,
     is_retryable_exception,
 )
+from .node_config import CommonNodeConfig
+from .node_definition import NodeDefinition
+from .node_discovery import NODE_SEARCH_DIRS_ENV, NodeDiscoveryError, discover_node_definitions
 from .graph_builder import CompiledGraph, GraphBuildError, GraphBuilder
 from .graph_runtime import GraphRuntimeState, RuntimeEdgeState, RuntimeNodeState
 from .node_factory import NodeFactory, NodeFactoryError, create_default_node_factory
@@ -34,6 +37,7 @@ from .spec import (
     PortSpec,
     SyncConfig,
 )
+from .sync_protocol import SyncEnvelope, SyncMeta, build_sync_envelope, build_sync_key, parse_sync_envelope
 
 __all__ = [
     "Frame",
@@ -48,6 +52,11 @@ __all__ = [
     "NodeTimeoutError",
     "classify_exception",
     "is_retryable_exception",
+    "CommonNodeConfig",
+    "NodeDefinition",
+    "NODE_SEARCH_DIRS_ENV",
+    "NodeDiscoveryError",
+    "discover_node_definitions",
     "CompiledGraph",
     "GraphBuildError",
     "GraphBuilder",
@@ -69,4 +78,9 @@ __all__ = [
     "NodeSpec",
     "PortSpec",
     "SyncConfig",
+    "SyncMeta",
+    "SyncEnvelope",
+    "build_sync_key",
+    "build_sync_envelope",
+    "parse_sync_envelope",
 ]

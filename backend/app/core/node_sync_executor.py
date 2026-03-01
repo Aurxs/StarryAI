@@ -22,7 +22,7 @@ class SyncExecutorNode(SyncNode):
             raise ValueError(f"{self.spec.type_name} 当前仅支持单输入同步执行")
 
         _port_name, payload = next(iter(inputs.items()))
-        data, sync_meta = self._extract_envelope(payload)
+        data, sync_meta = self._extract_envelope(payload, context=context)
         sync_group = self._normalize_group(sync_meta.get("sync_group"))
         sync_round = self._normalize_round(sync_meta.get("sync_round", 0))
 
@@ -30,22 +30,8 @@ class SyncExecutorNode(SyncNode):
         participants_map = context.metadata.get("sync_group_participants")
         participants = self._resolve_participants(participants_map, sync_group)
 
-        commit_lead_ms = self._resolve_timing_ms(
-            raw_value=sync_meta.get("commit_lead_ms"),
-            fallback_value=self.config.get(
-                "commit_lead_ms",
-                self.sync_config.commit_lead_ms if self.sync_config is not None else 50,
-            ),
-            field_name="commit_lead_ms",
-        )
-        ready_timeout_ms = self._resolve_timing_ms(
-            raw_value=sync_meta.get("ready_timeout_ms"),
-            fallback_value=self.config.get(
-                "ready_timeout_ms",
-                self.sync_config.ready_timeout_ms if self.sync_config is not None else 800,
-            ),
-            field_name="ready_timeout_ms",
-        )
+        commit_lead_ms = int(sync_meta.get("commit_lead_ms", 50))
+        ready_timeout_ms = int(sync_meta.get("ready_timeout_ms", 800))
 
         decision = await coordinator.ready(
             run_id=context.run_id,
@@ -83,16 +69,66 @@ class SyncExecutorNode(SyncNode):
         """在协调器提交后执行具体动作。"""
         raise NotImplementedError
 
-    @staticmethod
-    def _extract_envelope(payload: Any) -> tuple[Any, dict[str, Any]]:
+    def _extract_envelope(self, payload: Any, *, context: NodeContext) -> tuple[Any, dict[str, Any]]:
         if not isinstance(payload, dict):
             raise ValueError("同步输入 payload 必须是 dict")
         if "data" not in payload or "sync" not in payload:
             raise ValueError("同步输入 payload 必须包含 data/sync 字段")
-        sync_meta = payload.get("sync")
-        if not isinstance(sync_meta, dict):
+        raw_sync = payload.get("sync")
+        if not isinstance(raw_sync, dict):
             raise ValueError("同步输入 payload.sync 必须是 dict")
-        return payload.get("data"), sync_meta
+
+        sync_group = self._normalize_group(raw_sync.get("sync_group"))
+        sync_round = self._normalize_round(raw_sync.get("sync_round", 0))
+        default_stream_id = self._normalize_stream_id(
+            raw_sync.get("stream_id"),
+            fallback=context.metadata.get("stream_id", "stream_default"),
+        )
+        default_commit_lead = self.config.get(
+            "commit_lead_ms",
+            self.sync_config.commit_lead_ms if self.sync_config is not None else 50,
+        )
+        default_ready_timeout = self.config.get(
+            "ready_timeout_ms",
+            self.sync_config.ready_timeout_ms if self.sync_config is not None else 800,
+        )
+
+        normalized_sync = {
+            "stream_id": default_stream_id,
+            "seq": sync_round,
+            "sync_group": sync_group,
+            "sync_round": sync_round,
+            "ready_timeout_ms": self._resolve_timing_ms(
+                raw_value=raw_sync.get("ready_timeout_ms"),
+                fallback_value=default_ready_timeout,
+                field_name="ready_timeout_ms",
+            ),
+            "commit_lead_ms": self._resolve_timing_ms(
+                raw_value=raw_sync.get("commit_lead_ms"),
+                fallback_value=default_commit_lead,
+                field_name="commit_lead_ms",
+            ),
+            "sync_key": raw_sync.get("sync_key", ""),
+            "issued_at": raw_sync.get("issued_at", time.monotonic()),
+        }
+
+        try:
+            normalized_payload = self.build_sync_payload(data=payload.get("data"), sync=normalized_sync)
+            return self.unpack_sync_payload(normalized_payload)
+        except Exception as exc:  # noqa: BLE001 - 统一转为节点输入错误
+            raise ValueError(f"同步输入 payload 非法: {exc}") from exc
+
+    @staticmethod
+    def _normalize_stream_id(raw_stream_id: Any, *, fallback: Any) -> str:
+        if isinstance(raw_stream_id, str):
+            value = raw_stream_id.strip()
+            if value:
+                return value
+        if isinstance(fallback, str):
+            value = fallback.strip()
+            if value:
+                return value
+        return "stream_default"
 
     @staticmethod
     def _normalize_group(raw_group: Any) -> str:

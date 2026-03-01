@@ -244,3 +244,63 @@ def test_graph_builder_compiles_sync_group_participants() -> None:
     )
     compiled = GraphBuilder(create_default_registry()).build(graph)
     assert compiled.sync_group_participants["g1"] == ["n5", "n6"]
+
+
+def test_graph_validation_rejects_missing_sync_group_on_initiator_and_executor() -> None:
+    """验证：发起器与执行节点缺少 sync_group 时应报错。"""
+    graph = GraphSpec(
+        graph_id="g_sync_group_missing",
+        nodes=[
+            NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+            NodeInstanceSpec(node_id="n2", type_name="mock.tts"),
+            NodeInstanceSpec(node_id="n3", type_name="mock.motion"),
+            NodeInstanceSpec(node_id="n4", type_name="sync.initiator.dual"),
+            NodeInstanceSpec(node_id="n5", type_name="audio.play.sync"),
+            NodeInstanceSpec(node_id="n6", type_name="motion.play.sync"),
+        ],
+        edges=[
+            EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="text"),
+            EdgeSpec(source_node="n1", source_port="text", target_node="n3", target_port="text"),
+            EdgeSpec(source_node="n2", source_port="audio", target_node="n4", target_port="in_a"),
+            EdgeSpec(source_node="n3", source_port="motion", target_node="n4", target_port="in_b"),
+            EdgeSpec(source_node="n4", source_port="out_a", target_node="n5", target_port="in"),
+            EdgeSpec(source_node="n4", source_port="out_b", target_node="n6", target_port="in"),
+        ],
+    )
+
+    report = GraphBuilder(create_default_registry()).validate(graph)
+    assert report.valid is False
+    issue_codes = {issue.code for issue in report.issues}
+    assert "sync.initiator_group_missing" in issue_codes
+    assert "sync.executor_group_missing" in issue_codes
+
+
+def test_graph_validation_rejects_sync_group_mismatch_between_initiator_and_executor() -> None:
+    """验证：发起器和下游执行节点 sync_group 不一致时应报错。"""
+    graph = GraphSpec(
+        graph_id="g_sync_group_mismatch",
+        nodes=[
+            NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+            NodeInstanceSpec(node_id="n2", type_name="mock.tts"),
+            NodeInstanceSpec(node_id="n3", type_name="mock.motion"),
+            NodeInstanceSpec(
+                node_id="n4",
+                type_name="sync.initiator.dual",
+                config={"sync_group": "g_source", "sync_round": 0},
+            ),
+            NodeInstanceSpec(node_id="n5", type_name="audio.play.sync", config={"sync_group": "g_target"}),
+            NodeInstanceSpec(node_id="n6", type_name="motion.play.sync", config={"sync_group": "g_target"}),
+        ],
+        edges=[
+            EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="text"),
+            EdgeSpec(source_node="n1", source_port="text", target_node="n3", target_port="text"),
+            EdgeSpec(source_node="n2", source_port="audio", target_node="n4", target_port="in_a"),
+            EdgeSpec(source_node="n3", source_port="motion", target_node="n4", target_port="in_b"),
+            EdgeSpec(source_node="n4", source_port="out_a", target_node="n5", target_port="in"),
+            EdgeSpec(source_node="n4", source_port="out_b", target_node="n6", target_port="in"),
+        ],
+    )
+
+    report = GraphBuilder(create_default_registry()).validate(graph)
+    assert report.valid is False
+    assert any(issue.code == "sync.group_mismatch" for issue in report.issues)

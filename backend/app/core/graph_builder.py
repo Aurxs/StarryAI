@@ -376,6 +376,17 @@ class GraphBuilder:
 
             sync_role = spec.sync_config.role
             if sync_role == SyncRole.INITIATOR:
+                instance = node_instances.get(node_id)
+                configured_group = instance.config.get("sync_group") if instance is not None else None
+                if not isinstance(configured_group, str) or not configured_group.strip():
+                    issues.append(
+                        ValidationIssue(
+                            level="error",
+                            code="sync.initiator_group_missing",
+                            message=f"同步发起器 {node_id} 缺少 sync_group 配置",
+                        )
+                    )
+
                 if len(spec.inputs) != 2 or len(spec.outputs) != 2:
                     issues.append(
                         ValidationIssue(
@@ -439,14 +450,63 @@ class GraphBuilder:
                 instance = node_instances.get(node_id)
                 configured_group = instance.config.get("sync_group") if instance is not None else None
                 if not isinstance(configured_group, str) or not configured_group.strip():
-                    if not (isinstance(spec.sync_config.sync_group, str) and spec.sync_config.sync_group.strip()):
-                        issues.append(
-                            ValidationIssue(
-                                level="error",
-                                code="sync.executor_group_missing",
-                                message=f"同步执行节点 {node_id} 缺少 sync_group 配置",
-                            )
+                    issues.append(
+                        ValidationIssue(
+                            level="error",
+                            code="sync.executor_group_missing",
+                            message=f"同步执行节点 {node_id} 缺少 sync_group 配置",
                         )
+                    )
+
+        self._validate_sync_group_alignment(
+            graph=graph,
+            node_specs=node_specs,
+            issues=issues,
+        )
+
+    def _validate_sync_group_alignment(
+        self,
+        *,
+        graph: GraphSpec,
+        node_specs: dict[str, NodeSpec],
+        issues: list[ValidationIssue],
+    ) -> None:
+        """校验发起器与下游执行节点的 sync_group 一致性。"""
+        node_instances = {node.node_id: node for node in graph.nodes}
+
+        for edge in graph.edges:
+            source_spec = node_specs.get(edge.source_node)
+            target_spec = node_specs.get(edge.target_node)
+            if source_spec is None or target_spec is None:
+                continue
+            if source_spec.sync_config is None or target_spec.sync_config is None:
+                continue
+            if source_spec.sync_config.role != SyncRole.INITIATOR:
+                continue
+            if target_spec.sync_config.role != SyncRole.EXECUTOR:
+                continue
+
+            source_node = node_instances.get(edge.source_node)
+            target_node = node_instances.get(edge.target_node)
+            source_group = source_node.config.get("sync_group") if source_node is not None else None
+            target_group = target_node.config.get("sync_group") if target_node is not None else None
+
+            if not isinstance(source_group, str) or not source_group.strip():
+                continue
+            if not isinstance(target_group, str) or not target_group.strip():
+                continue
+            if source_group.strip() == target_group.strip():
+                continue
+            issues.append(
+                ValidationIssue(
+                    level="error",
+                    code="sync.group_mismatch",
+                    message=(
+                        f"同步组不一致: 发起器 {edge.source_node}({source_group.strip()}) "
+                        f"-> 执行节点 {edge.target_node}({target_group.strip()})"
+                    ),
+                )
+            )
 
     def _validate_acyclic(
         self,
@@ -575,10 +635,9 @@ class GraphBuilder:
             if instance is None:
                 continue
             raw_group = instance.config.get("sync_group")
-            group = raw_group if isinstance(raw_group, str) and raw_group.strip() else spec.sync_config.sync_group
-            if not isinstance(group, str):
+            if not isinstance(raw_group, str):
                 continue
-            group_name = group.strip()
+            group_name = raw_group.strip()
             if not group_name:
                 continue
             participants[group_name].append(node_id)

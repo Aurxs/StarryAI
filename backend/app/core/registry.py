@@ -8,9 +8,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
-from .spec import NodeMode, NodeSpec, PortSpec, SyncConfig, SyncRole, SyncStrategy
+from app.core.node_discovery import NodeDiscoveryError, discover_node_definitions
+
+from .spec import NodeSpec
 
 
 class RegistryError(ValueError):
@@ -56,7 +60,13 @@ class NodeTypeRegistry:
         return list(self._specs.values())
 
 
-def create_default_registry() -> NodeTypeRegistry:
+def create_default_registry(
+    *,
+    package_name: str | None = "app.nodes",
+    package_names: Sequence[str] | None = None,
+    search_dirs: Sequence[str | Path] | None = None,
+    strict: bool = True,
+) -> NodeTypeRegistry:
     """创建默认注册中心并注入内置 mock 类型。
 
     设计目标：
@@ -65,142 +75,30 @@ def create_default_registry() -> NodeTypeRegistry:
     """
 
     registry = NodeTypeRegistry()
-
-    # 1) 输入节点：无输入，输出完整文本。
-    mock_input = NodeSpec(
-        type_name="mock.input",
-        mode=NodeMode.ASYNC,
-        inputs=[],
-        outputs=[
-            PortSpec(
-                name="text",
-                frame_schema="text.final",
-                is_stream=False,
-                required=True,
-                description="完整文本输出",
-            )
-        ],
-        description="模拟输入节点，产出完整文本",
-    )
-
-    # 2) LLM 节点：输入 prompt，输出 answer（非流式）。
-    mock_llm = NodeSpec(
-        type_name="mock.llm",
-        mode=NodeMode.ASYNC,
-        inputs=[PortSpec(name="prompt", frame_schema="text.final", required=True)],
-        outputs=[PortSpec(name="answer", frame_schema="text.final", required=True)],
-        description="模拟 LLM 节点（输入完整文本，输出完整回复）",
-    )
-
-    # 3) TTS 节点：输入文本，输出完整音频信息。
-    mock_tts = NodeSpec(
-        type_name="mock.tts",
-        mode=NodeMode.ASYNC,
-        inputs=[PortSpec(name="text", frame_schema="text.final", required=True)],
-        outputs=[PortSpec(name="audio", frame_schema="audio.full", required=True)],
-        description="模拟 TTS 节点（输入文本，输出完整音频元信息）",
-    )
-
-    # 4) 动作节点：输入文本，输出动作时间线。
-    mock_motion = NodeSpec(
-        type_name="mock.motion",
-        mode=NodeMode.ASYNC,
-        inputs=[PortSpec(name="text", frame_schema="text.final", required=True)],
-        outputs=[PortSpec(name="motion", frame_schema="motion.timeline", required=True)],
-        description="模拟动作规划节点（输出完整动作轨迹）",
-    )
-
-    # 5) 同步发起器：2 输入 2 输出，输出按输入 schema 动态染色为 *.sync。
-    sync_initiator_dual = NodeSpec(
-        type_name="sync.initiator.dual",
-        mode=NodeMode.SYNC,
-        inputs=[
-            PortSpec(name="in_a", frame_schema="any", required=True),
-            PortSpec(name="in_b", frame_schema="any", required=True),
-        ],
-        outputs=[
-            PortSpec(
-                name="out_a",
-                frame_schema="any.sync",
-                required=True,
-                derived_from_input="in_a",
-            ),
-            PortSpec(
-                name="out_b",
-                frame_schema="any.sync",
-                required=True,
-                derived_from_input="in_b",
-            ),
-        ],
-        sync_config=SyncConfig(
-            required_ports=["in_a", "in_b"],
-            strategy=SyncStrategy.BARRIER,
-            role=SyncRole.INITIATOR,
-        ),
-        description="同步发起器：将双路输入封装为双路同步任务包",
-    )
-
-    # 6) 基础音频执行节点：收到音频即执行（无输出）。
-    audio_play_base = NodeSpec(
-        type_name="audio.play.base",
-        mode=NodeMode.ASYNC,
-        inputs=[PortSpec(name="in", frame_schema="audio.full", required=True)],
-        outputs=[],
-        description="基础音频执行节点（收到即执行）",
-    )
-
-    # 7) 同步音频执行节点：只消费 audio.full.sync，不向下游输出。
-    audio_play_sync = NodeSpec(
-        type_name="audio.play.sync",
-        mode=NodeMode.SYNC,
-        inputs=[PortSpec(name="in", frame_schema="audio.full.sync", required=True)],
-        outputs=[],
-        sync_config=SyncConfig(
-            required_ports=["in"],
-            role=SyncRole.EXECUTOR,
-            sync_group="av_group",
-            commit_lead_ms=50,
-            ready_timeout_ms=800,
-        ),
-        description="同步音频执行节点（由协调器统一提交后执行）",
-    )
-
-    # 8) 同步动作执行节点：只消费 motion.timeline.sync，不向下游输出。
-    motion_play_sync = NodeSpec(
-        type_name="motion.play.sync",
-        mode=NodeMode.SYNC,
-        inputs=[PortSpec(name="in", frame_schema="motion.timeline.sync", required=True)],
-        outputs=[],
-        sync_config=SyncConfig(
-            required_ports=["in"],
-            role=SyncRole.EXECUTOR,
-            sync_group="av_group",
-            commit_lead_ms=50,
-            ready_timeout_ms=800,
-        ),
-        description="同步动作执行节点（由协调器统一提交后执行）",
-    )
-
-    # 9) 输出节点：用于消费任何数据并展示。
-    mock_output = NodeSpec(
-        type_name="mock.output",
-        mode=NodeMode.ASYNC,
-        inputs=[PortSpec(name="in", frame_schema="any", required=True)],
-        outputs=[],
-        description="模拟输出节点",
-    )
-
-    registry.bulk_register(
-        [
-            mock_input,
-            mock_llm,
-            mock_tts,
-            mock_motion,
-            sync_initiator_dual,
-            audio_play_base,
-            audio_play_sync,
-            motion_play_sync,
-            mock_output,
-        ]
-    )
+    try:
+        discovered_specs = _build_discovered_specs(
+            package_name=package_name,
+            package_names=package_names,
+            search_dirs=search_dirs,
+            strict=strict,
+        )
+    except NodeDiscoveryError as exc:
+        raise RegistryError(f"节点发现失败: {exc}") from exc
+    registry.bulk_register(discovered_specs)
     return registry
+
+
+def _build_discovered_specs(
+    *,
+    package_name: str | None = "app.nodes",
+    package_names: Sequence[str] | None = None,
+    search_dirs: Sequence[str | Path] | None = None,
+    strict: bool = True,
+) -> list[NodeSpec]:
+    definitions = discover_node_definitions(
+        package_name=package_name,
+        package_names=package_names,
+        search_dirs=search_dirs,
+        strict=strict,
+    )
+    return [definition.spec_with_config_schema() for definition in definitions]

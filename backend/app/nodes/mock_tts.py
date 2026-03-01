@@ -7,6 +7,13 @@ from typing import Any
 
 from app.core.node_async import AsyncNode
 from app.core.node_base import NodeContext
+from app.core.node_config import CommonNodeConfig
+from app.core.node_definition import NodeDefinition
+from app.core.spec import NodeMode, NodeSpec, PortSpec
+
+
+class MockTTSConfig(CommonNodeConfig):
+    """Mock TTS 节点配置。"""
 
 
 class MockTTSNode(AsyncNode):
@@ -20,6 +27,8 @@ class MockTTSNode(AsyncNode):
     - 不做真实语音合成，仅返回音频元信息，
       用于后续同步节点和前端展示验证。
     """
+
+    ConfigModel = MockTTSConfig
 
     async def process(self, inputs: dict[str, Any], context: NodeContext) -> dict[str, Any]:
         """基于输入文本构造模拟音频信息。"""
@@ -41,3 +50,20 @@ class MockTTSNode(AsyncNode):
                 "play_at": play_at,
             }
         }
+
+
+MOCK_TTS_SPEC = NodeSpec(
+    type_name="mock.tts",
+    mode=NodeMode.ASYNC,
+    inputs=[PortSpec(name="text", frame_schema="text.final", required=True)],
+    outputs=[PortSpec(name="audio", frame_schema="audio.full", required=True)],
+    description="模拟 TTS 节点（输入文本，输出完整音频元信息）",
+    config_schema=MockTTSConfig.model_json_schema(),
+)
+
+
+NODE_DEFINITION = NodeDefinition(
+    spec=MOCK_TTS_SPEC,
+    impl_cls=MockTTSNode,
+    config_model=MockTTSConfig,
+)

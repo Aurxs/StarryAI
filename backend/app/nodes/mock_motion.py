@@ -7,6 +7,13 @@ from typing import Any
 
 from app.core.node_async import AsyncNode
 from app.core.node_base import NodeContext
+from app.core.node_config import CommonNodeConfig
+from app.core.node_definition import NodeDefinition
+from app.core.spec import NodeMode, NodeSpec, PortSpec
+
+
+class MockMotionConfig(CommonNodeConfig):
+    """Mock Motion 节点配置。"""
 
 
 class MockMotionNode(AsyncNode):
@@ -19,6 +26,8 @@ class MockMotionNode(AsyncNode):
     当前行为：
     - 根据文本长度生成简化的动作轨迹时间线。
     """
+
+    ConfigModel = MockMotionConfig
 
     async def process(self, inputs: dict[str, Any], context: NodeContext) -> dict[str, Any]:
         """生成 mock 动作时间线。"""
@@ -46,3 +55,20 @@ class MockMotionNode(AsyncNode):
                 "play_at": play_at,
             }
         }
+
+
+MOCK_MOTION_SPEC = NodeSpec(
+    type_name="mock.motion",
+    mode=NodeMode.ASYNC,
+    inputs=[PortSpec(name="text", frame_schema="text.final", required=True)],
+    outputs=[PortSpec(name="motion", frame_schema="motion.timeline", required=True)],
+    description="模拟动作规划节点（输出完整动作轨迹）",
+    config_schema=MockMotionConfig.model_json_schema(),
+)
+
+
+NODE_DEFINITION = NodeDefinition(
+    spec=MOCK_MOTION_SPEC,
+    impl_cls=MockMotionNode,
+    config_model=MockMotionConfig,
+)
