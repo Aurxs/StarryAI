@@ -65,10 +65,16 @@ export interface GraphValidationReport {
     issues: ValidationIssue[];
 }
 
+export interface GraphIncompatibility {
+    code: string;
+    message: string;
+}
+
 export interface GraphSummary {
     graph_id: string;
     version: string;
     updated_at: number;
+    incompatibility?: GraphIncompatibility | null;
 }
 
 export interface GraphListResponse {

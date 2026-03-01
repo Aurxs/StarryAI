@@ -1,4 +1,4 @@
-import {fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {http, HttpResponse} from 'msw';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
@@ -260,5 +260,58 @@ describe('WorkbenchPage shell', () => {
             expect(useGraphStore.getState().graph.graph_id).toBe('graph_new_2');
         });
         expect(useGraphStore.getState().isDirty).toBe(false);
+    });
+
+    it('shows incompatibility hint only for incompatible graphs and disables their load button', async () => {
+        server.use(
+            http.get('*/api/v1/graphs', () =>
+                HttpResponse.json({
+                    count: 2,
+                    items: [
+                        {
+                            graph_id: 'graph_ok',
+                            version: '0.1.0',
+                            updated_at: 1_700_000_001,
+                            incompatibility: null,
+                        },
+                        {
+                            graph_id: 'graph_bad',
+                            version: '1.0.0',
+                            updated_at: 1_700_000_002,
+                            incompatibility: {
+                                code: 'compat.graph_major_unsupported',
+                                message: '图结构主版本不受支持',
+                            },
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        render(<WorkbenchPage/>);
+        fireEvent.click(screen.getByTestId('graph-panel-expand'));
+
+        const okTitle = await screen.findByText('graph_ok');
+        const badTitle = await screen.findByText('graph_bad');
+
+        const okItem = okTitle.closest('li');
+        const badItem = badTitle.closest('li');
+        expect(okItem).toBeTruthy();
+        expect(badItem).toBeTruthy();
+        if (!okItem || !badItem) {
+            throw new Error('saved graph list item not found');
+        }
+
+        expect(
+            within(okItem).queryByTestId('saved-graph-incompatibility-graph_ok'),
+        ).toBeNull();
+        expect(
+            within(badItem).getByTestId('saved-graph-incompatibility-graph_bad').textContent,
+        ).toContain('图结构主版本不受支持');
+
+        const okLoadButton = within(okItem).getByRole('button', {name: '加载'}) as HTMLButtonElement;
+        const badLoadButton = within(badItem).getByRole('button', {name: '加载'}) as HTMLButtonElement;
+        expect(okLoadButton.disabled).toBe(false);
+        expect(badLoadButton.disabled).toBe(true);
     });
 });

@@ -47,6 +47,21 @@ StarryAI 是一个模块化、节点式 AI 虚拟人工作流引擎（Backend + 
   - `/metrics` 新增标签指标 `starryai_runs_status{status=...}`；
   - 新增 `starryai_run_capacity_utilization` 与 `starryai_events_drop_ratio`；
   - 新增建议阈值指标：`starryai_recommend_capacity_utilization_warning`、`starryai_recommend_events_drop_ratio_warning`。
+- 图版本兼容治理初版（后端）：
+  - 新增图兼容检测模块（图结构版本 + 节点类型版本快照）；
+  - `PUT /api/v1/graphs/{graph_id}` 保存时自动补齐 `metadata.compat`；
+  - `GET /api/v1/graphs` 返回每个图的可选不兼容摘要；
+  - `GET /api/v1/graphs/{graph_id}` 与 `POST /api/v1/runs` 对不兼容图返回 `409` 并阻止加载/运行。
+- 图版本兼容治理初版（前端）：
+  - 已保存图列表仅对不兼容图显示红色原因提示；
+  - 不兼容图禁用“加载”按钮；
+  - 兼容图不显示任何兼容状态文案。
+- 图存储命名策略升级（后端）：
+  - 保存图时文件名改为 `{graph_id}.json`；
+  - 读取/删除兼容历史 base64 文件名；
+  - 存在新旧同图文件时按最新修改时间去重。
+- 测试稳定性修复：
+  - `test_repository_entry.py` 不再直接执行常驻启动流程，改为校验 `main.py --help`，避免全量测试挂起。
 - 接口兼容修复（后端）：
   - CORS 支持本地动态端口（`localhost/127.0.0.1:*`），修复前端端口自动切换后“图列表加载失败”问题。
 - 运行链路修复（启动器 + 前端）：
@@ -56,6 +71,7 @@ StarryAI 是一个模块化、节点式 AI 虚拟人工作流引擎（Backend + 
 ## 核心能力
 
 - 图协议与校验：`NodeSpec/GraphSpec`、`GraphBuilder`。
+- 图兼容门禁：`graph_compatibility`（加载与运行前版本检测）。
 - 运行闭环：`GraphScheduler` + `RunService` + runs REST/WS。
 - 运行时边界保护：事件窗口裁剪、并发运行上限控制。
 - 运行态诊断细化：事件窗口比例与容量状态直出。
@@ -73,6 +89,21 @@ StarryAI 是一个模块化、节点式 AI 虚拟人工作流引擎（Backend + 
 - Phase D（已完成）：结构化事件、错误治理、重试/超时、观测接口。
 - Phase E（已完成）：前端工作台闭环与前后端联调、E2E 基线。
 - Phase F（进行中）：性能、稳定性、测试矩阵与工程化增强。
+
+## 版本维护规则
+
+- `app_version`（发布版本）：
+  - 位置：`backend/pyproject.toml`、`frontend/package.json`、`backend/app/main.py`（FastAPI version）。
+  - 规则：按发布节奏更新（功能/修复均可），不用于图兼容拦截。
+- `graph_format_version`（图结构版本）：
+  - 位置：`GraphSpec.version` 默认值（`backend/app/core/spec.py`）及前端默认图版本（`frontend/src/shared/state/graph-store.ts`）。
+  - 规则：仅图 JSON 结构或字段语义不兼容变化时升 `major`。
+- `node_type_version`（节点类型版本）：
+  - 位置：`backend/app/core/registry.py` 中各 `NodeSpec.version`。
+  - 规则：节点输入/输出/schema/配置契约变化时更新（兼容新增升 `minor`，不兼容变更升 `major`）。
+- `graph metadata compat snapshot`（图内兼容快照）：
+  - 位置：`graph.metadata.compat.node_type_versions`（保存时后端自动补齐）。
+  - 规则：无需手工改写；当节点版本变化后，重存图即可刷新快照。
 
 ## 技术栈
 

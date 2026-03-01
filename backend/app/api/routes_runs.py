@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.core.frame import RuntimeEventSeverity, RuntimeEventType
+from app.core.graph_compatibility import evaluate_graph_compatibility
 from app.core.graph_builder import GraphBuildError
 from app.schemas.runs import (
     CreateRunRequest,
@@ -31,6 +32,15 @@ async def create_run(req: CreateRunRequest) -> dict[str, object]:
     """创建一次图运行。
     """
     service = get_run_service()
+    compatibility = evaluate_graph_compatibility(req.graph, service.registry)
+    if not compatibility.compatible:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "图与当前运行时不兼容，禁止运行",
+                "compatibility": compatibility.to_dict(),
+            },
+        )
     try:
         record = await service.create_run(req.graph, stream_id=req.stream_id)
     except GraphBuildError as exc:

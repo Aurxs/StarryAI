@@ -47,7 +47,7 @@ class FileGraphRepository:
     def list_graphs(self) -> list[GraphSummaryRecord]:
         """列出已保存图的摘要。"""
         self._ensure_storage_dir()
-        records: list[GraphSummaryRecord] = []
+        records_by_graph_id: dict[str, GraphSummaryRecord] = {}
         for file_path in self.storage_dir.glob("*.json"):
             try:
                 payload = self._read_graph_payload(file_path)
@@ -55,22 +55,24 @@ class FileGraphRepository:
                 if not graph_id:
                     continue
                 version = str(payload.get("version", "0.1.0")).strip() or "0.1.0"
-                records.append(
-                    GraphSummaryRecord(
-                        graph_id=graph_id,
-                        version=version,
-                        updated_at=file_path.stat().st_mtime,
-                    )
+                candidate = GraphSummaryRecord(
+                    graph_id=graph_id,
+                    version=version,
+                    updated_at=file_path.stat().st_mtime,
                 )
+                previous = records_by_graph_id.get(graph_id)
+                if previous is None or candidate.updated_at >= previous.updated_at:
+                    records_by_graph_id[graph_id] = candidate
             except (json.JSONDecodeError, OSError, ValueError):
                 continue
 
+        records = list(records_by_graph_id.values())
         records.sort(key=lambda item: item.updated_at, reverse=True)
         return records
 
     def get_graph(self, graph_id: str) -> GraphSpec:
         """按 graph_id 读取图定义。"""
-        path = self._graph_file_path(graph_id)
+        path = self._resolve_existing_graph_file_path(graph_id)
         if not path.exists():
             raise GraphNotFoundError(f"图不存在: {graph_id}")
 
@@ -86,6 +88,7 @@ class FileGraphRepository:
         """保存图定义。"""
         self._ensure_storage_dir()
         path = self._graph_file_path(graph.graph_id)
+        legacy_path = self._legacy_graph_file_path(graph.graph_id)
         tmp_path = path.with_suffix(".tmp")
         payload = graph.model_dump(mode="json")
 
@@ -94,6 +97,8 @@ class FileGraphRepository:
                 json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
                 handle.write("\n")
             os.replace(tmp_path, path)
+            if legacy_path != path and legacy_path.exists():
+                legacy_path.unlink()
             updated_at = path.stat().st_mtime
         except OSError as exc:
             raise GraphRepositoryError(f"图文件保存失败: {graph.graph_id}") from exc
@@ -112,7 +117,7 @@ class FileGraphRepository:
 
     def delete_graph(self, graph_id: str) -> None:
         """删除图定义。"""
-        path = self._graph_file_path(graph_id)
+        path = self._resolve_existing_graph_file_path(graph_id)
         if not path.exists():
             raise GraphNotFoundError(f"图不存在: {graph_id}")
         try:
@@ -130,9 +135,31 @@ class FileGraphRepository:
         normalized_graph_id = graph_id.strip()
         if not normalized_graph_id:
             raise ValueError("graph_id 不能为空")
+        if normalized_graph_id in {".", ".."}:
+            raise ValueError("graph_id 非法")
+        if "/" in normalized_graph_id or "\\" in normalized_graph_id:
+            raise ValueError("graph_id 不能包含路径分隔符")
+        if normalized_graph_id.endswith(".json"):
+            return self.storage_dir / normalized_graph_id
+        return self.storage_dir / f"{normalized_graph_id}.json"
+
+    def _legacy_graph_file_path(self, graph_id: str) -> Path:
+        normalized_graph_id = graph_id.strip()
         encoded = base64.urlsafe_b64encode(normalized_graph_id.encode("utf-8")).decode("ascii")
         safe_id = encoded.rstrip("=") or "graph"
         return self.storage_dir / f"{safe_id}.json"
+
+    def _resolve_existing_graph_file_path(self, graph_id: str) -> Path:
+        normalized_graph_id = graph_id.strip()
+        if not normalized_graph_id:
+            raise ValueError("graph_id 不能为空")
+        path = self._graph_file_path(normalized_graph_id)
+        if path.exists():
+            return path
+        legacy_path = self._legacy_graph_file_path(normalized_graph_id)
+        if legacy_path.exists():
+            return legacy_path
+        return path
 
     @staticmethod
     def _read_graph_payload(path: Path) -> dict[str, object]:

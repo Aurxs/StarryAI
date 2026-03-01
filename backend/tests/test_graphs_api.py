@@ -60,11 +60,14 @@ def test_graph_crud_lifecycle() -> None:
         assert listed.status_code == 200
         assert listed.json()["count"] == 1
         assert listed.json()["items"][0]["graph_id"] == "graph_saved_01"
+        assert listed.json()["items"][0]["incompatibility"] is None
 
         loaded = client.get("/api/v1/graphs/graph_saved_01")
         assert loaded.status_code == 200
         assert loaded.json()["graph_id"] == "graph_saved_01"
         assert len(loaded.json()["nodes"]) == 2
+        assert loaded.json()["metadata"]["compat"]["graph_format_version"] == "0.1.0"
+        assert loaded.json()["metadata"]["compat"]["node_type_versions"]["mock.input"] == "0.1.0"
 
         deleted = client.delete("/api/v1/graphs/graph_saved_01")
         assert deleted.status_code == 200
@@ -79,3 +82,37 @@ def test_save_graph_returns_422_for_mismatched_path_and_payload_graph_id() -> No
         resp = client.put("/api/v1/graphs/graph_path", json=_graph_payload("graph_body"))
         assert resp.status_code == 422
         assert "不一致" in resp.json()["detail"]["message"]
+
+
+def test_get_graph_returns_409_for_incompatible_graph_version() -> None:
+    with TestClient(app) as client:
+        payload = _graph_payload("graph_incompatible_major")
+        payload["version"] = "1.0.0"
+        saved = client.put("/api/v1/graphs/graph_incompatible_major", json=payload)
+        assert saved.status_code == 200
+
+        loaded = client.get("/api/v1/graphs/graph_incompatible_major")
+        assert loaded.status_code == 409
+        detail = loaded.json()["detail"]
+        assert "不兼容" in detail["message"]
+        assert detail["compatibility"]["compatible"] is False
+        assert any(
+            issue["code"] == "compat.graph_major_unsupported"
+            for issue in detail["compatibility"]["issues"]
+        )
+
+
+def test_list_graphs_marks_incompatible_items() -> None:
+    with TestClient(app) as client:
+        compat_payload = _graph_payload("graph_compat")
+        incompat_payload = _graph_payload("graph_incompat")
+        incompat_payload["version"] = "1.0.0"
+
+        assert client.put("/api/v1/graphs/graph_compat", json=compat_payload).status_code == 200
+        assert client.put("/api/v1/graphs/graph_incompat", json=incompat_payload).status_code == 200
+
+        listed = client.get("/api/v1/graphs")
+        assert listed.status_code == 200
+        items = {item["graph_id"]: item for item in listed.json()["items"]}
+        assert items["graph_compat"]["incompatibility"] is None
+        assert items["graph_incompat"]["incompatibility"]["code"] == "compat.graph_major_unsupported"

@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
+from app.core.graph_compatibility import (
+    evaluate_graph_compatibility,
+    enrich_graph_compat_metadata,
+    get_primary_incompatibility,
+)
 from app.core.graph_builder import GraphBuilder
 from app.core.registry import create_default_registry
 from app.core.spec import GraphSpec
 from app.schemas.graphs import (
     DeleteGraphResponse,
+    GraphIncompatibilityResponse,
     GraphListResponse,
     GraphSummaryResponse,
     SaveGraphResponse,
@@ -40,6 +46,7 @@ async def validate_graph(graph: GraphSpec) -> dict[str, object]:
 async def list_graphs() -> dict[str, object]:
     """返回已保存图列表。"""
     repository = get_graph_repository()
+    registry = create_default_registry()
     try:
         records = repository.list_graphs()
     except GraphRepositoryError as exc:
@@ -48,14 +55,33 @@ async def list_graphs() -> dict[str, object]:
             detail=str(exc),
         ) from exc
 
-    items = [
-        GraphSummaryResponse(
-            graph_id=record.graph_id,
-            version=record.version,
-            updated_at=record.updated_at,
+    items: list[GraphSummaryResponse] = []
+    for record in records:
+        incompatibility: GraphIncompatibilityResponse | None = None
+        try:
+            graph = repository.get_graph(record.graph_id)
+            compatibility = evaluate_graph_compatibility(graph, registry)
+            if not compatibility.compatible:
+                primary = get_primary_incompatibility(compatibility)
+                if primary is not None:
+                    incompatibility = GraphIncompatibilityResponse(
+                        code=primary.code,
+                        message=primary.message,
+                    )
+        except (GraphNotFoundError, GraphRepositoryError, ValueError) as exc:
+            incompatibility = GraphIncompatibilityResponse(
+                code="compat.graph_unreadable",
+                message=f"图文件不可读: {exc}",
+            )
+
+        items.append(
+            GraphSummaryResponse(
+                graph_id=record.graph_id,
+                version=record.version,
+                updated_at=record.updated_at,
+                incompatibility=incompatibility,
+            )
         )
-        for record in records
-    ]
     return GraphListResponse(count=len(items), items=items).model_dump(mode="json")
 
 
@@ -63,6 +89,7 @@ async def list_graphs() -> dict[str, object]:
 async def get_graph(graph_id: str) -> dict[str, object]:
     """按 graph_id 获取已保存图。"""
     repository = get_graph_repository()
+    registry = create_default_registry()
     try:
         graph = repository.get_graph(graph_id)
     except GraphNotFoundError as exc:
@@ -77,6 +104,17 @@ async def get_graph(graph_id: str) -> dict[str, object]:
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"message": str(exc)},
         ) from exc
+
+    compatibility = evaluate_graph_compatibility(graph, registry)
+    if not compatibility.compatible:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "图与当前运行时不兼容，禁止加载",
+                "compatibility": compatibility.to_dict(),
+            },
+        )
+
     return graph.model_dump(mode="json")
 
 
@@ -95,9 +133,11 @@ async def save_graph(graph_id: str, graph: GraphSpec) -> dict[str, object]:
             detail={"message": "路径 graph_id 与请求体 graph.graph_id 不一致"},
         )
 
+    registry = create_default_registry()
+    graph_with_compat = enrich_graph_compat_metadata(graph, registry)
     repository = get_graph_repository()
     try:
-        summary = repository.save_graph(graph)
+        summary = repository.save_graph(graph_with_compat)
     except GraphRepositoryError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

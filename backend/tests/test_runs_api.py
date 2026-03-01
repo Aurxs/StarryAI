@@ -251,6 +251,45 @@ def test_create_run_returns_422_for_blank_stream_id() -> None:
         assert resp.status_code == 422
 
 
+def test_create_run_returns_409_for_incompatible_graph_major_version() -> None:
+    """图结构 major 不兼容时 create_run 应返回 409。"""
+    with TestClient(app) as client:
+        payload = _basic_graph_payload()
+        payload["graph"]["version"] = "1.0.0"
+        resp = client.post("/api/v1/runs", json=payload)
+        assert resp.status_code == 409
+        detail = resp.json()["detail"]
+        assert "不兼容" in detail["message"]
+        assert detail["compatibility"]["compatible"] is False
+        assert any(
+            issue["code"] == "compat.graph_major_unsupported"
+            for issue in detail["compatibility"]["issues"]
+        )
+
+
+def test_create_run_returns_409_for_required_node_version_mismatch() -> None:
+    """图记录的节点版本高于当前运行时时 create_run 应返回 409。"""
+    with TestClient(app) as client:
+        payload = _basic_graph_payload()
+        payload["graph"]["metadata"] = {
+            "compat": {
+                "node_type_versions": {
+                    "mock.input": "0.2.0",
+                    "mock.llm": "0.1.0",
+                    "mock.output": "0.1.0",
+                }
+            }
+        }
+        resp = client.post("/api/v1/runs", json=payload)
+        assert resp.status_code == 409
+        detail = resp.json()["detail"]
+        assert detail["compatibility"]["compatible"] is False
+        assert any(
+            issue["code"] == "compat.node_runtime_older_than_required"
+            for issue in detail["compatibility"]["issues"]
+        )
+
+
 def test_create_run_returns_429_when_capacity_exceeded(monkeypatch: pytest.MonkeyPatch) -> None:
     """active run 达到上限时 create_run 应返回 429。"""
     custom_service = _build_slow_run_service()

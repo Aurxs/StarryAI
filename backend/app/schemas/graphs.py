@@ -5,6 +5,15 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class GraphIncompatibilityResponse(BaseModel):
+    """图不兼容摘要。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    message: str
+
+
 class GraphSummaryResponse(BaseModel):
     """图摘要响应。"""
 
@@ -13,6 +22,7 @@ class GraphSummaryResponse(BaseModel):
     graph_id: str
     version: str
     updated_at: float
+    incompatibility: GraphIncompatibilityResponse | None = None
 
 
 class GraphListResponse(BaseModel):

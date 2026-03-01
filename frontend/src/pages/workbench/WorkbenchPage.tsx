@@ -832,46 +832,59 @@ export function WorkbenchPage() {
                                 }}
                                 data-testid="saved-graphs-list"
                             >
-                                {savedGraphs.map((item) => (
-                                    <li
-                                        key={item.graph_id}
-                                        style={{
-                                            border: '1px solid #e2e8f0',
-                                            borderRadius: 8,
-                                            padding: 6,
-                                            background: '#fff',
-                                        }}
-                                    >
-                                        <div style={{fontSize: 12, fontWeight: 600, color: '#334155'}}>
-                                            {item.graph_id}
-                                        </div>
-                                        <div style={{fontSize: 11, color: '#64748b', marginTop: 2}}>
-                                            v{item.version} · {formatGraphUpdatedAt(item.updated_at)}
-                                        </div>
-                                        <div style={{display: 'flex', gap: 6, marginTop: 6}}>
-                                            <button
-                                                type="button"
-                                                style={floatingButtonStyle}
-                                                onClick={() => {
-                                                    void loadSavedGraph(item.graph_id);
-                                                }}
-                                                disabled={isPersisting}
-                                            >
-                                                {t('workbench.persistence.actions.load')}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                style={floatingButtonStyle}
-                                                onClick={() => {
-                                                    void deleteSavedGraph(item.graph_id);
-                                                }}
-                                                disabled={isPersisting}
-                                            >
-                                                {t('workbench.persistence.actions.delete')}
-                                            </button>
-                                        </div>
-                                    </li>
-                                ))}
+                                {savedGraphs.map((item) => {
+                                    const incompatibility = item.incompatibility;
+                                    const isIncompatible = Boolean(incompatibility);
+                                    return (
+                                        <li
+                                            key={item.graph_id}
+                                            style={{
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: 8,
+                                                padding: 6,
+                                                background: '#fff',
+                                            }}
+                                        >
+                                            <div style={{fontSize: 12, fontWeight: 600, color: '#334155'}}>
+                                                {item.graph_id}
+                                            </div>
+                                            <div style={{fontSize: 11, color: '#64748b', marginTop: 2}}>
+                                                v{item.version} · {formatGraphUpdatedAt(item.updated_at)}
+                                            </div>
+                                            {isIncompatible && (
+                                                <div
+                                                    style={{fontSize: 11, color: '#b91c1c', marginTop: 4}}
+                                                    data-testid={`saved-graph-incompatibility-${item.graph_id}`}
+                                                >
+                                                    {incompatibility?.message}
+                                                </div>
+                                            )}
+                                            <div style={{display: 'flex', gap: 6, marginTop: 6}}>
+                                                <button
+                                                    type="button"
+                                                    style={floatingButtonStyle}
+                                                    onClick={() => {
+                                                        void loadSavedGraph(item.graph_id);
+                                                    }}
+                                                    disabled={isPersisting || isIncompatible}
+                                                    title={incompatibility?.message}
+                                                >
+                                                    {t('workbench.persistence.actions.load')}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    style={floatingButtonStyle}
+                                                    onClick={() => {
+                                                        void deleteSavedGraph(item.graph_id);
+                                                    }}
+                                                    disabled={isPersisting}
+                                                >
+                                                    {t('workbench.persistence.actions.delete')}
+                                                </button>
+                                            </div>
+                                        </li>
+                                    );
+                                })}
                             </ul>
                         )}
                     </div>

@@ -1,0 +1,66 @@
+{
+  "edges": [
+    {
+      "queue_maxsize": 0,
+      "source_node": "n1",
+      "source_port": "text",
+      "target_node": "n2",
+      "target_port": "text"
+    },
+    {
+      "queue_maxsize": 0,
+      "source_node": "n2",
+      "source_port": "audio",
+      "target_node": "n3",
+      "target_port": "in"
+    }
+  ],
+  "graph_id": "graph_phase_e",
+  "metadata": {
+    "compat": {
+      "graph_format_version": "0.1.0",
+      "node_type_versions": {
+        "mock.input": "0.1.0",
+        "mock.output": "0.1.0",
+        "mock.tts": "0.1.0"
+      }
+    },
+    "ui_layout": {
+      "node_positions": {
+        "n1": {
+          "x": 122.5,
+          "y": 198
+        },
+        "n2": {
+          "x": 397.2921297947661,
+          "y": 196.8651120328978
+        },
+        "n3": {
+          "x": 738.3344901035993,
+          "y": 226.02158325101053
+        }
+      }
+    }
+  },
+  "nodes": [
+    {
+      "config": {},
+      "node_id": "n1",
+      "title": "mock.input",
+      "type_name": "mock.input"
+    },
+    {
+      "config": {},
+      "node_id": "n2",
+      "title": "mock.tts",
+      "type_name": "mock.tts"
+    },
+    {
+      "config": {},
+      "node_id": "n3",
+      "title": "mock.output",
+      "type_name": "mock.output"
+    }
+  ],
+  "version": "0.1.0"
+}
