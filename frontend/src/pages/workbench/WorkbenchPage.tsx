@@ -65,6 +65,7 @@ const historyTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
 const INSPECTOR_TRANSITION_MS = 220;
 const INSPECTOR_DOCK_WIDTH = 352;
 const NON_LINEAR_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
+const IGNORED_REVIEW_ISSUE_CODES = new Set(['graph.empty_nodes']);
 
 export function WorkbenchPage() {
     const {t} = useTranslation();
@@ -106,17 +107,23 @@ export function WorkbenchPage() {
     const [isInspectorActive, setIsInspectorActive] = useState(selectedNodeId !== null);
     const reviewRequestIdRef = useRef(0);
     const previousSelectedNodeIdRef = useRef<string | null>(selectedNodeId);
+    const hasNodes = graph.nodes.length > 0;
+
+    const reviewIssues = useMemo(
+        () => validationIssues.filter((issue) => !IGNORED_REVIEW_ISSUE_CODES.has(issue.code)),
+        [validationIssues],
+    );
 
     const issueSummary = useMemo(() => {
-        const errorCount = validationIssues.filter((issue) => issue.level === 'error').length;
-        const warningCount = validationIssues.filter((issue) => issue.level === 'warning').length;
+        const errorCount = reviewIssues.filter((issue) => issue.level === 'error').length;
+        const warningCount = reviewIssues.filter((issue) => issue.level === 'warning').length;
         return {
             errorCount,
             warningCount,
         };
-    }, [validationIssues]);
+    }, [reviewIssues]);
 
-    const canRun = validationCheckedAt !== null && issueSummary.errorCount === 0 && !isReviewing && !isRunBusy;
+    const canRun = hasNodes && validationCheckedAt !== null && issueSummary.errorCount === 0 && !isReviewing && !isRunBusy;
     const inspectorShift = selectedNodeId ? INSPECTOR_DOCK_WIDTH : 0;
     const bottomShift = inspectorShift / 2;
     const reviewGlow = issueSummary.errorCount > 0
@@ -262,9 +269,6 @@ export function WorkbenchPage() {
     const runReviewText = (): string => {
         if (isReviewing) {
             return t('workbench.review.rechecking');
-        }
-        if (validationCheckedAt === null) {
-            return t('workbench.review.pending');
         }
         if (issueSummary.errorCount > 0) {
             return t('workbench.review.errorCount', {count: issueSummary.errorCount});
@@ -519,11 +523,11 @@ export function WorkbenchPage() {
                         }}
                     >
                         <h3 style={{marginTop: 0, marginBottom: 8}}>{t('workbench.review.title')}</h3>
-                        {validationIssues.length === 0 ? (
+                        {reviewIssues.length === 0 ? (
                             <div style={{fontSize: 12}}>{t('workbench.review.ok')}</div>
                         ) : (
                             <ul style={{margin: 0, paddingLeft: 16}}>
-                                {validationIssues.map((issue, index) => (
+                                {reviewIssues.map((issue, index) => (
                                     <li key={`${issue.code}-${index}`} style={{marginBottom: 6}}>
                                         <code>{issue.code}</code> - {issue.message}
                                     </li>

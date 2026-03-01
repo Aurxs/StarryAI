@@ -19,7 +19,7 @@ describe('WorkbenchPage shell', () => {
 
         expect(screen.getByRole('button', {name: '当前项目名称 ↓'})).toBeTruthy();
         expect(screen.getByRole('button', {name: '▶ 测试运行'})).toBeTruthy();
-        expect(screen.getByTestId('review-bar').textContent).toContain('审查');
+        expect(screen.getByTestId('review-bar').textContent).toContain('无问题');
     });
 
     it('resets editor mode to hand when entering workbench', () => {
@@ -96,11 +96,47 @@ describe('WorkbenchPage shell', () => {
         const runButton = screen.getByRole('button', {name: '▶ 测试运行'}) as HTMLButtonElement;
         expect(runButton.disabled).toBe(true);
 
+        useGraphStore.setState((state) => ({
+            graph: {
+                ...state.graph,
+                nodes: [
+                    {
+                        node_id: 'n1',
+                        type_name: 'mock.input',
+                        title: 'Input',
+                        config: {},
+                    },
+                ],
+            },
+            isDirty: false,
+        }));
+
         useGraphStore.getState().setValidationResult(true, []);
         await waitFor(() => {
             expect((screen.getByRole('button', {name: '▶ 测试运行'}) as HTMLButtonElement).disabled).toBe(false);
         });
 
         useRunStore.getState().setError(null);
+    });
+
+    it('ignores graph.empty_nodes in review surface', async () => {
+        render(<WorkbenchPage/>);
+
+        useGraphStore.getState().setValidationResult(false, [
+            {
+                level: 'error',
+                code: 'graph.empty_nodes',
+                message: '图中没有节点',
+            },
+        ]);
+
+        await waitFor(() => {
+            expect(screen.getByTestId('review-bar').textContent).not.toContain('有1个问题');
+        });
+
+        fireEvent.click(screen.getByTestId('review-bar'));
+        await waitFor(() => {
+            expect(screen.getByLabelText('review-drawer').textContent).not.toContain('graph.empty_nodes');
+        });
     });
 });
