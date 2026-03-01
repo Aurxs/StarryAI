@@ -1,4 +1,13 @@
-import {useCallback, useEffect, useMemo, useState, type CSSProperties, type DragEvent} from 'react';
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useState,
+    type CSSProperties,
+    type DragEvent,
+    type MouseEvent as ReactMouseEvent,
+    type TouchEvent as ReactTouchEvent,
+} from 'react';
 import {useTranslation} from 'react-i18next';
 import ReactFlow, {
     Background,
@@ -15,6 +24,7 @@ import ReactFlow, {
     type Node,
     type NodeChange,
     type NodeProps,
+    type OnConnectStartParams,
     type OnEdgesChange,
     type OnNodesChange,
     type XYPosition,
@@ -36,6 +46,7 @@ import {
     canBindTargetPort,
     deriveValidationTargets,
     edgeToSpec,
+    extractPortFromHandle,
     getSchemaColor,
     isSchemaCompatible,
     simplifyFrameSchema,
@@ -66,8 +77,8 @@ const EDITOR_TOAST_STAY_MS = 5000;
 const EDITOR_TOAST_EXIT_MS = 260;
 const EDITOR_TOAST_TOP = 96;
 const NON_LINEAR_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
-const NON_LINEAR_TIMING = (progress: number): number => 1 - Math.pow(1 - progress, 3);
 const BOTTOM_RIGHT_SHIFT_TRANSITION = `right 180ms ${NON_LINEAR_EASE}`;
+const DEFAULT_EDGE_COLOR = '#64748b';
 
 const editorShellStyle: CSSProperties = {
     position: 'relative',
@@ -195,7 +206,7 @@ const nextNodeId = (nodes: NodeInstanceSpec[]): string => {
     return `n${index}`;
 };
 
-const toRfEdge = (edge: EdgeSpec, highlighted = false): Edge => ({
+const toRfEdge = (edge: EdgeSpec, strokeColor: string, highlighted = false): Edge => ({
     id: buildEdgeId(edge.source_node, edge.source_port, edge.target_node, edge.target_port),
     source: edge.source_node,
     sourceHandle: `${SOURCE_HANDLE_PREFIX}${edge.source_port}`,
@@ -203,13 +214,12 @@ const toRfEdge = (edge: EdgeSpec, highlighted = false): Edge => ({
     targetHandle: `${TARGET_HANDLE_PREFIX}${edge.target_port}`,
     markerEnd: {
         type: MarkerType.ArrowClosed,
+        color: strokeColor,
     },
-    style: highlighted
-        ? {
-            stroke: '#dc2626',
-            strokeWidth: 2.4,
-        }
-        : undefined,
+    style: {
+        stroke: strokeColor,
+        strokeWidth: highlighted ? 2.8 : 2,
+    },
 });
 
 const PortTag = ({prefix, port}: { prefix: 'in' | 'out'; port: PortSpec }) => {
@@ -345,6 +355,7 @@ const GraphEditorInner = () => {
     const [isEditorToastLeaving, setIsEditorToastLeaving] = useState(false);
     const [positions, setPositions] = useState<Record<string, XYPosition>>({});
     const [zoomRatio, setZoomRatio] = useState(0.7);
+    const [activeConnectionColor, setActiveConnectionColor] = useState(DEFAULT_EDGE_COLOR);
 
     const [rfNodes, setRfNodes] = useNodesState<WorkflowNodeData>([]);
     const [rfEdges, setRfEdges] = useEdgesState([]);
@@ -412,6 +423,34 @@ const GraphEditorInner = () => {
         }
         return spec.inputs.find((port) => port.name === portName) ?? null;
     }, [catalogByType, graph.nodes]);
+
+    const resolveEdgeColor = useCallback((edge: EdgeSpec): string => {
+        const sourcePort = resolveOutputPort(edge.source_node, edge.source_port);
+        return sourcePort ? getSchemaColor(sourcePort.frame_schema) : DEFAULT_EDGE_COLOR;
+    }, [resolveOutputPort]);
+
+    const resolveConnectionColor = useCallback(
+        (nodeId: string | null, handleId: string | null, handleType: 'source' | 'target' | null): string => {
+            if (!nodeId || !handleId || !handleType) {
+                return DEFAULT_EDGE_COLOR;
+            }
+            if (handleType === 'source') {
+                const sourcePortName = extractPortFromHandle(handleId, SOURCE_HANDLE_PREFIX);
+                if (!sourcePortName) {
+                    return DEFAULT_EDGE_COLOR;
+                }
+                const sourcePort = resolveOutputPort(nodeId, sourcePortName);
+                return sourcePort ? getSchemaColor(sourcePort.frame_schema) : DEFAULT_EDGE_COLOR;
+            }
+            const targetPortName = extractPortFromHandle(handleId, TARGET_HANDLE_PREFIX);
+            if (!targetPortName) {
+                return DEFAULT_EDGE_COLOR;
+            }
+            const targetPort = resolveInputPort(nodeId, targetPortName);
+            return targetPort ? getSchemaColor(targetPort.frame_schema) : DEFAULT_EDGE_COLOR;
+        },
+        [resolveInputPort, resolveOutputPort],
+    );
 
     const addNodeAt = useCallback(
         (typeName: string, position?: XYPosition) => {
@@ -501,6 +540,7 @@ const GraphEditorInner = () => {
             graph.edges.map((edge) =>
                 toRfEdge(
                     edge,
+                    resolveEdgeColor(edge),
                     validationTargets.edgeIds.has(
                         buildEdgeId(edge.source_node, edge.source_port, edge.target_node, edge.target_port),
                     ),
@@ -514,6 +554,7 @@ const GraphEditorInner = () => {
         graph.edges,
         graph.nodes,
         positions,
+        resolveEdgeColor,
         selectedNodeId,
         selectNode,
         setRfEdges,
@@ -529,7 +570,6 @@ const GraphEditorInner = () => {
             reactFlow.fitView({
                 duration: 180,
                 padding: 0.18,
-                ease: NON_LINEAR_TIMING,
             });
         });
     }, [fitCanvasRequestTick, reactFlow]);
@@ -593,13 +633,18 @@ const GraphEditorInner = () => {
             }
 
             const edgeId = buildEdgeId(connection.source, sourcePort, connection.target, targetPort);
+            const edgeColor = getSchemaColor(outputPort.frame_schema);
             const nextEdge: Edge = {
                 id: edgeId,
                 source: connection.source,
                 sourceHandle: connection.sourceHandle,
                 target: connection.target,
                 targetHandle: connection.targetHandle,
-                markerEnd: {type: MarkerType.ArrowClosed},
+                markerEnd: {type: MarkerType.ArrowClosed, color: edgeColor},
+                style: {
+                    stroke: edgeColor,
+                    strokeWidth: 2,
+                },
             };
 
             setRfEdges((current) => {
@@ -610,6 +655,39 @@ const GraphEditorInner = () => {
             setEditorMessage(null);
         },
         [resolveInputPort, resolveOutputPort, rfEdges, setRfEdges, syncEdgesToStore, t],
+    );
+
+    const onConnectStart = useCallback(
+        (_event: ReactMouseEvent | ReactTouchEvent, params: OnConnectStartParams) => {
+            setActiveConnectionColor(
+                resolveConnectionColor(
+                    params.nodeId,
+                    params.handleId,
+                    params.handleType === 'source' || params.handleType === 'target'
+                        ? params.handleType
+                        : null,
+                ),
+            );
+        },
+        [resolveConnectionColor],
+    );
+
+    const onConnectEnd = useCallback(() => {
+        setActiveConnectionColor(DEFAULT_EDGE_COLOR);
+    }, []);
+
+    const onEdgeClick = useCallback(
+        (event: ReactMouseEvent, edge: Edge) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setRfEdges((current) => {
+                const next = current.filter((item) => item.id !== edge.id);
+                syncEdgesToStore(next);
+                return next;
+            });
+            setEditorMessage(null);
+        },
+        [setRfEdges, syncEdgesToStore],
     );
 
     const onNodesDelete = useCallback(
@@ -672,7 +750,7 @@ const GraphEditorInner = () => {
                 y: safeViewportAxis(viewport.y),
                 zoom: nextZoom,
             },
-            {duration: 120, ease: NON_LINEAR_TIMING},
+            {duration: 120},
         );
         setZoomRatio(nextZoom);
     };
@@ -828,7 +906,10 @@ const GraphEditorInner = () => {
                     onNodesChange={handleNodesChange}
                     onEdgesChange={handleEdgesChange}
                     onConnect={onConnect}
+                    onConnectStart={onConnectStart}
+                    onConnectEnd={onConnectEnd}
                     onNodesDelete={onNodesDelete}
+                    onEdgeClick={onEdgeClick}
                     onNodeDragStop={onNodeDragStop}
                     onNodeClick={onNodeClick}
                     onPaneClick={() => selectNode(null)}
@@ -841,6 +922,10 @@ const GraphEditorInner = () => {
                     panOnScroll={isHandMode}
                     nodesDraggable
                     selectionOnDrag={!isHandMode}
+                    connectionLineStyle={{
+                        stroke: activeConnectionColor,
+                        strokeWidth: 2,
+                    }}
                 >
                     <Background
                         variant={BackgroundVariant.Dots}
@@ -990,7 +1075,7 @@ const GraphEditorInner = () => {
                                         x: safeViewportAxis(viewport.x),
                                         y: safeViewportAxis(viewport.y),
                                         zoom: preset,
-                                    }, {duration: 120, ease: NON_LINEAR_TIMING});
+                                    }, {duration: 120});
                                     setZoomRatio(preset);
                                     setZoomMenuOpen(false);
                                 }}

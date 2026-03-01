@@ -133,4 +133,37 @@ describe('GraphEditor', () => {
             expect(screen.getByTestId('zoom-ratio-button').textContent).toContain('200%');
         });
     });
+
+    it('keeps edge marker color aligned with source port type', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json(
+                    {detail: 'temporary error'},
+                    {
+                        status: 503,
+                    },
+                ),
+            ),
+        );
+
+        render(<GraphEditor/>);
+        addNodeFromDrawer('mock.input');
+        addNodeFromDrawer('mock.output');
+
+        useGraphStore.getState().setEdges([
+            {
+                source_node: 'n1',
+                source_port: 'text',
+                target_node: 'n2',
+                target_port: 'in',
+                queue_maxsize: 0,
+            },
+        ]);
+
+        await waitFor(() => {
+            const markerPolyline = document.querySelector('.react-flow__arrowhead polyline') as SVGPolylineElement | null;
+            expect(markerPolyline).toBeTruthy();
+            expect(markerPolyline?.getAttribute('style') ?? '').toContain('stroke: #3b82f6');
+        });
+    });
 });
