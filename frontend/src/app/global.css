@@ -10,10 +10,19 @@ body,
 
 body {
   overflow: hidden;
+  font-weight: 500;
 }
 
 *,
 *::before,
 *::after {
   box-sizing: border-box;
+}
+
+button,
+input,
+textarea,
+select,
+option {
+  font-weight: inherit;
 }
