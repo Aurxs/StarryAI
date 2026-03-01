@@ -47,16 +47,69 @@ describe('GraphEditor', () => {
         expect(useGraphStore.getState().graph.nodes).toHaveLength(1);
     });
 
-    it('deletes node through in-node delete button', async () => {
+    it('deletes node through node context menu', async () => {
         render(<GraphEditor/>);
 
         addNodeFromDrawer('mock.input');
         addNodeFromDrawer('mock.output');
         expect(useGraphStore.getState().graph.nodes).toHaveLength(2);
 
-        fireEvent.click(screen.getByTitle('删除 n1'));
+        const nodeCard = await screen.findByTestId('workflow-node-n1');
+        fireEvent.contextMenu(nodeCard);
+        expect(useGraphStore.getState().selectedNodeId).toBeNull();
+        fireEvent.click(screen.getByRole('button', {name: '删除 Del'}));
         expect(useGraphStore.getState().graph.nodes).toHaveLength(1);
         expect(useGraphStore.getState().graph.nodes[0]?.node_id).toBe('n2');
+    });
+
+    it('renders context menu with about section and shortcuts', async () => {
+        render(<GraphEditor/>);
+
+        addNodeFromDrawer('mock.input');
+
+        const nodeCard = await screen.findByTestId('workflow-node-n1');
+        fireEvent.contextMenu(nodeCard);
+
+        const menu = screen.getByRole('menu', {name: 'node-context-menu'});
+        expect(within(menu).getByText('拷贝')).toBeTruthy();
+        expect(within(menu).getByText('复制')).toBeTruthy();
+        expect(within(menu).getByText('删除')).toBeTruthy();
+        expect(within(menu).getByText(/(⌘|Ctrl)\sC/)).toBeTruthy();
+        expect(within(menu).getByText(/(⌘|Ctrl)\sD/)).toBeTruthy();
+        expect(within(menu).getByText('Del')).toBeTruthy();
+        expect(within(menu).getByText('关于')).toBeTruthy();
+        expect(within(menu).getByText('mock.input')).toBeTruthy();
+        expect(within(menu).getByText('暂无节点说明。')).toBeTruthy();
+    });
+
+    it('supports single-node copy/paste shortcuts with full config cloning', async () => {
+        render(<GraphEditor/>);
+
+        addNodeFromDrawer('mock.input');
+        useGraphStore.getState().patchNode('n1', {
+            title: 'Input A',
+            config: {
+                nested: {temperature: 0.42},
+                retry: 2,
+            },
+        });
+
+        const nodeCard = await screen.findByTestId('workflow-node-n1');
+        fireEvent.click(nodeCard);
+        fireEvent.keyDown(window, {key: 'c', metaKey: true});
+        fireEvent.keyDown(window, {key: 'v', metaKey: true});
+
+        await waitFor(() => {
+            expect(useGraphStore.getState().graph.nodes).toHaveLength(2);
+        });
+
+        const [original, copied] = useGraphStore.getState().graph.nodes;
+        expect(original?.node_id).toBe('n1');
+        expect(copied?.node_id).toBe('n2');
+        expect(copied?.type_name).toBe(original?.type_name);
+        expect(copied?.title).toBe(original?.title);
+        expect(copied?.config).toEqual(original?.config);
+        expect(copied?.config).not.toBe(original?.config);
     });
 
     it('opens node config target by single-click in pointer and hand modes', async () => {

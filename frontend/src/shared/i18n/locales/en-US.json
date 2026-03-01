@@ -68,6 +68,13 @@
   "graphEditor": {
     "fallbackNodeTypeDescription": "Fallback node type",
     "deleteNode": "Delete {{nodeId}}",
+    "contextMenu": {
+      "delete": "Delete",
+      "copy": "Copy",
+      "duplicate": "Duplicate",
+      "about": "About",
+      "aboutFallback": "No node description available."
+    },
     "toolbar": {
       "title": "Node Palette",
       "add": "Add",
@@ -93,7 +100,9 @@
       "loadingCatalog": "Loading node catalog...",
       "fallbackCatalog": "Fallback catalog mode: {{error}}",
       "catalogReady": "Catalog ready ({{count}} types)",
-      "autoLayoutDone": "Auto layout applied"
+      "autoLayoutDone": "Auto layout applied",
+      "copiedNodes": "Copied {{count}} node(s)",
+      "pastedNodes": "Pasted {{count}} node(s)"
     },
     "errors": {
       "catalogUnavailable": "Node types unavailable: {{message}}",

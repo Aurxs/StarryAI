@@ -2,6 +2,7 @@ import {
     useCallback,
     useEffect,
     useMemo,
+    useRef,
     useState,
     type CSSProperties,
     type DragEvent,
@@ -41,7 +42,9 @@ import {useUiStore} from '../../shared/state/ui-store';
 import {
     SOURCE_HANDLE_PREFIX,
     TARGET_HANDLE_PREFIX,
+    applyGraphClipboardSnapshot,
     buildEdgeId,
+    buildGraphClipboardSnapshot,
     buildSimpleAutoLayout,
     canBindTargetPort,
     deriveValidationTargets,
@@ -58,7 +61,6 @@ interface WorkflowNodeData {
     spec: NodeSpec;
     isEditing: boolean;
     isValidationError: boolean;
-    onDeleteNode: (nodeId: string) => void;
     onSelectNode: (nodeId: string) => void;
 }
 
@@ -79,6 +81,15 @@ const EDITOR_TOAST_TOP = 96;
 const NON_LINEAR_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 const BOTTOM_RIGHT_SHIFT_TRANSITION = `right 180ms ${NON_LINEAR_EASE}`;
 const DEFAULT_EDGE_COLOR = '#64748b';
+const PASTE_OFFSET: XYPosition = {x: 48, y: 48};
+
+interface NodeContextMenuState {
+    nodeId: string;
+    x: number;
+    y: number;
+}
+
+type ContextMenuActionKey = 'copy' | 'duplicate' | 'delete';
 
 const editorShellStyle: CSSProperties = {
     position: 'relative',
@@ -124,25 +135,6 @@ const buildNodeCardStyle = (isEditing: boolean, isValidationError: boolean): CSS
     };
 };
 
-const deleteNodeButtonStyle: CSSProperties = {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 20,
-    height: 20,
-    border: '1px solid rgba(127, 29, 29, 0.45)',
-    borderRadius: 999,
-    background: '#fee2e2',
-    color: '#7f1d1d',
-    cursor: 'pointer',
-    fontSize: 15,
-    lineHeight: 1,
-    padding: 0,
-};
-
 const quickToolButtonStyle: CSSProperties = {
     width: 30,
     height: 30,
@@ -156,6 +148,13 @@ const quickToolButtonStyle: CSSProperties = {
 
 const clampZoom = (value: number): number => Math.max(0.2, Math.min(2, value));
 const safeViewportAxis = (value: number): number => (Number.isFinite(value) ? value : 0);
+const isEditableElement = (target: EventTarget | null): boolean => {
+    if (!(target instanceof HTMLElement)) {
+        return false;
+    }
+    const tag = target.tagName.toLowerCase();
+    return target.isContentEditable || tag === 'input' || tag === 'textarea' || tag === 'select';
+};
 
 const getPortTop = (index: number, total: number): string => `${((index + 1) * 100) / (total + 1)}%`;
 
@@ -254,7 +253,6 @@ const PortTag = ({prefix, port}: { prefix: 'in' | 'out'; port: PortSpec }) => {
 };
 
 const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
-    const {t} = useTranslation();
     const inputs = data.spec.inputs ?? EMPTY_PORTS;
     const outputs = data.spec.outputs ?? EMPTY_PORTS;
 
@@ -264,19 +262,7 @@ const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
             data-testid={`workflow-node-${data.nodeId}`}
             onClick={() => data.onSelectNode(data.nodeId)}
         >
-            <button
-                type="button"
-                style={deleteNodeButtonStyle}
-                aria-label={t('graphEditor.deleteNode', {nodeId: data.nodeId})}
-                title={t('graphEditor.deleteNode', {nodeId: data.nodeId})}
-                onClick={(event) => {
-                    event.stopPropagation();
-                    data.onDeleteNode(data.nodeId);
-                }}
-            >
-                ×
-            </button>
-            <div style={{paddingRight: 20}}>
+            <div>
                 <strong>{data.title}</strong>
                 <div style={{fontSize: 11, color: '#475569'}}>{data.spec.type_name}</div>
             </div>
@@ -330,6 +316,7 @@ const GraphEditorInner = () => {
     const {t} = useTranslation();
     const graph = useGraphStore((state) => state.graph);
     const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
+    const setNodesInStore = useGraphStore((state) => state.setNodes);
     const setEdgesInStore = useGraphStore((state) => state.setEdges);
     const upsertNode = useGraphStore((state) => state.upsertNode);
     const removeNode = useGraphStore((state) => state.removeNode);
@@ -356,9 +343,22 @@ const GraphEditorInner = () => {
     const [positions, setPositions] = useState<Record<string, XYPosition>>({});
     const [zoomRatio, setZoomRatio] = useState(0.7);
     const [activeConnectionColor, setActiveConnectionColor] = useState(DEFAULT_EDGE_COLOR);
+    const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+    const [nodeContextMenu, setNodeContextMenu] = useState<NodeContextMenuState | null>(null);
+    const [hoveredContextAction, setHoveredContextAction] = useState<ContextMenuActionKey | null>(null);
+
+    const clipboardRef = useRef<ReturnType<typeof buildGraphClipboardSnapshot>>(null);
+    const pasteCountRef = useRef(0);
 
     const [rfNodes, setRfNodes] = useNodesState<WorkflowNodeData>([]);
     const [rfEdges, setRfEdges] = useEdgesState([]);
+    const shortcutModifierLabel = useMemo(() => {
+        if (typeof navigator === 'undefined') {
+            return 'Ctrl';
+        }
+        const platform = navigator.platform.toLowerCase();
+        return platform.includes('mac') ? '⌘' : 'Ctrl';
+    }, []);
 
     const catalogByType = useMemo(() => {
         const index = new Map<string, NodeSpec>();
@@ -387,14 +387,112 @@ const GraphEditorInner = () => {
         [setEdgesInStore],
     );
 
-    const deleteNodeById = useCallback(
-        (nodeId: string) => {
-            removeNode(nodeId);
+    const closeNodeContextMenu = useCallback(() => {
+        setNodeContextMenu(null);
+        setHoveredContextAction(null);
+    }, []);
+
+    const getNodePosition = useCallback(
+        (nodeId: string): XYPosition => {
+            const flowNode = reactFlow.getNode(nodeId);
+            if (flowNode?.position) {
+                return flowNode.position;
+            }
+            return positions[nodeId] ?? {x: 0, y: 0};
+        },
+        [positions, reactFlow],
+    );
+
+    const resolveNodeIdsForAction = useCallback(
+        (anchorNodeId: string): string[] => {
+            const normalized = anchorNodeId.trim();
+            if (!normalized) {
+                return [];
+            }
+            if (selectedNodeIds.length > 1 && selectedNodeIds.includes(normalized)) {
+                return selectedNodeIds;
+            }
+            return [normalized];
+        },
+        [selectedNodeIds],
+    );
+
+    const copyNodesToClipboard = useCallback(
+        (nodeIds: string[]): boolean => {
+            const normalizedNodeIds = [...new Set(nodeIds.map((nodeId) => nodeId.trim()).filter(Boolean))];
+            if (normalizedNodeIds.length === 0) {
+                return false;
+            }
+            const resolvedPositions: Record<string, XYPosition> = {};
+            for (const nodeId of normalizedNodeIds) {
+                resolvedPositions[nodeId] = getNodePosition(nodeId);
+            }
+            const snapshot = buildGraphClipboardSnapshot(graph, normalizedNodeIds, resolvedPositions);
+            if (!snapshot) {
+                return false;
+            }
+            clipboardRef.current = snapshot;
+            pasteCountRef.current = 0;
+            setEditorMessage(
+                t('graphEditor.status.copiedNodes', {
+                    count: snapshot.nodes.length,
+                }),
+            );
+            return true;
+        },
+        [getNodePosition, graph, t],
+    );
+
+    const pasteClipboardNodes = useCallback((): boolean => {
+        const snapshot = clipboardRef.current;
+        if (!snapshot) {
+            return false;
+        }
+        const resolvedPositions: Record<string, XYPosition> = {...positions};
+        for (const node of graph.nodes) {
+            if (!resolvedPositions[node.node_id]) {
+                resolvedPositions[node.node_id] = getNodePosition(node.node_id);
+            }
+        }
+
+        pasteCountRef.current += 1;
+        const pasteResult = applyGraphClipboardSnapshot(graph, resolvedPositions, snapshot, {
+            offset: PASTE_OFFSET,
+            pasteCount: pasteCountRef.current,
+        });
+        if (!pasteResult) {
+            return false;
+        }
+        setNodesInStore(pasteResult.nodes);
+        setEdgesInStore(pasteResult.edges);
+        setPositions(pasteResult.positions);
+        setSelectedNodeIds(pasteResult.createdNodeIds);
+        selectNode(pasteResult.createdNodeIds[0] ?? null);
+        setEditorMessage(
+            t('graphEditor.status.pastedNodes', {
+                count: pasteResult.createdNodeIds.length,
+            }),
+        );
+        return true;
+    }, [getNodePosition, graph, positions, selectNode, setEdgesInStore, setNodesInStore, t]);
+
+    const deleteNodesByIds = useCallback(
+        (nodeIds: string[]) => {
+            const normalizedNodeIds = [...new Set(nodeIds.map((nodeId) => nodeId.trim()).filter(Boolean))];
+            if (normalizedNodeIds.length === 0) {
+                return;
+            }
+            for (const nodeId of normalizedNodeIds) {
+                removeNode(nodeId);
+            }
             setPositions((current) => {
                 const next = {...current};
-                delete next[nodeId];
+                for (const nodeId of normalizedNodeIds) {
+                    delete next[nodeId];
+                }
                 return next;
             });
+            setSelectedNodeIds((current) => current.filter((nodeId) => !normalizedNodeIds.includes(nodeId)));
             setEditorMessage(null);
         },
         [removeNode],
@@ -530,7 +628,6 @@ const GraphEditorInner = () => {
                         spec,
                         isEditing: node.node_id === selectedNodeId,
                         isValidationError: highlighted,
-                        onDeleteNode: deleteNodeById,
                         onSelectNode: selectNode,
                     },
                 };
@@ -549,7 +646,6 @@ const GraphEditorInner = () => {
         );
     }, [
         catalogByType,
-        deleteNodeById,
         fallbackNodeTypes,
         graph.edges,
         graph.nodes,
@@ -584,6 +680,154 @@ const GraphEditorInner = () => {
         }));
         setEditorMessage(t('graphEditor.status.autoLayoutDone'));
     }, [autoLayoutRequestTick, graph, t]);
+
+    const resolveCopyCandidateNodeIds = useCallback((): string[] => {
+        if (selectedNodeIds.length > 0) {
+            return selectedNodeIds;
+        }
+        if (selectedNodeId) {
+            return [selectedNodeId];
+        }
+        return [];
+    }, [selectedNodeId, selectedNodeIds]);
+
+    const duplicateSelectedNodes = useCallback((): boolean => {
+        const copied = copyNodesToClipboard(resolveCopyCandidateNodeIds());
+        if (!copied) {
+            return false;
+        }
+        return pasteClipboardNodes();
+    }, [copyNodesToClipboard, pasteClipboardNodes, resolveCopyCandidateNodeIds]);
+
+    const contextMenuNode = useMemo(() => {
+        if (!nodeContextMenu) {
+            return null;
+        }
+        return graph.nodes.find((node) => node.node_id === nodeContextMenu.nodeId) ?? null;
+    }, [graph.nodes, nodeContextMenu]);
+
+    const contextMenuNodeSpec = useMemo(() => {
+        if (!contextMenuNode) {
+            return null;
+        }
+        return catalogByType.get(contextMenuNode.type_name) ?? null;
+    }, [catalogByType, contextMenuNode]);
+
+    const contextMenuAboutText = useMemo(() => {
+        const rawDescription = contextMenuNodeSpec?.description;
+        if (typeof rawDescription === 'string' && rawDescription.trim()) {
+            return rawDescription.trim();
+        }
+        return t('graphEditor.contextMenu.aboutFallback');
+    }, [contextMenuNodeSpec, t]);
+
+    const buildContextActionStyle = useCallback(
+        (action: ContextMenuActionKey): CSSProperties => {
+            const hovered = hoveredContextAction === action;
+            const danger = action === 'delete';
+            return {
+                height: 32,
+                border: 'none',
+                borderRadius: 7,
+                background: hovered ? (danger ? '#fef2f2' : '#f8fafc') : 'transparent',
+                color: danger ? '#7f1d1d' : '#1f2937',
+                fontSize: 14,
+                fontWeight: danger ? 600 : 500,
+                padding: '0 9px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                cursor: 'pointer',
+                transform: hovered ? 'translateX(1px)' : 'translateX(0)',
+                transition: `background-color 140ms ${NON_LINEAR_EASE}, transform 140ms ${NON_LINEAR_EASE}, box-shadow 160ms ${NON_LINEAR_EASE}`,
+                boxShadow: hovered
+                    ? `inset 0 0 0 1px ${danger ? '#fecaca' : '#e2e8f0'}`
+                    : 'none',
+            };
+        },
+        [hoveredContextAction],
+    );
+
+    useEffect(() => {
+        setSelectedNodeIds((current) =>
+            current.filter((nodeId) => graph.nodes.some((node) => node.node_id === nodeId)),
+        );
+    }, [graph.nodes]);
+
+    useEffect(() => {
+        if (!nodeContextMenu) {
+            return;
+        }
+        const closeMenu = () => {
+            setNodeContextMenu(null);
+        };
+        const onEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setNodeContextMenu(null);
+            }
+        };
+        window.addEventListener('click', closeMenu);
+        window.addEventListener('keydown', onEscape);
+        return () => {
+            window.removeEventListener('click', closeMenu);
+            window.removeEventListener('keydown', onEscape);
+        };
+    }, [nodeContextMenu]);
+
+    useEffect(() => {
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (isEditableElement(event.target)) {
+                return;
+            }
+            const commandPressed = event.metaKey || event.ctrlKey;
+            const key = event.key.toLowerCase();
+            if (commandPressed) {
+                if (key === 'c') {
+                    const copied = copyNodesToClipboard(resolveCopyCandidateNodeIds());
+                    if (copied) {
+                        event.preventDefault();
+                        closeNodeContextMenu();
+                    }
+                    return;
+                }
+                if (key === 'v') {
+                    const pasted = pasteClipboardNodes();
+                    if (pasted) {
+                        event.preventDefault();
+                        closeNodeContextMenu();
+                    }
+                    return;
+                }
+                if (key === 'd') {
+                    const duplicated = duplicateSelectedNodes();
+                    if (duplicated) {
+                        event.preventDefault();
+                        closeNodeContextMenu();
+                    }
+                    return;
+                }
+            }
+            if (event.key === 'Delete' || event.key === 'Backspace') {
+                const targetNodeIds = resolveCopyCandidateNodeIds();
+                if (targetNodeIds.length > 0) {
+                    deleteNodesByIds(targetNodeIds);
+                    event.preventDefault();
+                    closeNodeContextMenu();
+                }
+            }
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => {
+            window.removeEventListener('keydown', onKeyDown);
+        };
+    }, [
+        closeNodeContextMenu,
+        copyNodesToClipboard,
+        deleteNodesByIds,
+        duplicateSelectedNodes,
+        pasteClipboardNodes,
+        resolveCopyCandidateNodeIds,
+    ]);
 
     const handleNodesChange = useCallback<OnNodesChange>(
         (changes: NodeChange[]) => {
@@ -692,18 +936,9 @@ const GraphEditorInner = () => {
 
     const onNodesDelete = useCallback(
         (nodes: Node[]) => {
-            for (const node of nodes) {
-                removeNode(node.id);
-            }
-            setPositions((current) => {
-                const next = {...current};
-                for (const node of nodes) {
-                    delete next[node.id];
-                }
-                return next;
-            });
+            deleteNodesByIds(nodes.map((node) => node.id));
         },
-        [removeNode],
+        [deleteNodesByIds],
     );
 
     const onNodeDragStop = useCallback((_event: unknown, node: Node) => {
@@ -716,8 +951,89 @@ const GraphEditorInner = () => {
     const onNodeClick = useCallback(
         (_event: unknown, node: Node) => {
             selectNode(node.id);
+            setSelectedNodeIds([node.id]);
+            closeNodeContextMenu();
         },
-        [selectNode],
+        [closeNodeContextMenu, selectNode],
+    );
+
+    const onNodeContextMenu = useCallback(
+        (event: ReactMouseEvent, node: Node) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setSelectedNodeIds((current) => {
+                if (current.length > 1 && current.includes(node.id)) {
+                    return current;
+                }
+                return [node.id];
+            });
+            setHoveredContextAction(null);
+            setNodeContextMenu({
+                nodeId: node.id,
+                x: event.clientX,
+                y: event.clientY,
+            });
+        },
+        [],
+    );
+
+    const onPaneClick = useCallback(() => {
+        selectNode(null);
+        setSelectedNodeIds([]);
+        closeNodeContextMenu();
+    }, [closeNodeContextMenu, selectNode]);
+
+    const onSelectionChange = useCallback(
+        ({nodes}: { nodes: Node[] }) => {
+            if (nodes.length === 0) {
+                setSelectedNodeIds([]);
+                return;
+            }
+            setSelectedNodeIds(nodes.map((node) => node.id));
+        },
+        [],
+    );
+
+    const runContextDelete = useCallback(() => {
+        if (!nodeContextMenu) {
+            return;
+        }
+        deleteNodesByIds(resolveNodeIdsForAction(nodeContextMenu.nodeId));
+        closeNodeContextMenu();
+    }, [closeNodeContextMenu, deleteNodesByIds, nodeContextMenu, resolveNodeIdsForAction]);
+
+    const runContextCopy = useCallback(() => {
+        if (!nodeContextMenu) {
+            return;
+        }
+        copyNodesToClipboard(resolveNodeIdsForAction(nodeContextMenu.nodeId));
+        closeNodeContextMenu();
+    }, [closeNodeContextMenu, copyNodesToClipboard, nodeContextMenu, resolveNodeIdsForAction]);
+
+    const runContextDuplicate = useCallback(() => {
+        if (!nodeContextMenu) {
+            return;
+        }
+        const actionNodeIds = resolveNodeIdsForAction(nodeContextMenu.nodeId);
+        const copied = copyNodesToClipboard(actionNodeIds);
+        if (copied) {
+            pasteClipboardNodes();
+        }
+        closeNodeContextMenu();
+    }, [
+        closeNodeContextMenu,
+        copyNodesToClipboard,
+        nodeContextMenu,
+        pasteClipboardNodes,
+        resolveNodeIdsForAction,
+    ]);
+
+    const onCanvasContextMenu = useCallback(
+        (event: ReactMouseEvent<HTMLDivElement>) => {
+            event.preventDefault();
+            closeNodeContextMenu();
+        },
+        [closeNodeContextMenu],
     );
 
     const onDropCanvas = useCallback(
@@ -898,7 +1214,12 @@ const GraphEditorInner = () => {
                 </aside>
             )}
 
-            <div style={{position: 'absolute', inset: 0}} onDrop={onDropCanvas} onDragOver={onDragOverCanvas}>
+            <div
+                style={{position: 'absolute', inset: 0}}
+                onDrop={onDropCanvas}
+                onDragOver={onDragOverCanvas}
+                onContextMenu={onCanvasContextMenu}
+            >
                 <ReactFlow
                     nodes={rfNodes}
                     edges={rfEdges}
@@ -912,7 +1233,9 @@ const GraphEditorInner = () => {
                     onEdgeClick={onEdgeClick}
                     onNodeDragStop={onNodeDragStop}
                     onNodeClick={onNodeClick}
-                    onPaneClick={() => selectNode(null)}
+                    onNodeContextMenu={onNodeContextMenu}
+                    onSelectionChange={onSelectionChange}
+                    onPaneClick={onPaneClick}
                     onMoveEnd={(_event, viewport) => {
                         setZoomRatio(viewport.zoom);
                     }}
@@ -975,6 +1298,74 @@ const GraphEditorInner = () => {
                     }}
                 >
                     <span data-testid="graph-editor-status">{editorMessage}</span>
+                </div>
+            )}
+
+            {nodeContextMenu && (
+                <div
+                    role="menu"
+                    aria-label="node-context-menu"
+                    style={{
+                        position: 'fixed',
+                        top: nodeContextMenu.y,
+                        left: nodeContextMenu.x,
+                        zIndex: 14,
+                        minWidth: 198,
+                        padding: 6,
+                        borderRadius: 10,
+                        border: '1px solid #dce3ee',
+                        background: '#ffffff',
+                        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.08), 0 8px 18px rgba(15, 23, 42, 0.1), 0 16px 28px rgba(15, 23, 42, 0.04)',
+                        display: 'grid',
+                        gap: 2,
+                    }}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                    }}
+                >
+                    <button
+                        type="button"
+                        onClick={runContextCopy}
+                        style={buildContextActionStyle('copy')}
+                        onMouseEnter={() => setHoveredContextAction('copy')}
+                        onMouseLeave={() => setHoveredContextAction(null)}
+                    >
+                        <span>{t('graphEditor.contextMenu.copy')}</span>
+                        <span style={{fontSize: 12, color: '#6b7280'}}>{`${shortcutModifierLabel} C`}</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={runContextDuplicate}
+                        style={buildContextActionStyle('duplicate')}
+                        onMouseEnter={() => setHoveredContextAction('duplicate')}
+                        onMouseLeave={() => setHoveredContextAction(null)}
+                    >
+                        <span>{t('graphEditor.contextMenu.duplicate')}</span>
+                        <span style={{fontSize: 12, color: '#6b7280'}}>{`${shortcutModifierLabel} D`}</span>
+                    </button>
+                    <div style={{height: 1, background: '#dde2eb', margin: '4px 4px'}}/>
+                    <button
+                        type="button"
+                        onClick={runContextDelete}
+                        style={buildContextActionStyle('delete')}
+                        onMouseEnter={() => setHoveredContextAction('delete')}
+                        onMouseLeave={() => setHoveredContextAction(null)}
+                    >
+                        <span>{t('graphEditor.contextMenu.delete')}</span>
+                        <span style={{fontSize: 12, color: '#6b7280'}}>Del</span>
+                    </button>
+                    <div style={{height: 1, background: '#dde2eb', margin: '4px 4px'}}/>
+                    <div style={{padding: '3px 9px 7px'}}>
+                        <div style={{fontSize: 12, color: '#64748b', marginBottom: 2}}>
+                            {t('graphEditor.contextMenu.about')}
+                        </div>
+                        <div style={{fontSize: 12, color: '#0f172a', fontWeight: 600, marginBottom: 2}}>
+                            {contextMenuNode?.type_name ?? t('common.none')}
+                        </div>
+                        <div style={{fontSize: 11, color: '#334155', lineHeight: 1.4}}>
+                            {contextMenuAboutText}
+                        </div>
+                    </div>
                 </div>
             )}
 

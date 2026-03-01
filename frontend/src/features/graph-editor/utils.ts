@@ -1,6 +1,11 @@
-import type {Edge} from 'reactflow';
+import type {Edge, XYPosition} from 'reactflow';
 
-import type {EdgeSpec, GraphSpec, ValidationIssue} from '../../entities/workbench/types';
+import type {
+    EdgeSpec,
+    GraphSpec,
+    NodeInstanceSpec,
+    ValidationIssue,
+} from '../../entities/workbench/types';
 
 export const SOURCE_HANDLE_PREFIX = 'out:';
 export const TARGET_HANDLE_PREFIX = 'in:';
@@ -86,6 +91,151 @@ export interface ValidationTargets {
     nodeIds: Set<string>;
     edgeIds: Set<string>;
 }
+
+const cloneValue = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+const cloneNode = (node: NodeInstanceSpec): NodeInstanceSpec => ({
+    ...node,
+    config: cloneValue(node.config),
+});
+
+const cloneEdge = (edge: EdgeSpec): EdgeSpec => ({...edge});
+
+const DEFAULT_POSITION: XYPosition = {x: 0, y: 0};
+
+const buildNextNodeId = (existingIds: Set<string>): string => {
+    let index = existingIds.size + 1;
+    while (existingIds.has(`n${index}`)) {
+        index += 1;
+    }
+    const id = `n${index}`;
+    existingIds.add(id);
+    return id;
+};
+
+export interface GraphClipboardSnapshot {
+    nodes: NodeInstanceSpec[];
+    edges: EdgeSpec[];
+    relativePositions: Record<string, XYPosition>;
+    origin: XYPosition;
+}
+
+export interface ApplyGraphClipboardOptions {
+    offset?: XYPosition;
+    pasteCount?: number;
+}
+
+export interface GraphPasteResult {
+    nodes: NodeInstanceSpec[];
+    edges: EdgeSpec[];
+    positions: Record<string, XYPosition>;
+    createdNodeIds: string[];
+}
+
+export const buildGraphClipboardSnapshot = (
+    graph: GraphSpec,
+    nodeIds: string[],
+    positions: Record<string, XYPosition>,
+): GraphClipboardSnapshot | null => {
+    const dedupedNodeIds = [...new Set(nodeIds.map((nodeId) => nodeId.trim()).filter(Boolean))];
+    if (dedupedNodeIds.length === 0) {
+        return null;
+    }
+    const selectedNodeIdSet = new Set(dedupedNodeIds);
+    const selectedNodes = graph.nodes
+        .filter((node) => selectedNodeIdSet.has(node.node_id))
+        .map((node) => cloneNode(node));
+    if (selectedNodes.length === 0) {
+        return null;
+    }
+
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    for (const node of selectedNodes) {
+        const pos = positions[node.node_id] ?? DEFAULT_POSITION;
+        minX = Math.min(minX, pos.x);
+        minY = Math.min(minY, pos.y);
+    }
+    const origin: XYPosition = {
+        x: Number.isFinite(minX) ? minX : 0,
+        y: Number.isFinite(minY) ? minY : 0,
+    };
+
+    const relativePositions: Record<string, XYPosition> = {};
+    for (const node of selectedNodes) {
+        const pos = positions[node.node_id] ?? DEFAULT_POSITION;
+        relativePositions[node.node_id] = {
+            x: pos.x - origin.x,
+            y: pos.y - origin.y,
+        };
+    }
+
+    const selectedEdges = graph.edges
+        .filter((edge) => selectedNodeIdSet.has(edge.source_node) && selectedNodeIdSet.has(edge.target_node))
+        .map((edge) => cloneEdge(edge));
+
+    return {
+        nodes: selectedNodes,
+        edges: selectedEdges,
+        relativePositions,
+        origin,
+    };
+};
+
+export const applyGraphClipboardSnapshot = (
+    graph: GraphSpec,
+    positions: Record<string, XYPosition>,
+    snapshot: GraphClipboardSnapshot,
+    options: ApplyGraphClipboardOptions = {},
+): GraphPasteResult | null => {
+    if (snapshot.nodes.length === 0) {
+        return null;
+    }
+    const offset = options.offset ?? {x: 48, y: 48};
+    const pasteCount = Math.max(1, options.pasteCount ?? 1);
+    const shift: XYPosition = {
+        x: offset.x * pasteCount,
+        y: offset.y * pasteCount,
+    };
+
+    const existingIds = new Set(graph.nodes.map((node) => node.node_id));
+    const idMapping = new Map<string, string>();
+    for (const node of snapshot.nodes) {
+        idMapping.set(node.node_id, buildNextNodeId(existingIds));
+    }
+
+    const clonedNodes = snapshot.nodes.map((node) => ({
+        ...cloneNode(node),
+        node_id: idMapping.get(node.node_id) ?? node.node_id,
+    }));
+    const clonedEdges = snapshot.edges.map((edge) => ({
+        ...cloneEdge(edge),
+        source_node: idMapping.get(edge.source_node) ?? edge.source_node,
+        target_node: idMapping.get(edge.target_node) ?? edge.target_node,
+    }));
+
+    const nextPositions = {...positions};
+    const createdNodeIds: string[] = [];
+    for (const sourceNode of snapshot.nodes) {
+        const nextNodeId = idMapping.get(sourceNode.node_id);
+        if (!nextNodeId) {
+            continue;
+        }
+        createdNodeIds.push(nextNodeId);
+        const relative = snapshot.relativePositions[sourceNode.node_id] ?? DEFAULT_POSITION;
+        nextPositions[nextNodeId] = {
+            x: snapshot.origin.x + relative.x + shift.x,
+            y: snapshot.origin.y + relative.y + shift.y,
+        };
+    }
+
+    return {
+        nodes: [...graph.nodes, ...clonedNodes],
+        edges: [...graph.edges, ...clonedEdges],
+        positions: nextPositions,
+        createdNodeIds,
+    };
+};
 
 export const buildSimpleAutoLayout = (
     graph: GraphSpec,

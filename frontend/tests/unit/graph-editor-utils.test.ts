@@ -3,7 +3,9 @@ import {describe, expect, it} from 'vitest';
 import {
     SOURCE_HANDLE_PREFIX,
     TARGET_HANDLE_PREFIX,
+    applyGraphClipboardSnapshot,
     buildSimpleAutoLayout,
+    buildGraphClipboardSnapshot,
     buildEdgeId,
     canBindTargetPort,
     deriveValidationTargets,
@@ -139,5 +141,79 @@ describe('graph-editor utils', () => {
         expect(positions.n1).toBeTruthy();
         expect(positions.n2).toBeTruthy();
         expect(positions.n3).toBeTruthy();
+    });
+
+    it('builds and applies clipboard snapshot for multi-node copy with preserved edge/relative positions', () => {
+        const graph = {
+            graph_id: 'g',
+            version: '0.1.0',
+            nodes: [
+                {node_id: 'n1', type_name: 'mock.input', title: 'n1', config: {v: 1}},
+                {node_id: 'n2', type_name: 'mock.output', title: 'n2', config: {v: 2}},
+                {node_id: 'n3', type_name: 'mock.output', title: 'n3', config: {v: 3}},
+            ],
+            edges: [
+                {
+                    source_node: 'n1',
+                    source_port: 'text',
+                    target_node: 'n2',
+                    target_port: 'in',
+                    queue_maxsize: 0,
+                },
+                {
+                    source_node: 'n1',
+                    source_port: 'text',
+                    target_node: 'n3',
+                    target_port: 'in',
+                    queue_maxsize: 0,
+                },
+            ],
+            metadata: {},
+        };
+        const positions = {
+            n1: {x: 100, y: 120},
+            n2: {x: 300, y: 180},
+            n3: {x: 420, y: 360},
+        };
+
+        const snapshot = buildGraphClipboardSnapshot(graph, ['n1', 'n2'], positions);
+        expect(snapshot).toBeTruthy();
+        if (!snapshot) {
+            return;
+        }
+        expect(snapshot.nodes.map((node) => node.node_id)).toEqual(['n1', 'n2']);
+        expect(snapshot.edges).toHaveLength(1);
+        expect(snapshot.edges[0]?.target_node).toBe('n2');
+
+        const pasted = applyGraphClipboardSnapshot(graph, positions, snapshot, {
+            offset: {x: 48, y: 48},
+            pasteCount: 1,
+        });
+        expect(pasted).toBeTruthy();
+        if (!pasted) {
+            return;
+        }
+        expect(pasted.nodes).toHaveLength(5);
+        expect(pasted.edges).toHaveLength(3);
+        expect(pasted.createdNodeIds).toHaveLength(2);
+
+        const firstPastedId = pasted.createdNodeIds[0];
+        const secondPastedId = pasted.createdNodeIds[1];
+        expect(firstPastedId).not.toBe('n1');
+        expect(secondPastedId).not.toBe('n2');
+
+        const firstPos = pasted.positions[firstPastedId];
+        const secondPos = pasted.positions[secondPastedId];
+        expect(firstPos).toEqual({x: 148, y: 168});
+        expect(secondPos).toEqual({x: 348, y: 228});
+        expect(secondPos.x - firstPos.x).toBe(200);
+        expect(secondPos.y - firstPos.y).toBe(60);
+
+        const clonedEdge = pasted.edges.find(
+            (edge) => edge.source_node === firstPastedId && edge.target_node === secondPastedId,
+        );
+        expect(clonedEdge).toBeTruthy();
+        expect(clonedEdge?.source_port).toBe('text');
+        expect(clonedEdge?.target_port).toBe('in');
     });
 });

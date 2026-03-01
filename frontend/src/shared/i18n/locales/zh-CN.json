@@ -68,6 +68,13 @@
   "graphEditor": {
     "fallbackNodeTypeDescription": "兜底节点类型",
     "deleteNode": "删除 {{nodeId}}",
+    "contextMenu": {
+      "delete": "删除",
+      "copy": "拷贝",
+      "duplicate": "复制",
+      "about": "关于",
+      "aboutFallback": "暂无节点说明。"
+    },
     "toolbar": {
       "title": "节点面板",
       "add": "添加",
@@ -93,7 +100,9 @@
       "loadingCatalog": "正在加载节点目录...",
       "fallbackCatalog": "节点目录回退模式: {{error}}",
       "catalogReady": "节点目录就绪（{{count}} 种）",
-      "autoLayoutDone": "节点已自动整理"
+      "autoLayoutDone": "节点已自动整理",
+      "copiedNodes": "已拷贝 {{count}} 个节点",
+      "pastedNodes": "已粘贴 {{count}} 个节点"
     },
     "errors": {
       "catalogUnavailable": "节点类型不可用: {{message}}",
