@@ -57,6 +57,11 @@ const ZOOM_BAR_WIDTH = ZOOM_BAR_ICON_WIDTH * 2 + ZOOM_BAR_RATIO_WIDTH;
 const MINIMAP_WIDTH = ZOOM_BAR_WIDTH;
 const MINIMAP_HEIGHT = 84;
 const MINIMAP_GAP = 8;
+const NODE_LIBRARY_TOP_INSET = 60;
+const NODE_LIBRARY_BOTTOM_INSET = 88;
+const EDITOR_TOAST_STAY_MS = 5000;
+const EDITOR_TOAST_EXIT_MS = 260;
+const EDITOR_TOAST_TOP = 96;
 
 const editorShellStyle: CSSProperties = {
     position: 'relative',
@@ -301,9 +306,8 @@ const GraphEditorInner = () => {
         [t],
     );
     const [catalog, setCatalog] = useState<NodeSpec[]>(fallbackNodeTypes);
-    const [catalogLoading, setCatalogLoading] = useState(false);
-    const [catalogError, setCatalogError] = useState<string | null>(null);
     const [editorMessage, setEditorMessage] = useState<string | null>(null);
+    const [isEditorToastLeaving, setIsEditorToastLeaving] = useState(false);
     const [positions, setPositions] = useState<Record<string, XYPosition>>({});
     const [zoomRatio, setZoomRatio] = useState(0.7);
 
@@ -400,8 +404,6 @@ const GraphEditorInner = () => {
     useEffect(() => {
         let cancelled = false;
         const loadCatalog = async () => {
-            setCatalogLoading(true);
-            setCatalogError(null);
             try {
                 const payload = await apiClient.listNodeTypes();
                 if (!cancelled && payload.items.length > 0) {
@@ -409,11 +411,7 @@ const GraphEditorInner = () => {
                 }
             } catch (error) {
                 if (!cancelled) {
-                    setCatalogError(t('graphEditor.errors.catalogUnavailable', {message: String(error)}));
-                }
-            } finally {
-                if (!cancelled) {
-                    setCatalogLoading(false);
+                    setEditorMessage(t('graphEditor.errors.catalogUnavailable', {message: String(error)}));
                 }
             }
         };
@@ -422,6 +420,25 @@ const GraphEditorInner = () => {
             cancelled = true;
         };
     }, [t]);
+
+    useEffect(() => {
+        if (!editorMessage) {
+            setIsEditorToastLeaving(false);
+            return;
+        }
+        setIsEditorToastLeaving(false);
+        const leaveTimer = window.setTimeout(() => {
+            setIsEditorToastLeaving(true);
+        }, EDITOR_TOAST_STAY_MS);
+        const clearTimer = window.setTimeout(() => {
+            setEditorMessage(null);
+            setIsEditorToastLeaving(false);
+        }, EDITOR_TOAST_STAY_MS + EDITOR_TOAST_EXIT_MS);
+        return () => {
+            window.clearTimeout(leaveTimer);
+            window.clearTimeout(clearTimer);
+        };
+    }, [editorMessage]);
 
     useEffect(() => {
         setRfNodes(
@@ -692,8 +709,8 @@ const GraphEditorInner = () => {
                     style={{
                         position: 'absolute',
                         left: 56,
-                        top: 12,
-                        bottom: 12,
+                        top: NODE_LIBRARY_TOP_INSET,
+                        bottom: NODE_LIBRARY_BOTTOM_INSET,
                         width: 260,
                         zIndex: 8,
                         border: '1px solid #dce3ee',
@@ -718,6 +735,10 @@ const GraphEditorInner = () => {
                             <article
                                 key={nodeType.type_name}
                                 draggable
+                                onClick={() => {
+                                    addNodeAt(nodeType.type_name);
+                                    setNodeLibraryOpen(false);
+                                }}
                                 onDragStart={(event) => {
                                     event.dataTransfer.setData('application/x-starry-node-type', nodeType.type_name);
                                 }}
@@ -726,29 +747,28 @@ const GraphEditorInner = () => {
                                     borderRadius: 12,
                                     padding: 8,
                                     background: '#fff',
+                                    cursor: 'pointer',
                                 }}
                             >
                                 <div style={{fontWeight: 700, fontSize: 13}}>{nodeType.type_name}</div>
-                                <div style={{fontSize: 11, color: '#64748b', marginTop: 2}}>
-                                    {(nodeType.outputs ?? EMPTY_PORTS)
-                                        .map((port) => simplifyFrameSchema(port.frame_schema))
-                                        .join(' / ') || t('common.none')}
+                                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 10, marginTop: 8}}>
+                                    <div>
+                                        {(nodeType.inputs ?? EMPTY_PORTS).length === 0 && (
+                                            <div style={{fontSize: 10, color: '#94a3b8'}}>{t('common.none')}</div>
+                                        )}
+                                        {(nodeType.inputs ?? EMPTY_PORTS).map((port) => (
+                                            <PortTag key={`lib-in-${nodeType.type_name}-${port.name}`} prefix="in" port={port}/>
+                                        ))}
+                                    </div>
+                                    <div>
+                                        {(nodeType.outputs ?? EMPTY_PORTS).length === 0 && (
+                                            <div style={{fontSize: 10, color: '#94a3b8'}}>{t('common.none')}</div>
+                                        )}
+                                        {(nodeType.outputs ?? EMPTY_PORTS).map((port) => (
+                                            <PortTag key={`lib-out-${nodeType.type_name}-${port.name}`} prefix="out" port={port}/>
+                                        ))}
+                                    </div>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        addNodeAt(nodeType.type_name);
-                                        setNodeLibraryOpen(false);
-                                    }}
-                                    style={{
-                                        marginTop: 6,
-                                        ...quickToolButtonStyle,
-                                        width: '100%',
-                                        height: 30,
-                                    }}
-                                >
-                                    {t('graphEditor.drawer.add')}
-                                </button>
                             </article>
                         ))}
                     </div>
@@ -801,33 +821,31 @@ const GraphEditorInner = () => {
                 </ReactFlow>
             </div>
 
-            <div
-                style={{
-                    position: 'absolute',
-                    left: 12,
-                    bottom: 64,
-                    zIndex: 6,
-                    padding: '6px 10px',
-                    borderRadius: 12,
-                    border: '1px solid #dce3ee',
-                    boxShadow: '0 12px 22px rgba(15, 23, 42, 0.08)',
-                    background: 'rgba(255, 255, 255, 0.92)',
-                    color: '#334155',
-                    fontSize: 12,
-                    maxWidth: 520,
-                }}
-            >
-                {catalogLoading && <span data-testid="graph-editor-status">{t('graphEditor.status.loadingCatalog')}</span>}
-                {!catalogLoading && catalogError && (
-                    <span data-testid="graph-editor-status">
-                        {t('graphEditor.status.fallbackCatalog', {error: catalogError})}
-                    </span>
-                )}
-                {!catalogLoading && !catalogError && (
-                    <span data-testid="graph-editor-status">{t('graphEditor.status.catalogReady', {count: catalog.length})}</span>
-                )}
-                {editorMessage && <span style={{marginLeft: 10, color: '#b91c1c'}}>{editorMessage}</span>}
-            </div>
+            {editorMessage && (
+                <div
+                    style={{
+                        position: 'absolute',
+                        right: 10 + bottomRightOffset,
+                        top: EDITOR_TOAST_TOP,
+                        zIndex: 6,
+                        padding: '9px 12px',
+                        borderRadius: 12,
+                        border: '1px solid #dce3ee',
+                        boxShadow: '0 12px 22px rgba(15, 23, 42, 0.08)',
+                        background: 'rgba(255, 255, 255, 0.96)',
+                        color: '#334155',
+                        fontSize: 12,
+                        lineHeight: 1.45,
+                        maxWidth: 360,
+                        transform: isEditorToastLeaving ? 'translateX(28px)' : 'translateX(0)',
+                        opacity: isEditorToastLeaving ? 0 : 1,
+                        transition: `transform ${EDITOR_TOAST_EXIT_MS}ms ease, opacity ${EDITOR_TOAST_EXIT_MS}ms ease`,
+                        pointerEvents: 'none',
+                    }}
+                >
+                    <span data-testid="graph-editor-status">{editorMessage}</span>
+                </div>
+            )}
 
             <div
                 style={{
