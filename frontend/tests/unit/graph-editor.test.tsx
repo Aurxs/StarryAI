@@ -70,6 +70,9 @@ describe('GraphEditor', () => {
         useGraphStore.getState().selectNode(null);
         fireEvent.click(nodeCard);
         expect(useGraphStore.getState().selectedNodeId).toBe('n1');
+        await waitFor(() => {
+            expect((screen.getByTestId('workflow-node-n1') as HTMLDivElement).style.boxShadow).toContain('59, 130, 246');
+        });
 
         useUiStore.getState().setEditorMode('hand');
         useGraphStore.getState().selectNode(null);

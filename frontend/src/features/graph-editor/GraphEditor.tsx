@@ -45,6 +45,8 @@ interface WorkflowNodeData {
     nodeId: string;
     title: string;
     spec: NodeSpec;
+    isEditing: boolean;
+    isValidationError: boolean;
     onDeleteNode: (nodeId: string) => void;
     onSelectNode: (nodeId: string) => void;
 }
@@ -75,15 +77,40 @@ const editorShellStyle: CSSProperties = {
     background: '#f2f4f7',
 };
 
+const NODE_CARD_RADIUS = 14;
+
 const nodeCardStyle: CSSProperties = {
     minWidth: 180,
     border: '1px solid #dde4ef',
-    borderRadius: 14,
+    borderRadius: NODE_CARD_RADIUS,
     padding: '8px 10px',
     background: '#ffffff',
     color: '#0f172a',
     boxShadow: '0 10px 20px rgba(15, 23, 42, 0.08)',
     position: 'relative',
+};
+
+const buildNodeCardStyle = (isEditing: boolean, isValidationError: boolean): CSSProperties => {
+    if (!isEditing && !isValidationError) {
+        return nodeCardStyle;
+    }
+    const rings: string[] = [];
+    if (isValidationError) {
+        const errorStrokeWidth = isEditing ? 4 : 2;
+        const errorGlowWidth = 10;
+        rings.push(
+            `0 0 0 ${errorStrokeWidth}px #dc2626`,
+            `0 0 0 ${errorGlowWidth}px rgba(220, 38, 38, 0.24)`,
+        );
+    }
+    if (isEditing && !isValidationError) {
+        rings.push('0 0 0 3px rgba(59, 130, 246, 0.26)');
+    }
+    rings.push('0 10px 20px rgba(15, 23, 42, 0.08)');
+    return {
+        ...nodeCardStyle,
+        boxShadow: rings.join(', '),
+    };
 };
 
 const deleteNodeButtonStyle: CSSProperties = {
@@ -223,7 +250,7 @@ const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
 
     return (
         <div
-            style={nodeCardStyle}
+            style={buildNodeCardStyle(data.isEditing, data.isValidationError)}
             data-testid={`workflow-node-${data.nodeId}`}
             onClick={() => data.onSelectNode(data.nodeId)}
         >
@@ -458,16 +485,12 @@ const GraphEditorInner = () => {
                     id: node.node_id,
                     type: 'workflowNode',
                     position: pos,
-                    style: highlighted
-                        ? {
-                            border: '2px solid #dc2626',
-                            boxShadow: '0 0 0 2px rgba(220, 38, 38, 0.12)',
-                        }
-                        : undefined,
                     data: {
                         nodeId: node.node_id,
                         title: node.title || node.type_name,
                         spec,
+                        isEditing: node.node_id === selectedNodeId,
+                        isValidationError: highlighted,
                         onDeleteNode: deleteNodeById,
                         onSelectNode: selectNode,
                     },
@@ -491,6 +514,7 @@ const GraphEditorInner = () => {
         graph.edges,
         graph.nodes,
         positions,
+        selectedNodeId,
         selectNode,
         setRfEdges,
         setRfNodes,
