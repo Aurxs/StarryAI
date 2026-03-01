@@ -81,6 +81,7 @@ const EDITOR_TOAST_TOP = 96;
 const NON_LINEAR_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 const BOTTOM_RIGHT_SHIFT_TRANSITION = `right 180ms ${NON_LINEAR_EASE}`;
 const DEFAULT_EDGE_COLOR = '#64748b';
+const DEFAULT_ZOOM_RATIO = 0.7;
 const PASTE_OFFSET: XYPosition = {x: 48, y: 48};
 
 interface NodeContextMenuState {
@@ -147,6 +148,8 @@ const quickToolButtonStyle: CSSProperties = {
 };
 
 const clampZoom = (value: number): number => Math.max(0.2, Math.min(2, value));
+const safeZoomRatio = (value: number, fallback = DEFAULT_ZOOM_RATIO): number =>
+    Number.isFinite(value) ? clampZoom(value) : fallback;
 const safeViewportAxis = (value: number): number => (Number.isFinite(value) ? value : 0);
 const isEditableElement = (target: EventTarget | null): boolean => {
     if (!(target instanceof HTMLElement)) {
@@ -341,7 +344,7 @@ const GraphEditorInner = () => {
     const [editorMessage, setEditorMessage] = useState<string | null>(null);
     const [isEditorToastLeaving, setIsEditorToastLeaving] = useState(false);
     const [positions, setPositions] = useState<Record<string, XYPosition>>({});
-    const [zoomRatio, setZoomRatio] = useState(0.7);
+    const [zoomRatio, setZoomRatio] = useState(DEFAULT_ZOOM_RATIO);
     const [activeConnectionColor, setActiveConnectionColor] = useState(DEFAULT_EDGE_COLOR);
     const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
     const [nodeContextMenu, setNodeContextMenu] = useState<NodeContextMenuState | null>(null);
@@ -1058,7 +1061,8 @@ const GraphEditorInner = () => {
     }, []);
 
     const applyZoomDelta = (delta: number): void => {
-        const nextZoom = clampZoom(Number((zoomRatio + delta).toFixed(2)));
+        const currentZoom = safeZoomRatio(zoomRatio);
+        const nextZoom = safeZoomRatio(Number((currentZoom + delta).toFixed(2)), currentZoom);
         const viewport = reactFlow.getViewport();
         reactFlow.setViewport(
             {
@@ -1066,7 +1070,6 @@ const GraphEditorInner = () => {
                 y: safeViewportAxis(viewport.y),
                 zoom: nextZoom,
             },
-            {duration: 120},
         );
         setZoomRatio(nextZoom);
     };
@@ -1237,9 +1240,9 @@ const GraphEditorInner = () => {
                     onSelectionChange={onSelectionChange}
                     onPaneClick={onPaneClick}
                     onMoveEnd={(_event, viewport) => {
-                        setZoomRatio(viewport.zoom);
+                        setZoomRatio(safeZoomRatio(viewport.zoom));
                     }}
-                    fitView
+                    fitView={rfNodes.length > 0}
                     fitViewOptions={{padding: 0.2}}
                     panOnDrag={isHandMode}
                     panOnScroll={isHandMode}
@@ -1462,12 +1465,13 @@ const GraphEditorInner = () => {
                                 type="button"
                                 onClick={() => {
                                     const viewport = reactFlow.getViewport();
+                                    const nextZoom = safeZoomRatio(preset);
                                     reactFlow.setViewport({
                                         x: safeViewportAxis(viewport.x),
                                         y: safeViewportAxis(viewport.y),
-                                        zoom: preset,
-                                    }, {duration: 120});
-                                    setZoomRatio(preset);
+                                        zoom: nextZoom,
+                                    });
+                                    setZoomRatio(nextZoom);
                                     setZoomMenuOpen(false);
                                 }}
                             >

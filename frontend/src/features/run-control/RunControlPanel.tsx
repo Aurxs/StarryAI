@@ -3,8 +3,9 @@ import {useTranslation} from 'react-i18next';
 
 import {apiClient, ApiClientError} from '../../shared/api/client';
 import {translateRunStatus} from '../../shared/i18n/label-mappers';
+import {isRunActiveStatus, isRunTerminalStatus, mapBackendRunStatus} from '../../shared/run-status';
 import {useGraphStore} from '../../shared/state/graph-store';
-import {useRunStore, type RunUiStatus} from '../../shared/state/run-store';
+import {useRunStore} from '../../shared/state/run-store';
 
 const panelStyle: CSSProperties = {
     border: '1px solid rgba(31, 41, 51, 0.16)',
@@ -41,21 +42,6 @@ const inputStyle: CSSProperties = {
     marginRight: 8,
 };
 
-const mapBackendStatus = (status: string): RunUiStatus => {
-    switch (status) {
-        case 'running':
-            return 'running';
-        case 'stopped':
-            return 'stopped';
-        case 'completed':
-            return 'completed';
-        case 'failed':
-            return 'failed';
-        default:
-            return 'idle';
-    }
-};
-
 export function RunControlPanel() {
     const {t} = useTranslation();
     const graph = useGraphStore((state) => state.graph);
@@ -70,23 +56,35 @@ export function RunControlPanel() {
 
     const [streamId, setStreamId] = useState('stream_frontend');
     const [requestBusy, setRequestBusy] = useState(false);
-    const isRunActive = status === 'running' || status === 'validating';
+    const isRunActive = isRunActiveStatus(status);
 
     useEffect(() => {
         if (!runId) {
             return;
         }
         let cancelled = false;
+        let timer: number | null = null;
+        const scheduleNextPoll = () => {
+            if (cancelled) {
+                return;
+            }
+            timer = window.setTimeout(() => {
+                void poll();
+            }, 800);
+        };
         const poll = async (): Promise<void> => {
             try {
                 const snapshot = await apiClient.getRunStatus(runId);
                 if (cancelled) {
                     return;
                 }
-                const mapped = mapBackendStatus(snapshot.status);
+                const mapped = mapBackendRunStatus(snapshot.status);
                 setStatus(mapped);
                 if (mapped !== 'running' && mapped !== 'validating') {
                     setError(snapshot.last_error);
+                }
+                if (!isRunTerminalStatus(mapped)) {
+                    scheduleNextPoll();
                 }
             } catch (error) {
                 if (cancelled) {
@@ -99,12 +97,11 @@ export function RunControlPanel() {
         };
 
         void poll();
-        const timer = window.setInterval(() => {
-            void poll();
-        }, 800);
         return () => {
             cancelled = true;
-            window.clearInterval(timer);
+            if (timer !== null) {
+                window.clearTimeout(timer);
+            }
         };
     }, [runId, setError, setStatus, t]);
 
@@ -120,7 +117,7 @@ export function RunControlPanel() {
                 graph,
                 stream_id: streamId,
             });
-            attachRun(created.run_id, mapBackendStatus(created.status));
+            attachRun(created.run_id, mapBackendRunStatus(created.status));
         } catch (error) {
             const message = error instanceof ApiClientError ? error.message : String(error);
             setStatus('failed');
@@ -141,7 +138,7 @@ export function RunControlPanel() {
         setRequestBusy(true);
         try {
             const stopped = await apiClient.stopRun(runId);
-            setStatus(mapBackendStatus(stopped.status));
+            setStatus(mapBackendRunStatus(stopped.status));
             setError(null);
         } catch (error) {
             const message = error instanceof ApiClientError ? error.message : String(error);

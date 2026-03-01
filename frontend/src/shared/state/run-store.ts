@@ -1,5 +1,7 @@
 import {create} from 'zustand';
 
+import {isRunActiveStatus} from '../run-status';
+
 export type RunUiStatus =
     | 'idle'
     | 'validating'
@@ -15,7 +17,6 @@ export interface RunState {
     lastError: string | null;
     setStatus: (status: RunUiStatus) => void;
     attachRun: (runId: string, status?: RunUiStatus) => void;
-    setBusy: (busy: boolean) => void;
     setError: (message: string | null) => void;
     clearRun: () => void;
 }
@@ -32,16 +33,15 @@ export const useRunStore = create<RunState>((set) => ({
     setStatus: (status) =>
         set(() => ({
             status,
-            isBusy: status === 'validating' || status === 'running',
+            isBusy: isRunActiveStatus(status),
         })),
     attachRun: (runId, status = 'running') =>
         set(() => ({
             runId: runId.trim() || null,
             status,
-            isBusy: status === 'validating' || status === 'running',
+            isBusy: isRunActiveStatus(status),
             lastError: null,
         })),
-    setBusy: (busy) => set(() => ({isBusy: busy})),
     setError: (message) => set(() => ({lastError: message})),
     clearRun: () => set(() => createInitialState()),
 }));

@@ -11,8 +11,9 @@ import {
     type SupportedLanguage,
 } from '../../shared/i18n/i18n';
 import {translateRunStatus} from '../../shared/i18n/label-mappers';
+import {isRunActiveStatus, isRunTerminalStatus, mapBackendRunStatus} from '../../shared/run-status';
 import {useGraphStore} from '../../shared/state/graph-store';
-import {useRunStore, type RunUiStatus} from '../../shared/state/run-store';
+import {useRunStore} from '../../shared/state/run-store';
 import {useUiStore} from '../../shared/state/ui-store';
 
 const shellStyle: CSSProperties = {
@@ -40,21 +41,6 @@ const floatingButtonStyle: CSSProperties = {
     cursor: 'pointer',
     fontSize: 12,
     color: '#334155',
-};
-
-const mapBackendStatus = (status: string): RunUiStatus => {
-    switch (status) {
-        case 'running':
-            return 'running';
-        case 'stopped':
-            return 'stopped';
-        case 'completed':
-            return 'completed';
-        case 'failed':
-            return 'failed';
-        default:
-            return 'idle';
-    }
 };
 
 const historyTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
@@ -213,16 +199,28 @@ export function WorkbenchPage() {
             return;
         }
         let cancelled = false;
+        let timer: number | null = null;
+        const scheduleNextPoll = () => {
+            if (cancelled) {
+                return;
+            }
+            timer = window.setTimeout(() => {
+                void poll();
+            }, 900);
+        };
         const poll = async (): Promise<void> => {
             try {
                 const snapshot = await apiClient.getRunStatus(runId);
                 if (cancelled) {
                     return;
                 }
-                const mapped = mapBackendStatus(snapshot.status);
+                const mapped = mapBackendRunStatus(snapshot.status);
                 setRunStatus(mapped);
                 if (mapped !== 'running' && mapped !== 'validating') {
                     setRunError(snapshot.last_error);
+                }
+                if (!isRunTerminalStatus(mapped)) {
+                    scheduleNextPoll();
                 }
             } catch (error) {
                 if (cancelled) {
@@ -234,12 +232,11 @@ export function WorkbenchPage() {
             }
         };
         void poll();
-        const timer = window.setInterval(() => {
-            void poll();
-        }, 900);
         return () => {
             cancelled = true;
-            window.clearInterval(timer);
+            if (timer !== null) {
+                window.clearTimeout(timer);
+            }
         };
     }, [runId, setRunError, setRunStatus, t]);
 
@@ -280,7 +277,7 @@ export function WorkbenchPage() {
     };
 
     const runButtonText = (): string => {
-        if (isRunBusy || runStatus === 'running' || runStatus === 'validating') {
+        if (isRunBusy || isRunActiveStatus(runStatus)) {
             return t('workbench.run.running');
         }
         return t('workbench.run.start');
@@ -297,7 +294,7 @@ export function WorkbenchPage() {
                 graph,
                 stream_id: 'stream_frontend',
             });
-            attachRun(created.run_id, mapBackendStatus(created.status));
+            attachRun(created.run_id, mapBackendRunStatus(created.status));
         } catch (error) {
             const message = error instanceof ApiClientError ? error.message : String(error);
             setRunStatus('failed');
