@@ -183,14 +183,15 @@ export function WorkbenchPage() {
         [validationIssues],
     );
     const displayProjectName = projectNameDraft || graph.graph_id;
+    const displayProjectNameWithDirtyMark = isDirty ? `${displayProjectName}*` : displayProjectName;
     const collapsedPanelWidth = useMemo(() => {
-        const nameWidth = estimateProjectNameWidth(displayProjectName);
+        const nameWidth = estimateProjectNameWidth(displayProjectNameWithDirtyMark);
         const calculatedWidth = PANEL_COLLAPSED_HORIZONTAL_PADDING
             + PANEL_COLLAPSED_HEADER_FIXED_WIDTH
             + PANEL_COLLAPSED_EXTRA_WIDTH
             + nameWidth;
         return Math.min(PANEL_COLLAPSED_MAX_WIDTH, Math.max(PANEL_COLLAPSED_MIN_WIDTH, Math.ceil(calculatedWidth)));
-    }, [displayProjectName]);
+    }, [displayProjectNameWithDirtyMark]);
 
     const issueSummary = useMemo(() => {
         const errorCount = reviewIssues.filter((issue) => issue.level === 'error').length;
@@ -691,7 +692,7 @@ export function WorkbenchPage() {
                                 }}
                                 data-testid="project-name-display"
                             >
-                                {displayProjectName}
+                                {displayProjectNameWithDirtyMark}
                             </button>
                         ) : projectNameEditing ? (
                             <input
@@ -736,7 +737,7 @@ export function WorkbenchPage() {
                                 onClick={() => handleProjectNameClick()}
                                 data-testid="project-name-display"
                             >
-                                {displayProjectName}
+                                {displayProjectNameWithDirtyMark}
                             </button>
                         )}
                     </div>

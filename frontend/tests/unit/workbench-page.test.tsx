@@ -95,6 +95,23 @@ describe('WorkbenchPage shell', () => {
         });
     });
 
+    it('shows an asterisk next to project name when graph has unsaved changes', async () => {
+        render(<WorkbenchPage/>);
+
+        expect(screen.getByTestId('project-name-display').textContent).toBe('graph_new');
+
+        useGraphStore.getState().upsertNode({
+            node_id: 'n_dirty',
+            type_name: 'mock.input',
+            title: 'Input',
+            config: {},
+        });
+
+        await waitFor(() => {
+            expect(screen.getByTestId('project-name-display').textContent).toBe('graph_new*');
+        });
+    });
+
     it('records history entries and opens history drawer', async () => {
         render(<WorkbenchPage/>);
 
