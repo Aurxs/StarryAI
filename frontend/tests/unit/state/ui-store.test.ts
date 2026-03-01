@@ -25,4 +25,17 @@ describe('ui store', () => {
         expect(state.leftPanel).toBe('node-library');
         expect(state.rightPanel).toBe('node-config');
     });
+
+    it('switches editor mode and triggers canvas commands (edge path)', () => {
+        useUiStore.getState().setEditorMode('hand');
+        useUiStore.getState().setNodeLibraryOpen(true);
+        useUiStore.getState().requestAutoLayout();
+        useUiStore.getState().requestFitCanvas();
+
+        const state = useUiStore.getState();
+        expect(state.editorMode).toBe('hand');
+        expect(state.nodeLibraryOpen).toBe(true);
+        expect(state.autoLayoutRequestTick).toBe(1);
+        expect(state.fitCanvasRequestTick).toBe(1);
+    });
 });

@@ -4,23 +4,19 @@ import {describe, expect, it} from 'vitest';
 import {App} from '../../src/app/App';
 
 describe('App shell baseline', () => {
-    it('renders workbench heading and shell marker', () => {
+    it('renders project switcher and run action', () => {
         render(<App/>);
 
-        const heading = screen.getByRole('heading', {
-            level: 1,
-            name: 'StarryAI 工作台',
-        });
-        const phaseText = screen.getByText('Phase E / T2 基线框架');
-
-        expect(heading).toBeTruthy();
-        expect(phaseText).toBeTruthy();
+        expect(screen.getByRole('button', {name: '当前项目名称 ↓'})).toBeTruthy();
+        expect(screen.getByRole('button', {name: '▶ 测试运行'})).toBeTruthy();
+        expect(screen.getByTestId('review-bar')).toBeTruthy();
     });
 
-    it('shows runtime console section', () => {
+    it('keeps quick tool rail visible on canvas', () => {
         render(<App/>);
 
-        const runtimeConsole = screen.getByRole('heading', {level: 2, name: '运行控制台'});
-        expect(runtimeConsole).toBeTruthy();
+        expect(screen.getByLabelText('quick-tools')).toBeTruthy();
+        expect(screen.getByRole('button', {name: '↖'})).toBeTruthy();
+        expect(screen.getByRole('button', {name: '✋'})).toBeTruthy();
     });
 });

@@ -3,11 +3,15 @@ import {describe, expect, it} from 'vitest';
 import {
     SOURCE_HANDLE_PREFIX,
     TARGET_HANDLE_PREFIX,
+    buildSimpleAutoLayout,
     buildEdgeId,
     canBindTargetPort,
     deriveValidationTargets,
     edgeToSpec,
     extractPortFromHandle,
+    getSchemaColor,
+    isSchemaCompatible,
+    simplifyFrameSchema,
 } from '../../src/features/graph-editor/utils';
 
 describe('graph-editor utils', () => {
@@ -103,5 +107,37 @@ describe('graph-editor utils', () => {
         expect(targets.nodeIds.has('n1')).toBe(true);
         expect(targets.nodeIds.has('n2')).toBe(true);
         expect(targets.edgeIds.has('n1.text->n2.in')).toBe(true);
+    });
+
+    it('simplifies schema labels and maps colors', () => {
+        expect(simplifyFrameSchema('text.final')).toBe('text');
+        expect(simplifyFrameSchema('audio.full')).toBe('audio');
+        expect(simplifyFrameSchema('any')).toBe('any');
+        expect(getSchemaColor('text.final')).toBe('#3b82f6');
+        expect(getSchemaColor('audio.full')).toBe('#16a34a');
+    });
+
+    it('supports backend-compatible schema matching rules', () => {
+        expect(isSchemaCompatible('text.final', 'text.final')).toBe(true);
+        expect(isSchemaCompatible('any', 'audio.full')).toBe(true);
+        expect(isSchemaCompatible('text.final', 'any')).toBe(true);
+        expect(isSchemaCompatible('text.final', 'audio.full')).toBe(false);
+    });
+
+    it('builds auto-layout positions for disconnected graphs (edge path)', () => {
+        const positions = buildSimpleAutoLayout({
+            graph_id: 'g',
+            version: '0.1.0',
+            nodes: [
+                {node_id: 'n1', type_name: 'mock.input', title: 'n1', config: {}},
+                {node_id: 'n2', type_name: 'mock.output', title: 'n2', config: {}},
+                {node_id: 'n3', type_name: 'mock.output', title: 'n3', config: {}},
+            ],
+            edges: [],
+            metadata: {},
+        });
+        expect(positions.n1).toBeTruthy();
+        expect(positions.n2).toBeTruthy();
+        expect(positions.n3).toBeTruthy();
     });
 });

@@ -1,25 +1,21 @@
 import {expect, test} from '@playwright/test';
 
-test('shows workbench heading and Phase E handoff text', async ({page}) => {
+test('shows new workbench shell controls', async ({page}) => {
     await page.goto('/');
 
-    await expect(page.getByRole('heading', {name: 'StarryAI 工作台'})).toBeVisible();
-    await expect(page.getByText('Phase E / T2 基线框架')).toBeVisible();
+    await expect(page.getByRole('button', {name: '当前项目名称 ↓'})).toBeVisible();
+    await expect(page.getByRole('button', {name: '▶ 测试运行'})).toBeVisible();
+    await expect(page.getByTestId('review-bar')).toBeVisible();
+    await expect(page.getByLabel('quick-tools')).toBeVisible();
 });
 
-test('keeps root render stable on reload (edge path)', async ({page}) => {
-    await page.goto('/');
-    await page.reload();
-
-    await expect(page.getByRole('heading', {name: 'StarryAI 工作台'})).toBeVisible();
-});
-
-test('persists selected language after reload', async ({page}) => {
+test('switches language from project menu and keeps selection after reload', async ({page}) => {
     await page.goto('/');
 
+    await page.getByRole('button', {name: '当前项目名称 ↓'}).click();
     await page.getByTestId('language-switch').selectOption('en-US');
-    await expect(page.getByRole('heading', {name: 'StarryAI Workbench'})).toBeVisible();
+    await expect(page.getByRole('button', {name: '▶ Run Test'})).toBeVisible();
 
     await page.reload();
-    await expect(page.getByRole('heading', {name: 'StarryAI Workbench'})).toBeVisible();
+    await expect(page.getByRole('button', {name: '▶ Run Test'})).toBeVisible();
 });

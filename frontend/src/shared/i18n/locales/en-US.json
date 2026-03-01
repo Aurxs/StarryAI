@@ -34,7 +34,26 @@
       "runStatus": "Run Status: {{status}}{{busySuffix}}",
       "runId": "Run ID: {{runId}}"
     },
-    "busySuffix": " (processing)"
+    "busySuffix": " (processing)",
+    "run": {
+      "start": "Run Test",
+      "running": "Running"
+    },
+    "review": {
+      "title": "Graph Review",
+      "pending": "Review",
+      "rechecking": "Reviewing...",
+      "ok": "✅ No Issues",
+      "errorCount": "❌ {{count}} Issues",
+      "warningCount": "⚠️ {{count}} Warnings"
+    },
+    "history": {
+      "title": "History",
+      "empty": "No graph edits yet"
+    },
+    "inspector": {
+      "title": "Node Inspector"
+    }
   },
   "run": {
     "status": {
@@ -54,16 +73,34 @@
       "add": "Add",
       "meta": "Nodes={{nodeCount}}, Edges={{edgeCount}}"
     },
+    "quick": {
+      "add": "Add Node",
+      "pointer": "Pointer Mode",
+      "hand": "Hand Mode",
+      "arrange": "Auto Arrange",
+      "fit": "Fit Canvas"
+    },
+    "drawer": {
+      "title": "Node Library",
+      "tip": "Drag to canvas or click to add quickly.",
+      "add": "Add to Canvas"
+    },
+    "zoom": {
+      "decrease": "Zoom out 10%",
+      "increase": "Zoom in 10%"
+    },
     "status": {
       "loadingCatalog": "Loading node catalog...",
       "fallbackCatalog": "Fallback catalog mode: {{error}}",
-      "catalogReady": "Catalog ready ({{count}} types)"
+      "catalogReady": "Catalog ready ({{count}} types)",
+      "autoLayoutDone": "Auto layout applied"
     },
     "errors": {
       "catalogUnavailable": "Node types unavailable: {{message}}",
       "unknownNodeType": "Unknown node type: {{typeName}}",
       "invalidConnection": "Invalid connection: missing source/target handle",
-      "targetPortDuplicate": "Target handle does not allow duplicate binding"
+      "targetPortDuplicate": "Target handle does not allow duplicate binding",
+      "schemaMismatch": "Type mismatch: {{sourceType}} -> {{targetType}}"
     }
   },
   "nodeConfig": {

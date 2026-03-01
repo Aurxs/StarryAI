@@ -34,7 +34,26 @@
       "runStatus": "运行状态: {{status}}{{busySuffix}}",
       "runId": "运行 ID: {{runId}}"
     },
-    "busySuffix": "（处理中）"
+    "busySuffix": "（处理中）",
+    "run": {
+      "start": "测试运行",
+      "running": "运行中"
+    },
+    "review": {
+      "title": "图审查结果",
+      "pending": "审查",
+      "rechecking": "审查中...",
+      "ok": "✅无问题",
+      "errorCount": "❌有{{count}}个问题",
+      "warningCount": "⚠️有{{count}}个提醒"
+    },
+    "history": {
+      "title": "操作历史",
+      "empty": "暂无图编辑操作"
+    },
+    "inspector": {
+      "title": "节点编辑"
+    }
   },
   "run": {
     "status": {
@@ -54,16 +73,34 @@
       "add": "添加",
       "meta": "节点={{nodeCount}}, 边={{edgeCount}}"
     },
+    "quick": {
+      "add": "新增节点",
+      "pointer": "指针模式",
+      "hand": "手模式",
+      "arrange": "自动整理节点",
+      "fit": "最大化画布"
+    },
+    "drawer": {
+      "title": "节点栏",
+      "tip": "可拖拽到画布，也可点击快速新增。",
+      "add": "添加到画布"
+    },
+    "zoom": {
+      "decrease": "缩小 10%",
+      "increase": "放大 10%"
+    },
     "status": {
       "loadingCatalog": "正在加载节点目录...",
       "fallbackCatalog": "节点目录回退模式: {{error}}",
-      "catalogReady": "节点目录就绪（{{count}} 种）"
+      "catalogReady": "节点目录就绪（{{count}} 种）",
+      "autoLayoutDone": "节点已自动整理"
     },
     "errors": {
       "catalogUnavailable": "节点类型不可用: {{message}}",
       "unknownNodeType": "未知节点类型: {{typeName}}",
       "invalidConnection": "连接无效: 缺少源/目标端口",
-      "targetPortDuplicate": "目标端口不允许重复绑定"
+      "targetPortDuplicate": "目标端口不允许重复绑定",
+      "schemaMismatch": "连接类型不兼容: {{sourceType}} -> {{targetType}}"
     }
   },
   "nodeConfig": {

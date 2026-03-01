@@ -111,4 +111,30 @@ describe('graph store', () => {
         expect(state.validationIssues).toHaveLength(0);
         expect(state.validationCheckedAt).toBeNull();
     });
+
+    it('supports undo/redo and records operation history (edge path)', () => {
+        useGraphStore.getState().upsertNode({
+            node_id: 'n1',
+            type_name: 'mock.input',
+            title: 'n1',
+            config: {},
+        });
+        useGraphStore.getState().upsertNode({
+            node_id: 'n2',
+            type_name: 'mock.output',
+            title: 'n2',
+            config: {},
+        });
+
+        expect(useGraphStore.getState().canUndo).toBe(true);
+        expect(useGraphStore.getState().graph.nodes).toHaveLength(2);
+
+        useGraphStore.getState().undo();
+        expect(useGraphStore.getState().graph.nodes).toHaveLength(1);
+        expect(useGraphStore.getState().canRedo).toBe(true);
+
+        useGraphStore.getState().redo();
+        expect(useGraphStore.getState().graph.nodes).toHaveLength(2);
+        expect(useGraphStore.getState().historyEntries.length).toBeGreaterThan(0);
+    });
 });
