@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useRef, useState, type CSSProperties} from 'react';
-import {History, Play, Redo2, Undo2} from 'lucide-react';
+import {History, Play, Redo2, Undo2, X} from 'lucide-react';
 import {useTranslation} from 'react-i18next';
 
 import type {GraphSummary} from '../../entities/workbench/types';
@@ -39,6 +39,21 @@ const floatingButtonStyle: CSSProperties = {
     cursor: 'pointer',
     fontSize: 12,
     color: '#334155',
+};
+
+const closeIconButtonStyle: CSSProperties = {
+    width: 24,
+    height: 24,
+    border: '1px solid #d5dff0',
+    borderRadius: 8,
+    background: '#fff',
+    color: '#475569',
+    cursor: 'pointer',
+    padding: 0,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
 };
 
 const projectNameBaseStyle: CSSProperties = {
@@ -1012,7 +1027,7 @@ export function WorkbenchPage() {
                         bottom: 0,
                         width: 340,
                         zIndex: 12,
-                        borderRadius: 0,
+                        borderRadius: '14px 0 0 14px',
                         borderLeft: '1px solid rgba(148, 163, 184, 0.45)',
                         padding: 10,
                         overflow: 'auto',
@@ -1026,13 +1041,14 @@ export function WorkbenchPage() {
                         <h2 style={{margin: 0}}>{t('workbench.inspector.title')}</h2>
                         <button
                             type="button"
-                            style={floatingButtonStyle}
+                            style={closeIconButtonStyle}
+                            aria-label="Close node inspector"
                             onClick={() => {
                                 selectNode(null);
                                 setNodeLibraryOpen(false);
                             }}
                         >
-                            ×
+                            <X size={14} strokeWidth={2.1} aria-hidden="true"/>
                         </button>
                     </div>
                     <NodeConfigPanel/>

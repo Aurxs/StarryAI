@@ -9,7 +9,7 @@ import {
     type MouseEvent as ReactMouseEvent,
     type TouchEvent as ReactTouchEvent,
 } from 'react';
-import {Expand, Hand, LayoutGrid, Minus, MousePointer2, Plus} from 'lucide-react';
+import {Expand, Hand, LayoutGrid, Minus, MousePointer2, Plus, X} from 'lucide-react';
 import {useTranslation} from 'react-i18next';
 import ReactFlow, {
     Background,
@@ -156,6 +156,22 @@ const quickToolButtonStyle: CSSProperties = {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
+};
+
+const nodeLibraryCloseButtonStyle: CSSProperties = {
+    width: 24,
+    height: 24,
+    border: '1px solid #d5dff0',
+    borderRadius: 8,
+    background: '#fff',
+    color: '#475569',
+    cursor: 'pointer',
+    padding: 0,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    lineHeight: 1,
 };
 
 const clampZoom = (value: number): number => Math.max(0.2, Math.min(2, value));
@@ -1266,8 +1282,13 @@ const GraphEditorInner = () => {
                 >
                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                         <strong>{t('graphEditor.drawer.title')}</strong>
-                        <button type="button" onClick={() => setNodeLibraryOpen(false)}>
-                            ×
+                        <button
+                            type="button"
+                            style={nodeLibraryCloseButtonStyle}
+                            aria-label="Close node library"
+                            onClick={() => setNodeLibraryOpen(false)}
+                        >
+                            <X size={14} strokeWidth={2.1} aria-hidden="true"/>
                         </button>
                     </div>
                     <div style={{fontSize: 12, opacity: 0.75, marginTop: 6}}>
