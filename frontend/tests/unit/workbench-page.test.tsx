@@ -80,14 +80,11 @@ describe('WorkbenchPage shell', () => {
         });
     });
 
-    it('underlines on click and edits on double click in collapsed mode', async () => {
+    it('edits project name on single click in collapsed mode', async () => {
         render(<WorkbenchPage/>);
 
         const nameButton = screen.getByTestId('project-name-display') as HTMLButtonElement;
         fireEvent.click(nameButton);
-        expect(nameButton.style.textDecoration).toContain('underline');
-
-        fireEvent.doubleClick(nameButton);
 
         const input = screen.getByLabelText('project-name-input') as HTMLInputElement;
         fireEvent.change(input, {target: {value: 'graph_renamed'}});

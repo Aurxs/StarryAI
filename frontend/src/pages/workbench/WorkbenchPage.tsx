@@ -166,7 +166,6 @@ export function WorkbenchPage() {
     const [savedGraphs, setSavedGraphs] = useState<GraphSummary[]>([]);
     const [panelExpanded, setPanelExpanded] = useState(false);
     const [projectNameDraft, setProjectNameDraft] = useState(graph.graph_id);
-    const [projectNameSelected, setProjectNameSelected] = useState(false);
     const [projectNameEditing, setProjectNameEditing] = useState(false);
     const [isPersisting, setIsPersisting] = useState(false);
     const [isReviewing, setIsReviewing] = useState(false);
@@ -374,13 +373,11 @@ export function WorkbenchPage() {
     };
 
     const openPanel = (): void => {
-        setProjectNameSelected(false);
         setProjectNameEditing(false);
         setPanelExpanded(true);
     };
 
     const collapsePanel = (): void => {
-        setProjectNameSelected(false);
         setProjectNameEditing(false);
         setPanelExpanded(false);
     };
@@ -399,7 +396,6 @@ export function WorkbenchPage() {
             const insideReviewDrawerArea = reviewDrawerAreaRef.current?.contains(target) ?? false;
 
             if (panelExpanded && !insidePersistencePanel) {
-                setProjectNameSelected(false);
                 setProjectNameEditing(false);
                 setPanelExpanded(false);
             }
@@ -420,7 +416,6 @@ export function WorkbenchPage() {
         const normalizedProjectName = projectNameDraft.trim();
         if (!normalizedProjectName) {
             setProjectNameDraft(graph.graph_id);
-            setProjectNameSelected(false);
             setProjectNameEditing(false);
             showInfoPopup(t('workbench.persistence.errors.emptyGraphId'));
             return;
@@ -429,21 +424,15 @@ export function WorkbenchPage() {
             setGraphMeta(normalizedProjectName, graph.version);
         }
         setProjectNameDraft(normalizedProjectName);
-        setProjectNameSelected(false);
         setProjectNameEditing(false);
     };
 
     const cancelProjectNameEdit = (): void => {
         setProjectNameDraft(graph.graph_id);
-        setProjectNameSelected(false);
         setProjectNameEditing(false);
     };
 
     const handleProjectNameClick = (): void => {
-        setProjectNameSelected(true);
-    };
-
-    const handleProjectNameDoubleClick = (): void => {
         setProjectNameEditing(true);
     };
 
@@ -536,7 +525,6 @@ export function WorkbenchPage() {
         const nextGraphId = buildUniqueGraphId(DEFAULT_NEW_GRAPH_BASE_ID, savedGraphIds);
         resetGraph(nextGraphId);
         setProjectNameDraft(nextGraphId);
-        setProjectNameSelected(false);
         setProjectNameEditing(false);
         showInfoPopup(t('workbench.persistence.success.created', {graphId: nextGraphId}));
     };
@@ -743,12 +731,9 @@ export function WorkbenchPage() {
                                 style={{
                                     ...projectNameBaseStyle,
                                     width: '100%',
-                                    textDecoration: projectNameSelected ? 'underline' : 'none',
-                                    textUnderlineOffset: 4,
                                     cursor: 'text',
                                 }}
                                 onClick={() => handleProjectNameClick()}
-                                onDoubleClick={() => handleProjectNameDoubleClick()}
                                 data-testid="project-name-display"
                             >
                                 {displayProjectName}
