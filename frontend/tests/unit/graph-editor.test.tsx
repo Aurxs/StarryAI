@@ -187,6 +187,18 @@ describe('GraphEditor', () => {
         });
     });
 
+    it('closes zoom preset menu when clicking outside', async () => {
+        render(<GraphEditor/>);
+
+        fireEvent.click(screen.getByTestId('zoom-ratio-button'));
+        expect(screen.getByRole('button', {name: '50%'})).toBeTruthy();
+
+        fireEvent.pointerDown(document.body);
+        await waitFor(() => {
+            expect(screen.queryByRole('button', {name: '50%'})).toBeNull();
+        });
+    });
+
     it('keeps edge marker color aligned with source port type', async () => {
         server.use(
             http.get('*/api/v1/node-types', () =>

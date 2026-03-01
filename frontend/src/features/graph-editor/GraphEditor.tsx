@@ -363,6 +363,7 @@ const GraphEditorInner = () => {
     const [hoveredZoomAction, setHoveredZoomAction] = useState<ZoomControlActionKey | null>(null);
     const [hoveredZoomPreset, setHoveredZoomPreset] = useState<number | null>(null);
     const canvasViewportRef = useRef<HTMLDivElement | null>(null);
+    const zoomControlRef = useRef<HTMLDivElement | null>(null);
     const handledFitCanvasTickRef = useRef(0);
 
     const clipboardRef = useRef<ReturnType<typeof buildGraphClipboardSnapshot>>(null);
@@ -844,6 +845,33 @@ const GraphEditorInner = () => {
             window.removeEventListener('keydown', onEscape);
         };
     }, [nodeContextMenu]);
+
+    useEffect(() => {
+        if (!zoomMenuOpen) {
+            return;
+        }
+        const closeOnPointerDownOutside = (event: PointerEvent) => {
+            const target = event.target;
+            if (!(target instanceof Node)) {
+                return;
+            }
+            if (zoomControlRef.current?.contains(target)) {
+                return;
+            }
+            setZoomMenuOpen(false);
+        };
+        const closeOnEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setZoomMenuOpen(false);
+            }
+        };
+        window.addEventListener('pointerdown', closeOnPointerDownOutside);
+        window.addEventListener('keydown', closeOnEscape);
+        return () => {
+            window.removeEventListener('pointerdown', closeOnPointerDownOutside);
+            window.removeEventListener('keydown', closeOnEscape);
+        };
+    }, [setZoomMenuOpen, zoomMenuOpen]);
 
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
@@ -1435,6 +1463,7 @@ const GraphEditorInner = () => {
             )}
 
             <div
+                ref={zoomControlRef}
                 style={{
                     position: 'absolute',
                     right: 12 + bottomRightOffset,

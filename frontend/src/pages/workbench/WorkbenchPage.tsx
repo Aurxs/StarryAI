@@ -137,6 +137,9 @@ export function WorkbenchPage() {
     const [isInspectorActive, setIsInspectorActive] = useState(selectedNodeId !== null);
     const reviewRequestIdRef = useRef(0);
     const previousSelectedNodeIdRef = useRef<string | null>(selectedNodeId);
+    const persistencePanelRef = useRef<HTMLElement | null>(null);
+    const historyDrawerAreaRef = useRef<HTMLElement | null>(null);
+    const reviewDrawerAreaRef = useRef<HTMLElement | null>(null);
     const hasNodes = graph.nodes.length > 0;
 
     const reviewIssues = useMemo(
@@ -345,6 +348,37 @@ export function WorkbenchPage() {
         setPanelExpanded(false);
     };
 
+    useEffect(() => {
+        if (!panelExpanded && !historyDrawerOpen && !reviewDrawerOpen) {
+            return;
+        }
+        const handlePointerDown = (event: PointerEvent) => {
+            const target = event.target;
+            if (!(target instanceof Node)) {
+                return;
+            }
+            const insidePersistencePanel = persistencePanelRef.current?.contains(target) ?? false;
+            const insideHistoryDrawerArea = historyDrawerAreaRef.current?.contains(target) ?? false;
+            const insideReviewDrawerArea = reviewDrawerAreaRef.current?.contains(target) ?? false;
+
+            if (panelExpanded && !insidePersistencePanel) {
+                setProjectNameSelected(false);
+                setProjectNameEditing(false);
+                setPanelExpanded(false);
+            }
+            if (historyDrawerOpen && !insideHistoryDrawerArea) {
+                setHistoryDrawerOpen(false);
+            }
+            if (reviewDrawerOpen && !insideReviewDrawerArea) {
+                setReviewDrawerOpen(false);
+            }
+        };
+        window.addEventListener('pointerdown', handlePointerDown);
+        return () => {
+            window.removeEventListener('pointerdown', handlePointerDown);
+        };
+    }, [historyDrawerOpen, panelExpanded, reviewDrawerOpen, setHistoryDrawerOpen, setReviewDrawerOpen]);
+
     const commitProjectNameEdit = (): void => {
         const normalizedProjectName = projectNameDraft.trim();
         if (!normalizedProjectName) {
@@ -542,6 +576,7 @@ export function WorkbenchPage() {
             </section>
 
             <header
+                ref={persistencePanelRef}
                 style={{
                     ...surfaceStyle,
                     position: 'absolute',
@@ -804,6 +839,7 @@ export function WorkbenchPage() {
             />
 
             <section
+                    ref={historyDrawerAreaRef}
                     style={{
                         ...surfaceStyle,
                     position: 'absolute',
@@ -904,6 +940,7 @@ export function WorkbenchPage() {
             </section>
 
             <section
+                ref={reviewDrawerAreaRef}
                 style={{
                     position: 'absolute',
                     left: `calc(50% - ${bottomShift}px)`,

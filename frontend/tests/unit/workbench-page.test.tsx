@@ -43,6 +43,37 @@ describe('WorkbenchPage shell', () => {
         expect(screen.getByTestId('graph-panel-collapse')).toBeTruthy();
     });
 
+    it('collapses expanded surfaces when clicking outside', async () => {
+        render(<WorkbenchPage/>);
+
+        fireEvent.click(screen.getByTestId('graph-panel-expand'));
+        await waitFor(() => {
+            expect(screen.getByTestId('graph-panel-collapse')).toBeTruthy();
+        });
+        fireEvent.pointerDown(document.body);
+        await waitFor(() => {
+            expect(screen.getByTestId('graph-panel-expand')).toBeTruthy();
+        });
+
+        fireEvent.click(screen.getByRole('button', {name: '打开操作历史'}));
+        await waitFor(() => {
+            expect(screen.getByLabelText('history-drawer')).toBeTruthy();
+        });
+        fireEvent.pointerDown(document.body);
+        await waitFor(() => {
+            expect(screen.queryByLabelText('history-drawer')).toBeNull();
+        });
+
+        fireEvent.click(screen.getByTestId('review-bar'));
+        await waitFor(() => {
+            expect(screen.getByLabelText('review-drawer')).toBeTruthy();
+        });
+        fireEvent.pointerDown(document.body);
+        await waitFor(() => {
+            expect(screen.queryByLabelText('review-drawer')).toBeNull();
+        });
+    });
+
     it('underlines on click and edits on double click in collapsed mode', async () => {
         render(<WorkbenchPage/>);
 
