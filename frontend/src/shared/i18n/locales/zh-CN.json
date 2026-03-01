@@ -32,7 +32,11 @@
       "edgeCount": "边数",
       "selectedNode": "已选节点: {{nodeId}}",
       "runStatus": "运行状态: {{status}}{{busySuffix}}",
-      "runId": "运行 ID: {{runId}}"
+      "runId": "运行 ID: {{runId}}",
+      "syncCommitCount": "同步提交: {{count}}",
+      "syncAbortCount": "同步中止: {{count}}",
+      "syncAbortReasons": "中止原因: {{reasons}}",
+      "syncAbortReasonsEmpty": "中止原因: 无"
     },
     "busySuffix": "（处理中）",
     "run": {
@@ -167,7 +171,23 @@
     },
     "fields": {
       "title": "标题",
-      "configJson": "配置 JSON"
+      "configJson": "配置 JSON",
+      "runtimeConfigJson": "运行配置 JSON（不含同步托管字段）"
+    },
+    "sync": {
+      "title": "同步字段",
+      "fields": {
+        "syncGroup": "同步组名 (sync_group)",
+        "syncRound": "轮次 (sync_round)",
+        "readyTimeoutMs": "Ready 超时 (ready_timeout_ms)",
+        "commitLeadMs": "Commit 预留 (commit_lead_ms)"
+      },
+      "hints": {
+        "initiatorManaged": "当前节点为同步发起器，可编辑同步参数并向下游同步节点下发。",
+        "executorReadonly": "当前节点为同步执行节点，同步参数由上游发起器托管，只读展示。",
+        "managedBy": "来源发起器: {{nodeId}}",
+        "syncRoundAuto": "sync_round 为自动轮次（运行时由发起器递增）"
+      }
     },
     "actions": {
       "save": "保存",
@@ -175,7 +195,11 @@
     },
     "errors": {
       "mustBeObject": "配置必须是 JSON 对象。",
-      "invalidJson": "配置 JSON 格式无效。"
+      "invalidJson": "配置 JSON 格式无效。",
+      "syncGroupRequired": "同步组名不能为空。",
+      "syncRoundInvalid": "sync_round 必须是大于等于 0 的整数。",
+      "readyTimeoutInvalid": "ready_timeout_ms 必须是大于等于 1 的整数。",
+      "commitLeadInvalid": "commit_lead_ms 必须是大于等于 1 的整数。"
     },
     "success": {
       "saved": "配置已保存。"
@@ -265,6 +289,13 @@
       "failedNodes": "失败节点数: {{count}}",
       "slowNodesTop": "慢节点 Top 数: {{count}}",
       "edgeHotspotsTop": "热点边 Top 数: {{count}}"
+    },
+    "sync": {
+      "title": "同步指标",
+      "commitCount": "提交次数: {{count}}",
+      "abortCount": "中止次数: {{count}}",
+      "abortReasons": "中止原因: {{reasons}}",
+      "abortReasonsEmpty": "中止原因: 无"
     }
   }
 }

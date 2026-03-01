@@ -1,6 +1,10 @@
-import {useState, type CSSProperties} from 'react';
+import {useRef, useState, type CSSProperties} from 'react';
 import {useTranslation} from 'react-i18next';
 
+import {
+    buildSyncRelationFingerprint,
+    reconcileSyncManagedConfig,
+} from '../sync-config/managed-config';
 import {apiClient, ApiClientError} from '../../shared/api/client';
 import {useGraphStore} from '../../shared/state/graph-store';
 import {useRunStore} from '../../shared/state/run-store';
@@ -36,18 +40,31 @@ export function GraphValidationPanel() {
     const validationCheckedAt = useGraphStore((state) => state.validationCheckedAt);
     const setValidationResult = useGraphStore((state) => state.setValidationResult);
     const clearValidation = useGraphStore((state) => state.clearValidation);
+    const setNodesInStore = useGraphStore((state) => state.setNodes);
 
     const setStatus = useRunStore((state) => state.setStatus);
     const setError = useRunStore((state) => state.setError);
 
     const [isValidating, setIsValidating] = useState(false);
+    const syncRelationFingerprintRef = useRef('');
 
     const runValidation = async (): Promise<void> => {
         setIsValidating(true);
         setStatus('validating');
         setError(null);
         try {
-            const report = await apiClient.validateGraph(graph);
+            let graphForValidation = graph;
+            const nextFingerprint = buildSyncRelationFingerprint(graph);
+            if (nextFingerprint !== syncRelationFingerprintRef.current) {
+                const reconciled = reconcileSyncManagedConfig(graph);
+                syncRelationFingerprintRef.current = reconciled.fingerprint;
+                if (reconciled.changed) {
+                    setNodesInStore(reconciled.graph.nodes);
+                    graphForValidation = reconciled.graph;
+                }
+            }
+
+            const report = await apiClient.validateGraph(graphForValidation);
             setValidationResult(report.valid, report.issues);
             setStatus('idle');
             if (!report.valid) {

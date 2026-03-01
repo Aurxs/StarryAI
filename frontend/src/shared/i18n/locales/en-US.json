@@ -32,7 +32,11 @@
       "edgeCount": "Edge Count",
       "selectedNode": "Selected Node: {{nodeId}}",
       "runStatus": "Run Status: {{status}}{{busySuffix}}",
-      "runId": "Run ID: {{runId}}"
+      "runId": "Run ID: {{runId}}",
+      "syncCommitCount": "Sync Commit: {{count}}",
+      "syncAbortCount": "Sync Abort: {{count}}",
+      "syncAbortReasons": "Abort Reasons: {{reasons}}",
+      "syncAbortReasonsEmpty": "Abort Reasons: None"
     },
     "busySuffix": " (processing)",
     "run": {
@@ -167,7 +171,23 @@
     },
     "fields": {
       "title": "Title",
-      "configJson": "Config JSON"
+      "configJson": "Config JSON",
+      "runtimeConfigJson": "Runtime Config JSON (without sync-managed fields)"
+    },
+    "sync": {
+      "title": "Sync Fields",
+      "fields": {
+        "syncGroup": "Sync Group (sync_group)",
+        "syncRound": "Round (sync_round)",
+        "readyTimeoutMs": "Ready Timeout (ready_timeout_ms)",
+        "commitLeadMs": "Commit Lead (commit_lead_ms)"
+      },
+      "hints": {
+        "initiatorManaged": "This node is a sync initiator. Sync fields are editable and propagated downstream.",
+        "executorReadonly": "This node is a sync executor. Sync fields are managed by upstream initiator and read-only.",
+        "managedBy": "Managed by initiator: {{nodeId}}",
+        "syncRoundAuto": "sync_round is auto-managed (incremented by initiator at runtime)"
+      }
     },
     "actions": {
       "save": "Save",
@@ -175,7 +195,11 @@
     },
     "errors": {
       "mustBeObject": "Config must be a JSON object.",
-      "invalidJson": "Config JSON is invalid."
+      "invalidJson": "Config JSON is invalid.",
+      "syncGroupRequired": "sync_group is required.",
+      "syncRoundInvalid": "sync_round must be an integer >= 0.",
+      "readyTimeoutInvalid": "ready_timeout_ms must be an integer >= 1.",
+      "commitLeadInvalid": "commit_lead_ms must be an integer >= 1."
     },
     "success": {
       "saved": "Config saved."
@@ -265,6 +289,13 @@
       "failedNodes": "Failed Nodes: {{count}}",
       "slowNodesTop": "Top Slow Nodes: {{count}}",
       "edgeHotspotsTop": "Top Edge Hotspots: {{count}}"
+    },
+    "sync": {
+      "title": "Sync Metrics",
+      "commitCount": "Commit Count: {{count}}",
+      "abortCount": "Abort Count: {{count}}",
+      "abortReasons": "Abort Reasons: {{reasons}}",
+      "abortReasonsEmpty": "Abort Reasons: None"
     }
   }
 }

@@ -11,6 +11,66 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+NONE_SCHEMA = "none"
+
+
+def normalize_schema(schema: str) -> str:
+    """规范化 schema 文本。"""
+    return schema.strip().lower()
+
+
+def is_none_schema(schema: str) -> bool:
+    """判断是否为 none schema。"""
+    return normalize_schema(schema) == NONE_SCHEMA
+
+
+def is_sync_schema(schema: str) -> bool:
+    """判断 schema 是否为同步封装类型。"""
+    normalized = normalize_schema(schema)
+    return normalized.endswith(".sync")
+
+
+def base_schema(schema: str) -> str:
+    """提取同步 schema 的基础类型。"""
+    normalized = normalize_schema(schema)
+    if is_sync_schema(normalized):
+        return normalized[: -len(".sync")]
+    return normalized
+
+
+def to_sync_schema(schema: str) -> str:
+    """将基础 schema 转换为同步 schema。"""
+    normalized = base_schema(schema)
+    if not normalized:
+        return "any.sync"
+    if normalized == "any":
+        return "any.sync"
+    return f"{normalized}.sync"
+
+
+def is_schema_compatible(source_schema: str, target_schema: str) -> bool:
+    """判断来源端口 schema 与目标端口 schema 是否兼容。"""
+    src = normalize_schema(source_schema)
+    dst = normalize_schema(target_schema)
+
+    if is_none_schema(src) or is_none_schema(dst):
+        return False
+
+    if src == "any" or dst == "any":
+        return True
+
+    src_sync = is_sync_schema(src)
+    dst_sync = is_sync_schema(dst)
+    if src_sync != dst_sync:
+        return False
+
+    if src_sync and dst_sync:
+        src_base = base_schema(src)
+        dst_base = base_schema(dst)
+        return src_base == "any" or dst_base == "any" or src_base == dst_base
+
+    return src == dst
+
 
 class NodeMode(str, Enum):
     """节点执行模式。"""
@@ -43,6 +103,13 @@ class LatePolicy(str, Enum):
     RECLOCK = "reclock"
 
 
+class SyncRole(str, Enum):
+    """同步节点角色。"""
+
+    INITIATOR = "initiator"
+    EXECUTOR = "executor"
+
+
 class PortSpec(BaseModel):
     """端口规范。
 
@@ -59,6 +126,8 @@ class PortSpec(BaseModel):
     is_stream: bool = Field(default=False, description="是否流式端口")
     required: bool = Field(default=True, description="是否必填/必连")
     description: str = Field(default="", description="端口说明")
+    # 仅用于输出端口：声明“此输出 schema 由某输入口动态推导”。
+    derived_from_input: str | None = Field(default=None, description="动态 schema 来源输入口")
 
 
 class SyncConfig(BaseModel):
@@ -76,6 +145,10 @@ class SyncConfig(BaseModel):
     strategy: SyncStrategy = Field(default=SyncStrategy.BARRIER)
     window_ms: int = Field(default=40, ge=1)
     late_policy: LatePolicy = Field(default=LatePolicy.DROP)
+    role: SyncRole = Field(default=SyncRole.EXECUTOR)
+    sync_group: str | None = Field(default=None)
+    commit_lead_ms: int = Field(default=50, ge=1)
+    ready_timeout_ms: int = Field(default=800, ge=1)
 
 
 class NodeSpec(BaseModel):
@@ -117,6 +190,31 @@ class NodeSpec(BaseModel):
         if len(output_names) != len(set(output_names)):
             raise ValueError(f"NodeSpec[{self.type_name}] outputs 存在重名端口")
 
+        for input_port in self.inputs:
+            if is_none_schema(input_port.frame_schema):
+                raise ValueError(
+                    f"NodeSpec[{self.type_name}] 输入口 {input_port.name} 不能使用 none schema"
+                )
+            if input_port.derived_from_input is not None:
+                raise ValueError(
+                    f"NodeSpec[{self.type_name}] 输入口 {input_port.name} 不允许声明 derived_from_input"
+                )
+
+        available_inputs = {port.name for port in self.inputs}
+        for output_port in self.outputs:
+            if output_port.derived_from_input is None:
+                continue
+            if output_port.derived_from_input not in available_inputs:
+                raise ValueError(
+                    f"NodeSpec[{self.type_name}] 输出口 {output_port.name} 的 derived_from_input "
+                    f"不存在: {output_port.derived_from_input}"
+                )
+            if not is_sync_schema(output_port.frame_schema):
+                raise ValueError(
+                    f"NodeSpec[{self.type_name}] 输出口 {output_port.name} 声明了 derived_from_input，"
+                    "其 frame_schema 必须为 *.sync"
+                )
+
         if self.mode == NodeMode.SYNC and self.sync_config is None:
             raise ValueError(f"NodeSpec[{self.type_name}] 为 sync 模式但缺少 sync_config")
 
@@ -124,7 +222,6 @@ class NodeSpec(BaseModel):
             raise ValueError(f"NodeSpec[{self.type_name}] 为 async 模式，不应声明 sync_config")
 
         if self.sync_config:
-            available_inputs = {port.name for port in self.inputs}
             missing_ports = [
                 port for port in self.sync_config.required_ports if port not in available_inputs
             ]

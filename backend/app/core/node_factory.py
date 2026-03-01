@@ -13,12 +13,15 @@ from dataclasses import dataclass, field
 from app.core.node_base import BaseNode
 from app.core.spec import NodeInstanceSpec, NodeSpec
 from app.nodes import (
+    AudioPlayBaseNode,
+    AudioPlaySyncNode,
     MockInputNode,
     MockLLMNode,
     MockMotionNode,
     MockOutputNode,
     MockTTSNode,
-    TimelineSyncNode,
+    MotionPlaySyncNode,
+    SyncInitiatorDualNode,
 )
 
 
@@ -63,7 +66,10 @@ def create_default_node_factory() -> NodeFactory:
             "mock.llm": MockLLMNode,
             "mock.tts": MockTTSNode,
             "mock.motion": MockMotionNode,
-            "sync.timeline": TimelineSyncNode,
+            "sync.initiator.dual": SyncInitiatorDualNode,
+            "audio.play.base": AudioPlayBaseNode,
+            "audio.play.sync": AudioPlaySyncNode,
+            "motion.play.sync": MotionPlaySyncNode,
             "mock.output": MockOutputNode,
         }
     )

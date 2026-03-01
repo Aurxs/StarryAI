@@ -47,6 +47,67 @@ describe('GraphEditor', () => {
         expect(useGraphStore.getState().graph.nodes).toHaveLength(1);
     });
 
+    it('initializes default sync config when adding sync initiator node', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'sync.initiator.dual',
+                            version: '0.1.0',
+                            mode: 'sync',
+                            inputs: [
+                                {name: 'in_a', frame_schema: 'any', is_stream: false, required: true, description: ''},
+                                {name: 'in_b', frame_schema: 'any', is_stream: false, required: true, description: ''},
+                            ],
+                            outputs: [
+                                {
+                                    name: 'out_a',
+                                    frame_schema: 'any.sync',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                    derived_from_input: 'in_a',
+                                },
+                                {
+                                    name: 'out_b',
+                                    frame_schema: 'any.sync',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                    derived_from_input: 'in_b',
+                                },
+                            ],
+                            sync_config: {
+                                required_ports: ['in_a', 'in_b'],
+                                strategy: 'barrier',
+                                window_ms: 40,
+                                late_policy: 'drop',
+                                role: 'initiator',
+                            },
+                            config_schema: {},
+                            description: '',
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        render(<GraphEditor/>);
+        fireEvent.click(screen.getByTitle('新增节点'));
+        const drawer = screen.getByLabelText('node-library-drawer');
+        fireEvent.click(await within(drawer).findByText('sync.initiator.dual'));
+
+        const node = useGraphStore.getState().graph.nodes.find((item) => item.type_name === 'sync.initiator.dual');
+        expect(node).toBeTruthy();
+        expect(String(node?.config.sync_group)).toMatch(/^sg-/);
+        expect(node?.config.sync_round).toBe(0);
+        expect(node?.config.ready_timeout_ms).toBe(800);
+        expect(node?.config.commit_lead_ms).toBe(50);
+        expect(node?.config.__sync_round_auto).toBe(true);
+    });
+
     it('deletes node through node context menu', async () => {
         render(<GraphEditor/>);
 
@@ -244,5 +305,155 @@ describe('GraphEditor', () => {
             expect(markerPolyline).toBeTruthy();
             expect(markerPolyline?.getAttribute('style') ?? '').toContain('stroke: #3b82f6');
         });
+    });
+
+    it('renders initiator and sync input types with resolved *.sync labels', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 3,
+                    items: [
+                        {
+                            type_name: 'mock.tts',
+                            version: '0.1.0',
+                            mode: 'async',
+                            inputs: [{
+                                name: 'text',
+                                frame_schema: 'text.final',
+                                is_stream: false,
+                                required: true,
+                                description: '',
+                            }],
+                            outputs: [{
+                                name: 'audio',
+                                frame_schema: 'audio.full',
+                                is_stream: false,
+                                required: true,
+                                description: '',
+                            }],
+                            sync_config: null,
+                            config_schema: {},
+                            description: '',
+                        },
+                        {
+                            type_name: 'sync.initiator.dual',
+                            version: '0.1.0',
+                            mode: 'sync',
+                            inputs: [
+                                {
+                                    name: 'in_a',
+                                    frame_schema: 'any',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                },
+                                {
+                                    name: 'in_b',
+                                    frame_schema: 'any',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                },
+                            ],
+                            outputs: [
+                                {
+                                    name: 'out_a',
+                                    frame_schema: 'any.sync',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                    derived_from_input: 'in_a',
+                                },
+                                {
+                                    name: 'out_b',
+                                    frame_schema: 'any.sync',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                    derived_from_input: 'in_b',
+                                },
+                            ],
+                            sync_config: {
+                                required_ports: ['in_a', 'in_b'],
+                                strategy: 'barrier',
+                                window_ms: 40,
+                                late_policy: 'drop',
+                                role: 'initiator',
+                            },
+                            config_schema: {},
+                            description: '',
+                        },
+                        {
+                            type_name: 'audio.play.sync',
+                            version: '0.1.0',
+                            mode: 'sync',
+                            inputs: [{
+                                name: 'in',
+                                frame_schema: 'audio.full.sync',
+                                is_stream: false,
+                                required: true,
+                                description: '',
+                            }],
+                            outputs: [],
+                            sync_config: {
+                                required_ports: ['in'],
+                                strategy: 'barrier',
+                                window_ms: 40,
+                                late_policy: 'drop',
+                                role: 'executor',
+                            },
+                            config_schema: {},
+                            description: '',
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        useGraphStore.getState().setNodes([
+            {
+                node_id: 'n1',
+                type_name: 'mock.tts',
+                title: 'tts',
+                config: {},
+            },
+            {
+                node_id: 'n2',
+                type_name: 'sync.initiator.dual',
+                title: 'initiator',
+                config: {},
+            },
+            {
+                node_id: 'n3',
+                type_name: 'audio.play.sync',
+                title: 'audio_sync',
+                config: {},
+            },
+        ]);
+        useGraphStore.getState().setEdges([
+            {
+                source_node: 'n1',
+                source_port: 'audio',
+                target_node: 'n2',
+                target_port: 'in_a',
+                queue_maxsize: 0,
+            },
+            {
+                source_node: 'n2',
+                source_port: 'out_a',
+                target_node: 'n3',
+                target_port: 'in',
+                queue_maxsize: 0,
+            },
+        ]);
+
+        render(<GraphEditor/>);
+
+        const initiator = await screen.findByTestId('workflow-node-n2');
+        expect(initiator.textContent).toContain('audio.sync');
+        expect(initiator.textContent).toContain('any.sync');
+
+        const syncAudio = await screen.findByTestId('workflow-node-n3');
+        expect(syncAudio.textContent).toContain('audio.sync');
     });
 });

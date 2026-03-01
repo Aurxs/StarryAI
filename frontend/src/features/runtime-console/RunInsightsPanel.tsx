@@ -4,6 +4,7 @@ import {useTranslation} from 'react-i18next';
 import type {RunDiagnosticsResponse, RunMetricsResponse} from '../../entities/workbench/types';
 import {apiClient, ApiClientError} from '../../shared/api/client';
 import {useRunStore} from '../../shared/state/run-store';
+import {summarizeSyncMetrics} from './sync-metrics';
 
 const panelStyle: CSSProperties = {
     border: '1px solid rgba(31, 41, 51, 0.16)',
@@ -37,6 +38,7 @@ export function RunInsightsPanel() {
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [metrics, setMetrics] = useState<RunMetricsResponse | null>(null);
     const [diagnostics, setDiagnostics] = useState<RunDiagnosticsResponse | null>(null);
+    const syncSummary = summarizeSyncMetrics(metrics?.node_metrics);
 
     const loadInsights = useCallback(async () => {
         const targetRunId = runId;
@@ -121,6 +123,23 @@ export function RunInsightsPanel() {
                     <div>{t('runInsights.diagnostics.failedNodes', {count: diagnostics.failed_nodes.length})}</div>
                     <div>{t('runInsights.diagnostics.slowNodesTop', {count: diagnostics.slow_nodes_top.length})}</div>
                     <div>{t('runInsights.diagnostics.edgeHotspotsTop', {count: diagnostics.edge_hotspots_top.length})}</div>
+                </div>
+            )}
+
+            {!errorMessage && metrics && (
+                <div style={{fontSize: 12, marginTop: 8}} data-testid="run-insights-sync">
+                    <div style={{fontWeight: 600, marginBottom: 4}}>{t('runInsights.sync.title')}</div>
+                    <div>{t('runInsights.sync.commitCount', {count: syncSummary.commitCount})}</div>
+                    <div>{t('runInsights.sync.abortCount', {count: syncSummary.abortCount})}</div>
+                    <div>
+                        {Object.entries(syncSummary.abortReasons).length === 0
+                            ? t('runInsights.sync.abortReasonsEmpty')
+                            : t('runInsights.sync.abortReasons', {
+                                reasons: Object.entries(syncSummary.abortReasons)
+                                    .map(([reason, count]) => `${reason}(${count})`)
+                                    .join(', '),
+                            })}
+                    </div>
                 </div>
             )}
         </section>

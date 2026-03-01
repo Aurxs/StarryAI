@@ -4,12 +4,15 @@ export type SyncStrategy = 'barrier' | 'window_join' | 'clock_lock';
 
 export type LatePolicy = 'drop' | 'emit_partial' | 'reclock';
 
+export type SyncRole = 'initiator' | 'executor';
+
 export interface PortSpec {
     name: string;
     frame_schema: string;
     is_stream: boolean;
     required: boolean;
     description: string;
+    derived_from_input?: string | null;
 }
 
 export interface SyncConfig {
@@ -17,6 +20,10 @@ export interface SyncConfig {
     strategy: SyncStrategy;
     window_ms: number;
     late_policy: LatePolicy;
+    role?: SyncRole;
+    sync_group?: string | null;
+    commit_lead_ms?: number;
+    ready_timeout_ms?: number;
 }
 
 export interface NodeSpec {

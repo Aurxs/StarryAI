@@ -331,4 +331,153 @@ describe('WorkbenchPage shell', () => {
         expect(okLoadButton.disabled).toBe(false);
         expect(badLoadButton.disabled).toBe(true);
     });
+
+    it('shows sync commit/abort metrics in run panel', async () => {
+        server.use(
+            http.post('*/api/v1/runs', async ({request}) => {
+                await request.json();
+                return HttpResponse.json({
+                    run_id: 'run_sync_panel',
+                    graph_id: 'graph_new',
+                    status: 'running',
+                });
+            }),
+            http.get('*/api/v1/runs/run_sync_panel', () =>
+                HttpResponse.json({
+                    run_id: 'run_sync_panel',
+                    graph_id: 'graph_new',
+                    status: 'completed',
+                    created_at: 1_700_000_000,
+                    started_at: 1_700_000_001,
+                    ended_at: 1_700_000_002,
+                    stream_id: 'stream_frontend',
+                    last_error: null,
+                    task_done: true,
+                    metrics: {},
+                    node_states: {},
+                    edge_states: [],
+                }),
+            ),
+            http.get('*/api/v1/runs/run_sync_panel/metrics', () =>
+                HttpResponse.json({
+                    run_id: 'run_sync_panel',
+                    graph_id: 'graph_new',
+                    status: 'completed',
+                    created_at: 1_700_000_000,
+                    started_at: 1_700_000_001,
+                    ended_at: 1_700_000_002,
+                    task_done: true,
+                    graph_metrics: {},
+                    node_metrics: {
+                        n_audio: {
+                            sync_committed: 1,
+                            sync_aborted: 0,
+                            sync_abort_reason: '',
+                        },
+                        n_motion: {
+                            sync_committed: 0,
+                            sync_aborted: 1,
+                            sync_abort_reason: 'timeout',
+                        },
+                    },
+                    edge_metrics: [],
+                }),
+            ),
+        );
+
+        useGraphStore.getState().upsertNode({
+            node_id: 'n1',
+            type_name: 'mock.input',
+            title: 'Input',
+            config: {},
+        });
+        useGraphStore.getState().setValidationResult(true, []);
+
+        render(<WorkbenchPage/>);
+        const runButton = screen.getByRole('button', {name: '测试运行'});
+        await waitFor(() => {
+            expect((screen.getByRole('button', {name: '测试运行'}) as HTMLButtonElement).disabled).toBe(false);
+        });
+        fireEvent.click(runButton);
+
+        await waitFor(() => {
+            const panel = screen.getByTestId('run-sync-metrics');
+            expect(panel.textContent).toContain('同步提交: 1');
+            expect(panel.textContent).toContain('同步中止: 1');
+            expect(panel.textContent).toContain('timeout(1)');
+        });
+    });
+
+    it('reconciles sync-managed config in auto-review validation flow', async () => {
+        let capturedValidateBody: Record<string, unknown> | null = null;
+        server.use(
+            http.post('*/api/v1/graphs/validate', async ({request}) => {
+                capturedValidateBody = (await request.json()) as Record<string, unknown>;
+                return HttpResponse.json({
+                    graph_id: 'graph_new',
+                    valid: true,
+                    issues: [],
+                });
+            }),
+        );
+
+        useGraphStore.getState().setNodes([
+            {
+                node_id: 'n_init',
+                type_name: 'sync.initiator.dual',
+                title: 'initiator',
+                config: {
+                    sync_group: 'group_review',
+                    sync_round: 4,
+                    ready_timeout_ms: 1400,
+                    commit_lead_ms: 100,
+                },
+            },
+            {
+                node_id: 'n_exec',
+                type_name: 'audio.play.sync',
+                title: 'executor',
+                config: {
+                    volume: 0.7,
+                },
+            },
+        ]);
+        useGraphStore.getState().setEdges([
+            {
+                source_node: 'n_init',
+                source_port: 'out_a',
+                target_node: 'n_exec',
+                target_port: 'in',
+                queue_maxsize: 0,
+            },
+        ]);
+
+        render(<WorkbenchPage/>);
+
+        await waitFor(() => {
+            expect(capturedValidateBody).not.toBeNull();
+        });
+
+        const requestNodes = (capturedValidateBody?.nodes ?? []) as Array<Record<string, unknown>>;
+        const executorInRequest = requestNodes.find((node) => node.node_id === 'n_exec');
+        expect(executorInRequest?.config).toMatchObject({
+            volume: 0.7,
+            sync_group: 'group_review',
+            sync_round: 4,
+            ready_timeout_ms: 1400,
+            commit_lead_ms: 100,
+            __sync_managed_by: 'n_init',
+        });
+
+        const executorInStore = useGraphStore
+            .getState()
+            .graph.nodes.find((node) => node.node_id === 'n_exec');
+        expect(executorInStore?.config).toMatchObject({
+            sync_group: 'group_review',
+            sync_round: 4,
+            ready_timeout_ms: 1400,
+            commit_lead_ms: 100,
+            __sync_managed_by: 'n_init',
+        });
+    });
 });

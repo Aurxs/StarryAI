@@ -13,6 +13,7 @@ import {
     extractPortFromHandle,
     getSchemaColor,
     isSchemaCompatible,
+    resolveGraphPortSchemas,
     readNodePositionsFromMetadata,
     simplifyFrameSchema,
     writeNodePositionsToMetadata,
@@ -116,9 +117,11 @@ describe('graph-editor utils', () => {
     it('simplifies schema labels and maps colors', () => {
         expect(simplifyFrameSchema('text.final')).toBe('text');
         expect(simplifyFrameSchema('audio.full')).toBe('audio');
+        expect(simplifyFrameSchema('audio.full.sync')).toBe('audio.sync');
         expect(simplifyFrameSchema('any')).toBe('any');
         expect(getSchemaColor('text.final')).toBe('#3b82f6');
         expect(getSchemaColor('audio.full')).toBe('#16a34a');
+        expect(getSchemaColor('audio.full.sync')).toBe('#16a34a');
     });
 
     it('supports backend-compatible schema matching rules', () => {
@@ -126,6 +129,10 @@ describe('graph-editor utils', () => {
         expect(isSchemaCompatible('any', 'audio.full')).toBe(true);
         expect(isSchemaCompatible('text.final', 'any')).toBe(true);
         expect(isSchemaCompatible('text.final', 'audio.full')).toBe(false);
+        expect(isSchemaCompatible('audio.full.sync', 'audio.full.sync')).toBe(true);
+        expect(isSchemaCompatible('any.sync', 'motion.timeline.sync')).toBe(true);
+        expect(isSchemaCompatible('audio.full', 'audio.full.sync')).toBe(false);
+        expect(isSchemaCompatible('none', 'any')).toBe(false);
     });
 
     it('builds auto-layout positions for disconnected graphs (edge path)', () => {
@@ -143,6 +150,114 @@ describe('graph-editor utils', () => {
         expect(positions.n1).toBeTruthy();
         expect(positions.n2).toBeTruthy();
         expect(positions.n3).toBeTruthy();
+    });
+
+    it('resolves dynamic initiator output schema from upstream connection', () => {
+        const graph = {
+            graph_id: 'g_sync',
+            version: '0.1.0',
+            nodes: [
+                {node_id: 'n1', type_name: 'mock.tts', title: 'tts', config: {}},
+                {node_id: 'n2', type_name: 'sync.initiator.dual', title: 'initiator', config: {}},
+                {node_id: 'n3', type_name: 'audio.play.sync', title: 'audio', config: {}},
+            ],
+            edges: [
+                {
+                    source_node: 'n1',
+                    source_port: 'audio',
+                    target_node: 'n2',
+                    target_port: 'in_a',
+                    queue_maxsize: 0,
+                },
+                {
+                    source_node: 'n2',
+                    source_port: 'out_a',
+                    target_node: 'n3',
+                    target_port: 'in',
+                    queue_maxsize: 0,
+                },
+            ],
+            metadata: {},
+        };
+        const catalogByType = new Map([
+            [
+                'mock.tts',
+                {
+                    type_name: 'mock.tts',
+                    version: '0.1.0',
+                    mode: 'async',
+                    inputs: [{name: 'text', frame_schema: 'text.final', is_stream: false, required: true, description: ''}],
+                    outputs: [{name: 'audio', frame_schema: 'audio.full', is_stream: false, required: true, description: ''}],
+                    sync_config: null,
+                    config_schema: {},
+                    description: '',
+                },
+            ],
+            [
+                'sync.initiator.dual',
+                {
+                    type_name: 'sync.initiator.dual',
+                    version: '0.1.0',
+                    mode: 'sync',
+                    inputs: [
+                        {name: 'in_a', frame_schema: 'any', is_stream: false, required: true, description: ''},
+                        {name: 'in_b', frame_schema: 'any', is_stream: false, required: true, description: ''},
+                    ],
+                    outputs: [
+                        {
+                            name: 'out_a',
+                            frame_schema: 'any.sync',
+                            is_stream: false,
+                            required: true,
+                            description: '',
+                            derived_from_input: 'in_a',
+                        },
+                        {
+                            name: 'out_b',
+                            frame_schema: 'any.sync',
+                            is_stream: false,
+                            required: true,
+                            description: '',
+                            derived_from_input: 'in_b',
+                        },
+                    ],
+                    sync_config: {
+                        required_ports: ['in_a', 'in_b'],
+                        strategy: 'barrier',
+                        window_ms: 40,
+                        late_policy: 'drop',
+                        role: 'initiator',
+                    },
+                    config_schema: {},
+                    description: '',
+                },
+            ],
+            [
+                'audio.play.sync',
+                {
+                    type_name: 'audio.play.sync',
+                    version: '0.1.0',
+                    mode: 'sync',
+                    inputs: [{name: 'in', frame_schema: 'audio.full.sync', is_stream: false, required: true, description: ''}],
+                    outputs: [],
+                    sync_config: {
+                        required_ports: ['in'],
+                        strategy: 'barrier',
+                        window_ms: 40,
+                        late_policy: 'drop',
+                        role: 'executor',
+                    },
+                    config_schema: {},
+                    description: '',
+                },
+            ],
+        ]);
+
+        const resolved = resolveGraphPortSchemas(graph, catalogByType);
+        expect(resolved.inputs.n2?.in_a).toBe('audio.full');
+        expect(resolved.outputs.n2?.out_a).toBe('audio.full.sync');
+        expect(resolved.outputs.n2?.out_b).toBe('any.sync');
+        expect(resolved.inputs.n3?.in).toBe('audio.full.sync');
     });
 
     it('builds and applies clipboard snapshot for multi-node copy with preserved edge/relative positions', () => {

@@ -35,7 +35,8 @@ from .graph_builder import CompiledGraph
 from .graph_runtime import GraphRuntimeState, RuntimeEdgeState, RuntimeNodeState
 from .node_base import BaseNode, NodeContext
 from .node_factory import NodeFactory, create_default_node_factory
-from .spec import EdgeSpec, NodeMode
+from .spec import EdgeSpec, is_sync_schema
+from .sync_coordinator import SyncCoordinator
 
 # 边唯一键：(source_node, source_port, target_node, target_port)
 # 用于在字典中索引“某条具体边”的队列与运行态。
@@ -122,6 +123,8 @@ class GraphScheduler:
         self._node_input_events: dict[str, asyncio.Event] = {}
         # _node_policies: 节点 -> 执行策略（超时、重试、错误传播）。
         self._node_policies: dict[str, NodeExecutionPolicy] = {}
+        # _sync_coordinator: 同步组协调器（当前 run 内共享）。
+        self._sync_coordinator = SyncCoordinator()
 
         # _failed: 运行是否已经进入失败路径（用于最终态决策）。
         self._failed = False
@@ -242,6 +245,7 @@ class GraphScheduler:
         self._node_inputs.clear()
         self._node_input_events.clear()
         self._node_policies.clear()
+        self._sync_coordinator = SyncCoordinator()
 
         self.runtime_state = GraphRuntimeState(
             run_id=self._run_id,
@@ -417,6 +421,10 @@ class GraphScheduler:
                         node_state.metrics["continued_on_error"] = True
                         self._notify_downstream_waiters(node_id)
                         return
+                    await self._sync_coordinator.abort_by_node(
+                        node_id=node_id,
+                        reason="input_unavailable",
+                    )
                     self._fail_run(message)
                     self.stop()
                     return
@@ -448,6 +456,8 @@ class GraphScheduler:
                     "seq": 0,
                     "graph_id": self.runtime_state.graph_id,
                     "node_mode": spec.mode.value,
+                    "sync_coordinator": self._sync_coordinator,
+                    "sync_group_participants": self._compiled_graph.sync_group_participants,
                 },
             )
             # inputs: 传入节点 process 的输入副本，避免节点修改共享缓存。
@@ -474,7 +484,7 @@ class GraphScheduler:
                 node_state.status = "stopped"
                 return
 
-            await self._route_outputs(node_id=node_id, outputs=outputs, mode=spec.mode)
+            await self._route_outputs(node_id=node_id, outputs=outputs)
 
             node_state.status = "finished"
             node_state.finished_at = time.time()
@@ -530,10 +540,14 @@ class GraphScheduler:
                 node_state.metrics["continued_on_error"] = True
                 self._notify_downstream_waiters(node_id)
                 return
+            await self._sync_coordinator.abort_by_node(
+                node_id=node_id,
+                reason="node_failed",
+            )
             self._fail_run(f"节点 {node_id} 执行失败: {exc}")
             self.stop()
 
-    async def _route_outputs(self, node_id: str, outputs: dict[str, Any], mode: NodeMode) -> None:
+    async def _route_outputs(self, node_id: str, outputs: dict[str, Any]) -> None:
         """将节点输出按边路由到下游队列。"""
         assert self._compiled_graph is not None
         assert self._run_id is not None
@@ -551,45 +565,64 @@ class GraphScheduler:
 
             # payload_value: 本条边要发送给下游端口的业务值。
             payload_value = outputs[edge.source_port]
-            # frame_type: 根据节点模式决定发 data 帧还是 sync 帧。
-            frame_type = FrameType.SYNC if mode == NodeMode.SYNC else FrameType.DATA
+            resolved_schema = (
+                self._compiled_graph.resolved_output_schemas.get(node_id, {}).get(edge.source_port, "any")
+            )
+            # frame_type: 根据解析后端口 schema 决定 data/sync。
+            frame_type = FrameType.SYNC if is_sync_schema(resolved_schema) else FrameType.DATA
             frame_stream_id = self._stream_id
             frame_seq = 0
             frame_sync_key: str | None = None
             frame_play_at: float | None = None
             event_edge_key = self._format_edge_key(edge)
-            event_details: dict[str, Any] = {"edge": event_edge_key}
+            event_details: dict[str, Any] = {"edge": event_edge_key, "schema": resolved_schema}
 
             if frame_type == FrameType.SYNC:
                 if not isinstance(payload_value, dict):
-                    raise TypeError(f"同步节点输出必须是 dict，实际: {type(payload_value)}")
+                    raise TypeError(f"同步输出必须是 dict，实际: {type(payload_value)}")
 
                 normalized_payload = dict(payload_value)
-                raw_stream_id = payload_value.get("stream_id", self._stream_id)
-                if "stream_id" in payload_value:
+                data_section = normalized_payload.get("data")
+                _ = data_section
+                sync_section = normalized_payload.get("sync")
+                if not isinstance(sync_section, dict):
+                    raise ValueError("同步输出缺少 sync 字段或类型非法")
+
+                raw_stream_id = sync_section.get("stream_id", self._stream_id)
+                if "stream_id" in sync_section:
                     frame_stream_id = self._normalize_stream_id(raw_stream_id)
                 else:
                     frame_stream_id = self._stream_id
-                frame_seq = self._normalize_seq(payload_value.get("seq", 0))
-                frame_play_at = self._normalize_required_play_at(payload_value.get("play_at"))
+
+                raw_round = sync_section.get("sync_round", sync_section.get("seq", 0))
+                frame_seq = self._normalize_seq(raw_round)
+                sync_group = self._normalize_sync_group(sync_section.get("sync_group"))
                 frame_sync_key = self._normalize_sync_key(
-                    payload_value.get("sync_key"),
-                    fallback=f"{frame_stream_id}:{frame_seq}",
+                    sync_section.get("sync_key"),
+                    fallback=f"{frame_stream_id}:{sync_group}:{frame_seq}",
                 )
-                normalized_payload["stream_id"] = frame_stream_id
-                normalized_payload["seq"] = frame_seq
-                normalized_payload["play_at"] = frame_play_at
-                normalized_payload["sync_key"] = frame_sync_key
+
+                raw_commit_at = sync_section.get("commit_at")
+                frame_play_at = self._normalize_play_at(raw_commit_at)
+
+                normalized_sync = dict(sync_section)
+                normalized_sync["stream_id"] = frame_stream_id
+                normalized_sync["seq"] = frame_seq
+                normalized_sync["sync_round"] = frame_seq
+                normalized_sync["sync_group"] = sync_group
+                normalized_sync["sync_key"] = frame_sync_key
+                if frame_play_at is not None:
+                    normalized_sync["commit_at"] = frame_play_at
+                normalized_payload["sync"] = normalized_sync
                 payload_value = normalized_payload
                 event_details.update(
                     {
                         "stream_id": frame_stream_id,
                         "seq": frame_seq,
-                        "play_at": frame_play_at,
+                        "sync_group": sync_group,
+                        "sync_round": frame_seq,
                         "sync_key": frame_sync_key,
-                        "strategy": payload_value.get("strategy"),
-                        "late_policy": payload_value.get("late_policy"),
-                        "decision": payload_value.get("decision"),
+                        "commit_at": frame_play_at,
                     }
                 )
 
@@ -622,8 +655,7 @@ class GraphScheduler:
             )
             severity = RuntimeEventSeverity.INFO
             component = RuntimeEventComponent.EDGE
-            if frame_type == FrameType.SYNC and event_details.get("decision") == "drop":
-                severity = RuntimeEventSeverity.WARNING
+            if frame_type == FrameType.SYNC:
                 component = RuntimeEventComponent.SYNC
 
             self._emit_event(
@@ -800,7 +832,8 @@ class GraphScheduler:
             metrics["node_timeout_events"] = int(metrics.get("node_timeout_events", 0)) + 1
 
         if event.event_type == RuntimeEventType.SYNC_FRAME_EMITTED:
-            decision = str(event.details.get("decision", "unknown"))
+            raw_decision = event.details.get("decision")
+            decision = str(raw_decision) if raw_decision is not None else "emitted"
             sync_decisions = metrics.setdefault("sync_decisions", {})
             if isinstance(sync_decisions, dict):
                 sync_decisions[decision] = int(sync_decisions.get(decision, 0)) + 1
@@ -1086,6 +1119,16 @@ class GraphScheduler:
         if not stream_id:
             raise ValueError("同步帧 stream_id 不能为空")
         return stream_id
+
+    @staticmethod
+    def _normalize_sync_group(raw_value: Any) -> str:
+        """规范化 sync_group 并拒绝空白。"""
+        if not isinstance(raw_value, str):
+            raise ValueError(f"非法 sync_group 值: {raw_value!r}")
+        group = raw_value.strip()
+        if not group:
+            raise ValueError("同步帧 sync_group 不能为空")
+        return group
 
     @staticmethod
     def _normalize_play_at(raw_value: Any) -> float | None:

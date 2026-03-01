@@ -211,3 +211,285 @@ test('blocks run when review has error and shows issue drawer', async ({page}) =
     await page.getByTestId('review-bar').click();
     await expect(page.getByLabel('review-drawer')).toContainText('node.required_input_unconnected');
 });
+
+test('shows sync commit metrics for all-ready scenario', async ({page}) => {
+    await page.route('http://127.0.0.1:8000/**', async (route) => {
+        const request = route.request();
+        const url = new URL(request.url());
+        const method = request.method();
+        const path = url.pathname;
+
+        if (method === 'GET' && path === '/api/v1/graphs') {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({count: 0, items: []}),
+            });
+            return;
+        }
+
+        if (method === 'GET' && path === '/api/v1/node-types') {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    count: 3,
+                    items: [
+                        {
+                            type_name: 'sync.initiator.dual',
+                            version: '0.1.0',
+                            mode: 'sync',
+                            inputs: [
+                                {name: 'in_a', frame_schema: 'any', is_stream: false, required: true, description: ''},
+                                {name: 'in_b', frame_schema: 'any', is_stream: false, required: true, description: ''},
+                            ],
+                            outputs: [
+                                {
+                                    name: 'out_a',
+                                    frame_schema: 'any.sync',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                    derived_from_input: 'in_a',
+                                },
+                                {
+                                    name: 'out_b',
+                                    frame_schema: 'any.sync',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                    derived_from_input: 'in_b',
+                                },
+                            ],
+                            sync_config: {required_ports: ['in_a', 'in_b'], strategy: 'barrier', window_ms: 40, late_policy: 'drop', role: 'initiator'},
+                            config_schema: {},
+                            description: '',
+                        },
+                        {
+                            type_name: 'audio.play.sync',
+                            version: '0.1.0',
+                            mode: 'sync',
+                            inputs: [{name: 'in', frame_schema: 'audio.full.sync', is_stream: false, required: true, description: ''}],
+                            outputs: [],
+                            sync_config: {required_ports: ['in'], strategy: 'barrier', window_ms: 40, late_policy: 'drop', role: 'executor'},
+                            config_schema: {},
+                            description: '',
+                        },
+                        {
+                            type_name: 'motion.play.sync',
+                            version: '0.1.0',
+                            mode: 'sync',
+                            inputs: [{name: 'in', frame_schema: 'motion.timeline.sync', is_stream: false, required: true, description: ''}],
+                            outputs: [],
+                            sync_config: {required_ports: ['in'], strategy: 'barrier', window_ms: 40, late_policy: 'drop', role: 'executor'},
+                            config_schema: {},
+                            description: '',
+                        },
+                    ],
+                }),
+            });
+            return;
+        }
+
+        if (method === 'POST' && path === '/api/v1/graphs/validate') {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({graph_id: 'graph_sync_commit', valid: true, issues: []}),
+            });
+            return;
+        }
+
+        if (method === 'POST' && path === '/api/v1/runs') {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({run_id: 'run_sync_commit', graph_id: 'graph_sync_commit', status: 'running'}),
+            });
+            return;
+        }
+
+        if (method === 'GET' && path === '/api/v1/runs/run_sync_commit') {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    run_id: 'run_sync_commit',
+                    graph_id: 'graph_sync_commit',
+                    status: 'completed',
+                    created_at: 1_700_000_000,
+                    started_at: 1_700_000_001,
+                    ended_at: 1_700_000_002,
+                    stream_id: 'stream_frontend',
+                    last_error: null,
+                    task_done: true,
+                    metrics: {},
+                    node_states: {},
+                    edge_states: [],
+                }),
+            });
+            return;
+        }
+
+        if (method === 'GET' && path === '/api/v1/runs/run_sync_commit/metrics') {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    run_id: 'run_sync_commit',
+                    graph_id: 'graph_sync_commit',
+                    status: 'completed',
+                    created_at: 1_700_000_000,
+                    started_at: 1_700_000_001,
+                    ended_at: 1_700_000_002,
+                    task_done: true,
+                    graph_metrics: {},
+                    node_metrics: {
+                        n_audio: {sync_committed: 1, sync_aborted: 0, sync_abort_reason: ''},
+                        n_motion: {sync_committed: 1, sync_aborted: 0, sync_abort_reason: ''},
+                    },
+                    edge_metrics: [],
+                }),
+            });
+            return;
+        }
+
+        await route.fulfill({
+            status: 404,
+            contentType: 'application/json',
+            body: JSON.stringify({detail: 'not mocked'}),
+        });
+    });
+
+    await page.goto('/');
+    await page.getByTitle('新增节点').click();
+    await page.locator('article').filter({hasText: 'sync.initiator.dual'}).first().click();
+    await page.getByTitle('新增节点').click();
+    await page.locator('article').filter({hasText: 'audio.play.sync'}).first().click();
+    await page.getByTitle('新增节点').click();
+    await page.locator('article').filter({hasText: 'motion.play.sync'}).first().click();
+
+    await expect(page.getByRole('button', {name: '测试运行'})).toBeEnabled();
+    await page.getByRole('button', {name: '测试运行'}).click();
+    await expect(page.getByTestId('run-sync-metrics')).toContainText('同步提交: 2');
+    await expect(page.getByTestId('run-sync-metrics')).toContainText('同步中止: 0');
+});
+
+test('shows sync abort metrics for timeout scenario', async ({page}) => {
+    await page.route('http://127.0.0.1:8000/**', async (route) => {
+        const request = route.request();
+        const url = new URL(request.url());
+        const method = request.method();
+        const path = url.pathname;
+
+        if (method === 'GET' && path === '/api/v1/graphs') {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({count: 0, items: []}),
+            });
+            return;
+        }
+
+        if (method === 'GET' && path === '/api/v1/node-types') {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'audio.play.sync',
+                            version: '0.1.0',
+                            mode: 'sync',
+                            inputs: [{name: 'in', frame_schema: 'audio.full.sync', is_stream: false, required: true, description: ''}],
+                            outputs: [],
+                            sync_config: {required_ports: ['in'], strategy: 'barrier', window_ms: 40, late_policy: 'drop', role: 'executor'},
+                            config_schema: {},
+                            description: '',
+                        },
+                    ],
+                }),
+            });
+            return;
+        }
+
+        if (method === 'POST' && path === '/api/v1/graphs/validate') {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({graph_id: 'graph_sync_abort', valid: true, issues: []}),
+            });
+            return;
+        }
+
+        if (method === 'POST' && path === '/api/v1/runs') {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({run_id: 'run_sync_abort', graph_id: 'graph_sync_abort', status: 'running'}),
+            });
+            return;
+        }
+
+        if (method === 'GET' && path === '/api/v1/runs/run_sync_abort') {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    run_id: 'run_sync_abort',
+                    graph_id: 'graph_sync_abort',
+                    status: 'completed',
+                    created_at: 1_700_000_000,
+                    started_at: 1_700_000_001,
+                    ended_at: 1_700_000_002,
+                    stream_id: 'stream_frontend',
+                    last_error: null,
+                    task_done: true,
+                    metrics: {},
+                    node_states: {},
+                    edge_states: [],
+                }),
+            });
+            return;
+        }
+
+        if (method === 'GET' && path === '/api/v1/runs/run_sync_abort/metrics') {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    run_id: 'run_sync_abort',
+                    graph_id: 'graph_sync_abort',
+                    status: 'completed',
+                    created_at: 1_700_000_000,
+                    started_at: 1_700_000_001,
+                    ended_at: 1_700_000_002,
+                    task_done: true,
+                    graph_metrics: {},
+                    node_metrics: {
+                        n_audio: {sync_committed: 0, sync_aborted: 1, sync_abort_reason: 'timeout'},
+                    },
+                    edge_metrics: [],
+                }),
+            });
+            return;
+        }
+
+        await route.fulfill({
+            status: 404,
+            contentType: 'application/json',
+            body: JSON.stringify({detail: 'not mocked'}),
+        });
+    });
+
+    await page.goto('/');
+    await page.getByTitle('新增节点').click();
+    await page.locator('article').filter({hasText: 'audio.play.sync'}).first().click();
+
+    await expect(page.getByRole('button', {name: '测试运行'})).toBeEnabled();
+    await page.getByRole('button', {name: '测试运行'}).click();
+    await expect(page.getByTestId('run-sync-metrics')).toContainText('同步提交: 0');
+    await expect(page.getByTestId('run-sync-metrics')).toContainText('同步中止: 1');
+    await expect(page.getByTestId('run-sync-metrics')).toContainText('timeout(1)');
+});

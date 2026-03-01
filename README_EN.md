@@ -30,7 +30,7 @@ StarryAI is a modular, node-based AI virtual human workflow engine (Backend + Wo
 - Runtime guardrails: event retention window and concurrent-run limit controls.
 - Ops metrics endpoint: `GET /metrics` in Prometheus text format.
 - Metrics enrichment: labeled `starryai_runs_status{status=...}`, capacity/event ratio gauges, and suggested warning-threshold gauges.
-- Sync orchestration: `sync.timeline` (`barrier/window_join/clock_lock`, with `drop/reclock`).
+- Sync orchestration (refactor in progress): `sync.initiator.dual` + `SyncCoordinator` + `*.sync` executors.
 - Structured events: `event_id/event_seq/severity/component/error_code`.
 - Observability endpoints: `/runs/{id}/metrics`, `/runs/{id}/diagnostics`.
 - Frontend workbench: graph editing, node config, validation, run control, runtime console, insights panel.

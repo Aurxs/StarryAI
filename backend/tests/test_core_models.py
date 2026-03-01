@@ -50,17 +50,34 @@ def test_frame_rejects_extra_field() -> None:
         )
 
 
-def test_sync_frame_rejects_negative_play_at() -> None:
-    """SyncFrame play_at 不能为负数。"""
+def test_sync_frame_rejects_negative_commit_at() -> None:
+    """SyncFrame commit_at 不能为负数。"""
     with pytest.raises(ValidationError):
         SyncFrame(
             run_id="r1",
             stream_id="s1",
             seq=0,
-            play_at=-1.0,
+            sync_group="g1",
+            sync_round=0,
+            commit_at=-1.0,
             audio_command={},
             motion_command={},
         )
+
+
+def test_sync_frame_accepts_commit_at_none() -> None:
+    """SyncFrame 在 commit_at 为空时应允许创建。"""
+    frame = SyncFrame(
+        run_id="r1",
+        stream_id="s1",
+        seq=0,
+        sync_group="g1",
+        sync_round=0,
+        commit_at=None,
+        audio_command={},
+        motion_command={},
+    )
+    assert frame.commit_at is None
 
 
 def test_runtime_event_model_dump_contains_type() -> None:

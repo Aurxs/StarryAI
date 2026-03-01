@@ -46,6 +46,7 @@ import {changeAppLanguage, normalizeLanguage, supportedLanguages} from '../../sh
 import {useGraphStore} from '../../shared/state/graph-store';
 import {useUiStore} from '../../shared/state/ui-store';
 import {InfoPopup} from '../../shared/ui/InfoPopup';
+import {buildInitiatorDefaultConfig, isSyncInitiatorNodeType} from '../sync-config/managed-config';
 import {
     SOURCE_HANDLE_PREFIX,
     TARGET_HANDLE_PREFIX,
@@ -60,6 +61,7 @@ import {
     getSchemaColor,
     isSchemaCompatible,
     readNodePositionsFromMetadata,
+    resolveGraphPortSchemas,
     simplifyFrameSchema,
     writeNodePositionsToMetadata,
 } from './utils';
@@ -70,6 +72,8 @@ interface WorkflowNodeData {
     spec: NodeSpec;
     isEditing: boolean;
     isValidationError: boolean;
+    resolvedInputSchemas: Record<string, string>;
+    resolvedOutputSchemas: Record<string, string>;
     onSelectNode: (nodeId: string) => void;
 }
 
@@ -343,8 +347,14 @@ const PortTag = ({prefix, port}: { prefix: 'in' | 'out'; port: PortSpec }) => {
 };
 
 const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
-    const inputs = data.spec.inputs ?? EMPTY_PORTS;
-    const outputs = data.spec.outputs ?? EMPTY_PORTS;
+    const inputs = (data.spec.inputs ?? EMPTY_PORTS).map((port) => ({
+        ...port,
+        frame_schema: data.resolvedInputSchemas[port.name] ?? port.frame_schema,
+    }));
+    const outputs = (data.spec.outputs ?? EMPTY_PORTS).map((port) => ({
+        ...port,
+        frame_schema: data.resolvedOutputSchemas[port.name] ?? port.frame_schema,
+    }));
 
     return (
         <div
@@ -464,6 +474,10 @@ const GraphEditorInner = () => {
         }
         return index;
     }, [catalog]);
+    const resolvedPortSchemas = useMemo(
+        () => resolveGraphPortSchemas(graph, catalogByType),
+        [catalogByType, graph],
+    );
 
     const validationTargets = useMemo(
         () => deriveValidationTargets(graph, validationIssues),
@@ -679,8 +693,17 @@ const GraphEditorInner = () => {
         if (!spec) {
             return null;
         }
-        return spec.outputs.find((port) => port.name === portName) ?? null;
-    }, [catalogByType, graph.nodes]);
+        const outputPorts = Array.isArray(spec.outputs) ? spec.outputs : [];
+        const port = outputPorts.find((item) => item.name === portName);
+        if (!port) {
+            return null;
+        }
+        const resolvedSchema = resolvedPortSchemas.outputs[nodeId]?.[port.name] ?? port.frame_schema;
+        return {
+            ...port,
+            frame_schema: resolvedSchema,
+        };
+    }, [catalogByType, graph.nodes, resolvedPortSchemas.outputs]);
 
     const resolveInputPort = useCallback((nodeId: string, portName: string): PortSpec | null => {
         const node = graph.nodes.find((item) => item.node_id === nodeId);
@@ -691,8 +714,17 @@ const GraphEditorInner = () => {
         if (!spec) {
             return null;
         }
-        return spec.inputs.find((port) => port.name === portName) ?? null;
-    }, [catalogByType, graph.nodes]);
+        const inputPorts = Array.isArray(spec.inputs) ? spec.inputs : [];
+        const port = inputPorts.find((item) => item.name === portName);
+        if (!port) {
+            return null;
+        }
+        const resolvedSchema = resolvedPortSchemas.inputs[nodeId]?.[port.name] ?? port.frame_schema;
+        return {
+            ...port,
+            frame_schema: resolvedSchema,
+        };
+    }, [catalogByType, graph.nodes, resolvedPortSchemas.inputs]);
 
     const resolveEdgeColor = useCallback((edge: EdgeSpec): string => {
         const sourcePort = resolveOutputPort(edge.source_node, edge.source_port);
@@ -730,11 +762,14 @@ const GraphEditorInner = () => {
                 return;
             }
             const nodeId = nextNodeId(graph.nodes);
+            const nodeConfig = isSyncInitiatorNodeType(spec.type_name)
+                ? buildInitiatorDefaultConfig(graph.nodes)
+                : {};
             upsertNode({
                 node_id: nodeId,
                 type_name: spec.type_name,
                 title: spec.type_name,
-                config: {},
+                config: nodeConfig,
             });
             const nodePosition = position ?? reactFlow.screenToFlowPosition({x: 320, y: 200});
             updateNodePositions(
@@ -804,6 +839,8 @@ const GraphEditorInner = () => {
                         spec,
                         isEditing: node.node_id === selectedNodeId,
                         isValidationError: highlighted,
+                        resolvedInputSchemas: resolvedPortSchemas.inputs[node.node_id] ?? {},
+                        resolvedOutputSchemas: resolvedPortSchemas.outputs[node.node_id] ?? {},
                         onSelectNode: selectNode,
                     },
                 };
@@ -826,6 +863,8 @@ const GraphEditorInner = () => {
         graph.edges,
         graph.nodes,
         positions,
+        resolvedPortSchemas.inputs,
+        resolvedPortSchemas.outputs,
         resolveEdgeColor,
         selectedNodeId,
         selectNode,

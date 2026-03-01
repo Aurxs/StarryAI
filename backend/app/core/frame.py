@@ -72,17 +72,19 @@ class SyncFrame(BaseModel):
     """同步播放层标准消息。
 
     一个 SyncFrame 代表一个可执行的同步片段，包含：
-    - 统一 `stream_id` 和 `seq`
-    - 统一触发时刻 `play_at`
-    - 同步执行所需的音频/动作命令
+    - 统一 `stream_id` / `sync_group` / `sync_round`
+    - 协调器下发的可选提交时刻 `commit_at`
+    - 同步执行所需的数据与命令
     """
 
     model_config = ConfigDict(extra="forbid")
 
     run_id: str = Field(..., min_length=1, description="运行实例 ID")
     stream_id: str = Field(..., min_length=1, description="业务流 ID")
-    seq: int = Field(..., ge=0, description="同步片段序号")
-    play_at: float = Field(..., ge=0, description="计划触发时间（单调时钟）")
+    seq: int = Field(..., ge=0, description="同步片段序号（兼容字段）")
+    sync_group: str = Field(..., min_length=1, description="同步组名")
+    sync_round: int = Field(..., ge=0, description="同步组轮次")
+    commit_at: float | None = Field(default=None, ge=0, description="协调器下发触发时间")
 
     audio_command: dict[str, Any] = Field(default_factory=dict, description="音频命令")
     motion_command: dict[str, Any] = Field(default_factory=dict, description="动作命令")

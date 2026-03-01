@@ -1,29 +1,37 @@
-"""内置节点行为测试。"""
+"""内置节点行为测试（同步重构版）。"""
 
 from __future__ import annotations
 
 import asyncio
-from typing import Any
-
-import pytest
 
 from app.core.node_base import NodeContext
 from app.core.registry import create_default_registry
-from app.core.spec import LatePolicy, SyncConfig, SyncStrategy
+from app.core.sync_coordinator import SyncCoordinator
+from app.nodes.audio_play_base import AudioPlayBaseNode
+from app.nodes.audio_play_sync import AudioPlaySyncNode
 from app.nodes.mock_input import MockInputNode
 from app.nodes.mock_llm import MockLLMNode
 from app.nodes.mock_motion import MockMotionNode
 from app.nodes.mock_output import MockOutputNode
 from app.nodes.mock_tts import MockTTSNode
-from app.nodes.timeline_sync import TimelineSyncNode
+from app.nodes.motion_play_sync import MotionPlaySyncNode
+from app.nodes.sync_initiator_dual import SyncInitiatorDualNode
 
 
-def _context(*, node_id: str, stream_id: str = "stream_test", seq: int = 0) -> NodeContext:
-    return NodeContext(
-        run_id="run_test",
-        node_id=node_id,
-        metadata={"stream_id": stream_id, "seq": seq},
-    )
+def _context(
+    *,
+    node_id: str,
+    stream_id: str = "stream_test",
+    seq: int = 0,
+    coordinator: SyncCoordinator | None = None,
+    participants: dict[str, list[str]] | None = None,
+) -> NodeContext:
+    metadata = {"stream_id": stream_id, "seq": seq}
+    if coordinator is not None:
+        metadata["sync_coordinator"] = coordinator
+    if participants is not None:
+        metadata["sync_group_participants"] = participants
+    return NodeContext(run_id="run_test", node_id=node_id, metadata=metadata)
 
 
 def test_mock_input_node_uses_config_content() -> None:
@@ -47,194 +55,118 @@ def test_mock_llm_node_generates_answer() -> None:
     asyncio.run(_run())
 
 
-def test_mock_tts_node_enforces_min_duration() -> None:
+def test_mock_tts_and_motion_nodes_produce_raw_payloads() -> None:
     async def _run() -> None:
         registry = create_default_registry()
-        node = MockTTSNode("n3", registry.get("mock.tts"))
-        output = await node.process(inputs={"text": ""}, context=_context(node_id="n3"))
-        assert output["audio"]["duration_ms"] >= 400
-        assert output["audio"]["format"] == "wav"
-        assert output["audio"]["stream_id"] == "stream_test"
-        assert output["audio"]["seq"] == 0
-        assert output["audio"]["play_at"] > 0
+        tts = MockTTSNode("n3", registry.get("mock.tts"))
+        motion = MockMotionNode("n4", registry.get("mock.motion"))
+        tts_output = await tts.process(inputs={"text": "abc"}, context=_context(node_id="n3"))
+        motion_output = await motion.process(inputs={"text": "abc"}, context=_context(node_id="n4"))
+        assert tts_output["audio"]["duration_ms"] >= 400
+        assert motion_output["motion"]["timeline"][0]["action"] == "idle"
+        assert tts_output["audio"]["stream_id"] == "stream_test"
+        assert motion_output["motion"]["stream_id"] == "stream_test"
 
     asyncio.run(_run())
 
 
-def test_mock_motion_node_builds_timeline() -> None:
+def test_sync_initiator_dual_wraps_two_inputs_into_sync_envelopes() -> None:
     async def _run() -> None:
         registry = create_default_registry()
-        node = MockMotionNode("n4", registry.get("mock.motion"))
-        output = await node.process(inputs={"text": "abc"}, context=_context(node_id="n4"))
-        timeline: list[dict[str, Any]] = output["motion"]["timeline"]
-        assert len(timeline) == 3
-        assert timeline[0]["action"] == "idle"
-        assert timeline[2]["t"] > timeline[1]["t"]
-        assert output["motion"]["stream_id"] == "stream_test"
-        assert output["motion"]["seq"] == 0
-        assert output["motion"]["play_at"] > 0
-
-    asyncio.run(_run())
-
-
-def test_timeline_sync_node_outputs_sync_packet_with_metrics() -> None:
-    async def _run() -> None:
-        registry = create_default_registry()
-        node = TimelineSyncNode("n5", registry.get("sync.timeline"))
-        output = await node.process(
-            inputs={
-                "audio": {"duration_ms": 1000, "stream_id": "stream_custom", "seq": 3},
-                "motion": {"timeline": [], "stream_id": "stream_custom", "seq": 3},
-            },
-            context=_context(node_id="n5", stream_id="stream_fallback"),
+        node = SyncInitiatorDualNode(
+            "n4",
+            registry.get("sync.initiator.dual"),
+            config={"sync_group": "g1", "sync_round": 3},
         )
-        sync_payload = output["sync"]
-        assert sync_payload["stream_id"] == "stream_custom"
-        assert sync_payload["seq"] == 3
-        assert sync_payload["play_at"] > 0
-        assert sync_payload["strategy"] == "clock_lock"
-        assert sync_payload["decision"] == "emit"
-        assert output["__node_metrics"]["sync_emitted"] == 1
+        output = await node.process(
+            inputs={"in_a": {"audio": 1}, "in_b": {"motion": 1}},
+            context=_context(node_id="n4", stream_id="s_custom"),
+        )
+        assert output["out_a"]["data"] == {"audio": 1}
+        assert output["out_b"]["data"] == {"motion": 1}
+        assert output["out_a"]["sync"]["sync_group"] == "g1"
+        assert output["out_a"]["sync"]["sync_round"] == 3
+        assert output["out_a"]["sync"]["sync_key"] == "s_custom:g1:3"
+        assert output["out_b"]["sync"]["sync_key"] == "s_custom:g1:3"
+        assert output["__node_metrics"]["sync_packets_emitted"] == 2
 
     asyncio.run(_run())
 
 
-def test_timeline_sync_node_rejects_mismatched_seq() -> None:
+def test_audio_play_base_consumes_without_outputs() -> None:
     async def _run() -> None:
         registry = create_default_registry()
-        node = TimelineSyncNode("n5", registry.get("sync.timeline"))
-        with pytest.raises(ValueError, match="seq"):
-            await node.process(
-                inputs={
-                    "audio": {"duration_ms": 1000, "stream_id": "stream_test", "seq": 1},
-                    "motion": {"timeline": [], "stream_id": "stream_test", "seq": 2},
-                },
-                context=_context(node_id="n5"),
-            )
+        node = AudioPlayBaseNode("n5", registry.get("audio.play.base"))
+        output = await node.process(inputs={"in": {"audio": "raw"}}, context=_context(node_id="n5"))
+        assert output == {}
 
     asyncio.run(_run())
 
 
-def test_timeline_sync_node_rejects_invalid_stream_id_type() -> None:
+def test_sync_executor_nodes_commit_when_group_all_ready() -> None:
     async def _run() -> None:
         registry = create_default_registry()
-        node = TimelineSyncNode("n5", registry.get("sync.timeline"))
-        with pytest.raises(ValueError, match="stream_id"):
-            await node.process(
-                inputs={
-                    "audio": {"duration_ms": 1000, "stream_id": None, "seq": 0},
-                    "motion": {"timeline": [], "stream_id": None, "seq": 0},
-                },
-                context=_context(node_id="n5"),
-            )
+        coordinator = SyncCoordinator()
+        participants = {"g_ok": ["n5", "n6"]}
 
-    asyncio.run(_run())
-
-
-def test_timeline_sync_node_rejects_bool_seq() -> None:
-    async def _run() -> None:
-        registry = create_default_registry()
-        node = TimelineSyncNode("n5", registry.get("sync.timeline"))
-        with pytest.raises(ValueError, match="seq"):
-            await node.process(
-                inputs={
-                    "audio": {"duration_ms": 1000, "stream_id": "stream_test", "seq": True},
-                    "motion": {"timeline": [], "stream_id": "stream_test", "seq": True},
-                },
-                context=_context(node_id="n5"),
-            )
-
-    asyncio.run(_run())
-
-
-def test_timeline_sync_node_late_policy_drop() -> None:
-    async def _run() -> None:
-        registry = create_default_registry()
-        node = TimelineSyncNode(
+        audio_node = AudioPlaySyncNode(
             "n5",
-            registry.get("sync.timeline"),
-            config={"lead_time_ms": 0, "late_tolerance_ms": 100},
-            sync_config=SyncConfig(
-                required_ports=["audio", "motion"],
-                strategy=SyncStrategy.BARRIER,
-                late_policy=LatePolicy.DROP,
-                window_ms=40,
+            registry.get("audio.play.sync"),
+            config={"sync_group": "g_ok", "ready_timeout_ms": 300, "commit_lead_ms": 10},
+        )
+        motion_node = MotionPlaySyncNode(
+            "n6",
+            registry.get("motion.play.sync"),
+            config={"sync_group": "g_ok", "ready_timeout_ms": 300, "commit_lead_ms": 10},
+        )
+        payload_audio = {"data": {"audio": 1}, "sync": {"sync_group": "g_ok", "sync_round": 0}}
+        payload_motion = {"data": {"motion": 1}, "sync": {"sync_group": "g_ok", "sync_round": 0}}
+
+        out_audio, out_motion = await asyncio.gather(
+            audio_node.process(
+                inputs={"in": payload_audio},
+                context=_context(
+                    node_id="n5",
+                    coordinator=coordinator,
+                    participants=participants,
+                ),
+            ),
+            motion_node.process(
+                inputs={"in": payload_motion},
+                context=_context(
+                    node_id="n6",
+                    coordinator=coordinator,
+                    participants=participants,
+                ),
             ),
         )
-        output = await node.process(
-            inputs={
-                "audio": {"duration_ms": 1000, "stream_id": "stream_test", "seq": 0, "play_at": 0.0},
-                "motion": {"timeline": [], "stream_id": "stream_test", "seq": 0, "play_at": 0.0},
-            },
-            context=_context(node_id="n5"),
-        )
-        sync_payload = output["sync"]
-        assert sync_payload["decision"] == "drop"
-        assert sync_payload["audio_command"] == {}
-        assert sync_payload["motion_command"] == {}
-        assert sync_payload["metrics"]["dropped_late"] == 1
+        assert out_audio["__node_metrics"]["sync_committed"] == 1
+        assert out_motion["__node_metrics"]["sync_committed"] == 1
 
     asyncio.run(_run())
 
 
-def test_timeline_sync_node_late_policy_reclock() -> None:
+def test_sync_executor_aborts_on_ready_timeout() -> None:
     async def _run() -> None:
         registry = create_default_registry()
-        node = TimelineSyncNode(
+        coordinator = SyncCoordinator()
+        participants = {"g_timeout": ["n5", "n6"]}
+        audio_node = AudioPlaySyncNode(
             "n5",
-            registry.get("sync.timeline"),
-            config={"lead_time_ms": 0, "late_tolerance_ms": 50, "reclock_offset_ms": 20},
-            sync_config=SyncConfig(
-                required_ports=["audio", "motion"],
-                strategy=SyncStrategy.BARRIER,
-                late_policy=LatePolicy.RECLOCK,
-                window_ms=40,
+            registry.get("audio.play.sync"),
+            config={"sync_group": "g_timeout", "ready_timeout_ms": 60, "commit_lead_ms": 10},
+        )
+
+        output = await audio_node.process(
+            inputs={"in": {"data": {"audio": 1}, "sync": {"sync_group": "g_timeout", "sync_round": 0}}},
+            context=_context(
+                node_id="n5",
+                coordinator=coordinator,
+                participants=participants,
             ),
         )
-        output = await node.process(
-            inputs={
-                "audio": {"duration_ms": 1000, "stream_id": "stream_test", "seq": 0, "play_at": 0.0},
-                "motion": {"timeline": [], "stream_id": "stream_test", "seq": 0, "play_at": 0.0},
-            },
-            context=_context(node_id="n5"),
-        )
-        sync_payload = output["sync"]
-        assert sync_payload["decision"] == "reclock"
-        assert sync_payload["audio_command"] != {}
-        assert sync_payload["motion_command"] != {}
-        assert sync_payload["metrics"]["reclocked"] == 1
-        assert sync_payload["play_at"] > 0.05
-
-    asyncio.run(_run())
-
-
-def test_timeline_sync_node_emit_partial_with_missing_port() -> None:
-    async def _run() -> None:
-        registry = create_default_registry()
-        node = TimelineSyncNode(
-            "n5",
-            registry.get("sync.timeline"),
-            sync_config=SyncConfig(
-                required_ports=["audio", "motion"],
-                strategy=SyncStrategy.BARRIER,
-                late_policy=LatePolicy.EMIT_PARTIAL,
-                window_ms=40,
-            ),
-        )
-        output = await node.process(
-            inputs={
-                "audio": {"duration_ms": 900, "stream_id": "s_partial", "seq": 7, "play_at": 1.0},
-            },
-            context=_context(node_id="n5", stream_id="fallback_stream", seq=5),
-        )
-        sync_payload = output["sync"]
-        assert sync_payload["decision"] == "emit_partial"
-        assert sync_payload["stream_id"] == "s_partial"
-        assert sync_payload["seq"] == 7
-        assert sync_payload["audio_command"] != {}
-        assert sync_payload["motion_command"] == {}
-        assert "motion" in sync_payload["missing_ports"]
-        assert sync_payload["metrics"]["emit_partial"] == 1
+        assert output["__node_metrics"]["sync_aborted"] == 1
+        assert output["__node_metrics"]["sync_abort_reason"] == "ready_timeout"
 
     asyncio.run(_run())
 
@@ -242,8 +174,9 @@ def test_timeline_sync_node_emit_partial_with_missing_port() -> None:
 def test_mock_output_node_consumes_any_payload() -> None:
     async def _run() -> None:
         registry = create_default_registry()
-        node = MockOutputNode("n6", registry.get("mock.output"))
-        output = await node.process(inputs={"in": {"anything": 1}}, context=_context(node_id="n6"))
+        node = MockOutputNode("n7", registry.get("mock.output"))
+        output = await node.process(inputs={"in": {"anything": 1}}, context=_context(node_id="n7"))
         assert output == {}
 
     asyncio.run(_run())
+

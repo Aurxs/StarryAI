@@ -14,6 +14,7 @@ from app.core.spec import (
     NodeSpec,
     PortSpec,
     SyncConfig,
+    SyncRole,
 )
 from app.nodes.mock_input import MockInputNode
 
@@ -64,6 +65,35 @@ def test_nodespec_sync_required_ports_must_exist() -> None:
         )
 
 
+def test_nodespec_rejects_none_on_input_ports() -> None:
+    """输入端口不允许使用 none schema。"""
+    with pytest.raises(ValidationError):
+        NodeSpec(
+            type_name="bad.none.input",
+            mode=NodeMode.ASYNC,
+            inputs=[PortSpec(name="in", frame_schema="none")],
+            outputs=[],
+        )
+
+
+def test_nodespec_rejects_invalid_derived_output_binding() -> None:
+    """动态输出绑定必须指向已存在输入，且输出 schema 为 *.sync。"""
+    with pytest.raises(ValidationError):
+        NodeSpec(
+            type_name="bad.dynamic.output",
+            mode=NodeMode.SYNC,
+            inputs=[PortSpec(name="in_a", frame_schema="any")],
+            outputs=[
+                PortSpec(
+                    name="out_a",
+                    frame_schema="any",
+                    derived_from_input="in_x",
+                )
+            ],
+            sync_config=SyncConfig(required_ports=["in_a"], role=SyncRole.INITIATOR),
+        )
+
+
 def test_graphspec_rejects_duplicate_node_ids() -> None:
     """GraphSpec 内 node_id 必须唯一。"""
     with pytest.raises(ValidationError):
@@ -86,7 +116,10 @@ def test_registry_default_types_and_duplicate_registration() -> None:
         "mock.llm",
         "mock.tts",
         "mock.motion",
-        "sync.timeline",
+        "sync.initiator.dual",
+        "audio.play.base",
+        "audio.play.sync",
+        "motion.play.sync",
         "mock.output",
     }.issubset(type_names)
 

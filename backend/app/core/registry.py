@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .spec import NodeMode, NodeSpec, PortSpec, SyncConfig, SyncStrategy
+from .spec import NodeMode, NodeSpec, PortSpec, SyncConfig, SyncRole, SyncStrategy
 
 
 class RegistryError(ValueError):
@@ -110,24 +110,78 @@ def create_default_registry() -> NodeTypeRegistry:
         description="模拟动作规划节点（输出完整动作轨迹）",
     )
 
-    # 5) 同步节点：汇总音频和动作，输出统一时间轴。
-    timeline_sync = NodeSpec(
-        type_name="sync.timeline",
+    # 5) 同步发起器：2 输入 2 输出，输出按输入 schema 动态染色为 *.sync。
+    sync_initiator_dual = NodeSpec(
+        type_name="sync.initiator.dual",
         mode=NodeMode.SYNC,
         inputs=[
-            PortSpec(name="audio", frame_schema="audio.full", required=True),
-            PortSpec(name="motion", frame_schema="motion.timeline", required=True),
+            PortSpec(name="in_a", frame_schema="any", required=True),
+            PortSpec(name="in_b", frame_schema="any", required=True),
         ],
-        outputs=[PortSpec(name="sync", frame_schema="sync.timeline", required=True)],
+        outputs=[
+            PortSpec(
+                name="out_a",
+                frame_schema="any.sync",
+                required=True,
+                derived_from_input="in_a",
+            ),
+            PortSpec(
+                name="out_b",
+                frame_schema="any.sync",
+                required=True,
+                derived_from_input="in_b",
+            ),
+        ],
         sync_config=SyncConfig(
-            required_ports=["audio", "motion"],
-            strategy=SyncStrategy.CLOCK_LOCK,
-            window_ms=40,
+            required_ports=["in_a", "in_b"],
+            strategy=SyncStrategy.BARRIER,
+            role=SyncRole.INITIATOR,
         ),
-        description="时间轴同步节点，生成统一播放计划",
+        description="同步发起器：将双路输入封装为双路同步任务包",
     )
 
-    # 6) 输出节点：用于消费任何数据并展示。
+    # 6) 基础音频执行节点：收到音频即执行（无输出）。
+    audio_play_base = NodeSpec(
+        type_name="audio.play.base",
+        mode=NodeMode.ASYNC,
+        inputs=[PortSpec(name="in", frame_schema="audio.full", required=True)],
+        outputs=[],
+        description="基础音频执行节点（收到即执行）",
+    )
+
+    # 7) 同步音频执行节点：只消费 audio.full.sync，不向下游输出。
+    audio_play_sync = NodeSpec(
+        type_name="audio.play.sync",
+        mode=NodeMode.SYNC,
+        inputs=[PortSpec(name="in", frame_schema="audio.full.sync", required=True)],
+        outputs=[],
+        sync_config=SyncConfig(
+            required_ports=["in"],
+            role=SyncRole.EXECUTOR,
+            sync_group="av_group",
+            commit_lead_ms=50,
+            ready_timeout_ms=800,
+        ),
+        description="同步音频执行节点（由协调器统一提交后执行）",
+    )
+
+    # 8) 同步动作执行节点：只消费 motion.timeline.sync，不向下游输出。
+    motion_play_sync = NodeSpec(
+        type_name="motion.play.sync",
+        mode=NodeMode.SYNC,
+        inputs=[PortSpec(name="in", frame_schema="motion.timeline.sync", required=True)],
+        outputs=[],
+        sync_config=SyncConfig(
+            required_ports=["in"],
+            role=SyncRole.EXECUTOR,
+            sync_group="av_group",
+            commit_lead_ms=50,
+            ready_timeout_ms=800,
+        ),
+        description="同步动作执行节点（由协调器统一提交后执行）",
+    )
+
+    # 9) 输出节点：用于消费任何数据并展示。
     mock_output = NodeSpec(
         type_name="mock.output",
         mode=NodeMode.ASYNC,
@@ -137,6 +191,16 @@ def create_default_registry() -> NodeTypeRegistry:
     )
 
     registry.bulk_register(
-        [mock_input, mock_llm, mock_tts, mock_motion, timeline_sync, mock_output]
+        [
+            mock_input,
+            mock_llm,
+            mock_tts,
+            mock_motion,
+            sync_initiator_dual,
+            audio_play_base,
+            audio_play_sync,
+            motion_play_sync,
+            mock_output,
+        ]
     )
     return registry

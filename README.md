@@ -67,6 +67,35 @@ StarryAI 是一个模块化、节点式 AI 虚拟人工作流引擎（Backend + 
 - 运行链路修复（启动器 + 前端）：
   - 启动器会把真实后端地址注入前端环境变量 `VITE_API_BASE_URL`，避免后端端口自动切换后请求打到错误端口；
   - 前端 API 客户端新增请求超时（默认 10s），防止“点击运行后一直显示运行中但无后端响应”。
+- 同步架构重构第一批（进行中）：
+  - 旧 `sync.timeline` 已下线，新增 `sync.initiator.dual`、`audio.play.sync`、`motion.play.sync`；
+  - 调度器新增 `SyncCoordinator`，改为“全员 ready 后统一 commit”执行模型；
+  - 图校验/图编译已支持 `*.sync` 动态染色与 `none` 端口规则；
+  - 新增同步重构专项测试（校验、编译、调度、节点行为、API）。
+  - 当前验证：`python -m pytest -q backend/tests`（`142 passed`）、`npm run test --prefix frontend`（`101 passed`）、`npm run build --prefix frontend`（通过）。
+- 同步架构重构第二批（前端已完成）：
+  - 前端同步发起器端口将按连线实时解析：
+    - `in_a/in_b` 显示并继承上游输入类型与颜色；
+    - `out_a/out_b` 自动变为 `{输入类型}.sync` 并同步颜色到下游连线。
+  - 同步执行节点输入显示统一为 `xxx.sync`（如 `audio.sync` / `motion.sync`），并严格复用“同色可连、异色拒绝”规则。
+  - 节点配置面板新增同步字段编辑：`sync_group`、`sync_round`、`ready_timeout_ms`、`commit_lead_ms`。
+  - 运行面板新增同步指标：`commit/abort` 计数与 `abort_reason` 聚合。
+  - 前端 e2e 增补两条同步链路：`all-ready -> commit`、`timeout -> abort`。
+  - 当前验证：`npm run test --prefix frontend`（`109 passed`）、`npm run build --prefix frontend`（通过）、`npm run test:e2e --prefix frontend`（`6 passed`）。
+- 同步架构重构第三批（已完成）：
+  - 同步参数主权收敛到同步发起器：`sync_group`、`sync_round`、`ready_timeout_ms`、`commit_lead_ms`。
+  - 同步执行节点改为“同步参数只读、业务运行参数可编辑”。
+  - 同步托管重算改为差量触发：仅在“同步发起器 <-> 同步执行节点关系”变化时执行。
+  - 同步托管重算并入图校验链路（自动审查/手动校验前执行），不新增独立按钮。
+  - 增加同步来源可视化：执行节点面板可查看来源发起器 `node_id`。
+  - 新增同步发起器落点默认配置：自动生成 `sync_group`，并注入默认 `sync_round/ready_timeout_ms/commit_lead_ms`。
+  - 当前验证：
+    - `python -m pytest -q backend/tests`（`142 passed`）
+    - `python -m ruff check backend/app backend/tests backend/scripts`（通过）
+    - `python -m mypy backend/app`（通过）
+    - `npm run test --prefix frontend`（`116 passed`）
+    - `npm run build --prefix frontend`（通过）
+    - `npm run test:e2e --prefix frontend -- tests/e2e/workbench-flow.spec.ts`（`4 passed`）
 
 ## 核心能力
 
@@ -76,7 +105,7 @@ StarryAI 是一个模块化、节点式 AI 虚拟人工作流引擎（Backend + 
 - 运行时边界保护：事件窗口裁剪、并发运行上限控制。
 - 运行态诊断细化：事件窗口比例与容量状态直出。
 - 运维采集入口：`/metrics`（Prometheus 文本格式）。
-- 同步编排：`sync.timeline`（`barrier/window_join/clock_lock`，含 `drop/reclock`）。
+- 同步编排（重构中）：`sync.initiator.dual` + `SyncCoordinator` + `*.sync` 执行节点。
 - 结构化事件：`event_id/event_seq/severity/component/error_code`。
 - 观测接口：`/runs/{id}/metrics`、`/runs/{id}/diagnostics`。
 - 前端工作台：图编辑、节点配置、图校验、运行控制、事件台、指标面板。
@@ -86,6 +115,7 @@ StarryAI 是一个模块化、节点式 AI 虚拟人工作流引擎（Backend + 
 - Phase A（已完成）：协议与图模型，完成静态校验与编译。
 - Phase B（已完成）：最小可运行调度闭环（run/stop/status/events）。
 - Phase C（已完成）：同步编排初版与同步事件增强。
+- Phase C.5（进行中）：同步架构重构（去 `sync.timeline`，引入同步发起器与同步协调器）。
 - Phase D（已完成）：结构化事件、错误治理、重试/超时、观测接口。
 - Phase E（已完成）：前端工作台闭环与前后端联调、E2E 基线。
 - Phase F（进行中）：性能、稳定性、测试矩阵与工程化增强。

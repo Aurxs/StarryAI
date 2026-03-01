@@ -59,8 +59,21 @@ def _sync_graph_payload() -> dict[str, object]:
                 {"node_id": "n1", "type_name": "mock.input"},
                 {"node_id": "n2", "type_name": "mock.tts"},
                 {"node_id": "n3", "type_name": "mock.motion"},
-                {"node_id": "n4", "type_name": "sync.timeline"},
-                {"node_id": "n5", "type_name": "mock.output"},
+                {
+                    "node_id": "n4",
+                    "type_name": "sync.initiator.dual",
+                    "config": {"sync_group": "g_sync_api", "sync_round": 0},
+                },
+                {
+                    "node_id": "n5",
+                    "type_name": "audio.play.sync",
+                    "config": {"sync_group": "g_sync_api"},
+                },
+                {
+                    "node_id": "n6",
+                    "type_name": "motion.play.sync",
+                    "config": {"sync_group": "g_sync_api"},
+                },
             ],
             "edges": [
                 {
@@ -79,18 +92,24 @@ def _sync_graph_payload() -> dict[str, object]:
                     "source_node": "n2",
                     "source_port": "audio",
                     "target_node": "n4",
-                    "target_port": "audio",
+                    "target_port": "in_a",
                 },
                 {
                     "source_node": "n3",
                     "source_port": "motion",
                     "target_node": "n4",
-                    "target_port": "motion",
+                    "target_port": "in_b",
                 },
                 {
                     "source_node": "n4",
-                    "source_port": "sync",
+                    "source_port": "out_a",
                     "target_node": "n5",
+                    "target_port": "in",
+                },
+                {
+                    "source_node": "n4",
+                    "source_port": "out_b",
+                    "target_node": "n6",
                     "target_port": "in",
                 },
             ],
@@ -154,7 +173,7 @@ def test_list_node_types_contains_builtin_specs() -> None:
         assert body["count"] >= 6
         type_names = {item["type_name"] for item in body["items"]}
         assert "mock.input" in type_names
-        assert "sync.timeline" in type_names
+        assert "sync.initiator.dual" in type_names
 
 
 def test_graph_validate_success_and_error_paths() -> None:

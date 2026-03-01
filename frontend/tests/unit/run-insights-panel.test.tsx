@@ -32,7 +32,16 @@ describe('RunInsightsPanel', () => {
                         event_total: 10,
                     },
                     node_metrics: {
-                        n1: {},
+                        n1: {
+                            sync_committed: 1,
+                            sync_aborted: 0,
+                            sync_abort_reason: '',
+                        },
+                        n2: {
+                            sync_committed: 0,
+                            sync_aborted: 2,
+                            sync_abort_reason: 'timeout',
+                        },
                     },
                     edge_metrics: [{edge: 'n1.out->n2.in'}],
                 }),
@@ -56,6 +65,9 @@ describe('RunInsightsPanel', () => {
         await waitFor(() => {
             expect(screen.getByTestId('run-insights-metrics').textContent).toContain('图指标键数量: 1');
             expect(screen.getByTestId('run-insights-diagnostics').textContent).toContain('失败节点数: 1');
+            expect(screen.getByTestId('run-insights-sync').textContent).toContain('提交次数: 1');
+            expect(screen.getByTestId('run-insights-sync').textContent).toContain('中止次数: 2');
+            expect(screen.getByTestId('run-insights-sync').textContent).toContain('timeout(2)');
         });
     });
 
@@ -212,7 +224,46 @@ describe('RunInsightsPanel', () => {
         render(<RunInsightsPanel/>);
 
         await waitFor(() => {
-            expect(screen.getByTestId('run-insights-error').textContent).toContain('加载运行洞察失败');
+                expect(screen.getByTestId('run-insights-error').textContent).toContain('加载运行洞察失败');
+        });
+    });
+
+    it('shows empty abort reason summary when no sync abort happened (edge path)', async () => {
+        useRunStore.getState().attachRun('run_t8_sync_empty', 'running');
+        server.use(
+            http.get('*/api/v1/runs/run_t8_sync_empty/metrics', () =>
+                HttpResponse.json({
+                    run_id: 'run_t8_sync_empty',
+                    graph_id: 'g1',
+                    status: 'running',
+                    created_at: 1_700_000_000,
+                    started_at: 1_700_000_001,
+                    ended_at: null,
+                    task_done: false,
+                    graph_metrics: {},
+                    node_metrics: {
+                        n1: {sync_committed: 0, sync_aborted: 0, sync_abort_reason: ''},
+                    },
+                    edge_metrics: [],
+                }),
+            ),
+            http.get('*/api/v1/runs/run_t8_sync_empty/diagnostics', () =>
+                HttpResponse.json({
+                    run_id: 'run_t8_sync_empty',
+                    graph_id: 'g1',
+                    status: 'running',
+                    task_done: false,
+                    last_error: null,
+                    failed_nodes: [],
+                    slow_nodes_top: [],
+                    edge_hotspots_top: [],
+                }),
+            ),
+        );
+
+        render(<RunInsightsPanel/>);
+        await waitFor(() => {
+            expect(screen.getByTestId('run-insights-sync').textContent).toContain('中止原因: 无');
         });
     });
 });

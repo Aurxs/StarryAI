@@ -1,10 +1,15 @@
-import {useEffect, useMemo, useRef, useState, type CSSProperties} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState, type CSSProperties} from 'react';
 import {History, Play, Redo2, Undo2, X} from 'lucide-react';
 import {useTranslation} from 'react-i18next';
 
 import type {GraphSummary} from '../../entities/workbench/types';
 import {GraphEditor} from '../../features/graph-editor/GraphEditor';
 import {NodeConfigPanel} from '../../features/node-config/NodeConfigPanel';
+import {summarizeSyncMetrics} from '../../features/runtime-console/sync-metrics';
+import {
+    buildSyncRelationFingerprint,
+    reconcileSyncManagedConfig,
+} from '../../features/sync-config/managed-config';
 import {apiClient, ApiClientError} from '../../shared/api/client';
 import {translateRunStatus} from '../../shared/i18n/label-mappers';
 import {isRunActiveStatus, isRunTerminalStatus, mapBackendRunStatus} from '../../shared/run-status';
@@ -146,6 +151,7 @@ export function WorkbenchPage() {
     const setGraphMeta = useGraphStore((state) => state.setGraphMeta);
     const resetGraph = useGraphStore((state) => state.resetGraph);
     const replaceGraph = useGraphStore((state) => state.replaceGraph);
+    const setNodesInStore = useGraphStore((state) => state.setNodes);
     const setValidationResult = useGraphStore((state) => state.setValidationResult);
 
     const runId = useRunStore((state) => state.runId);
@@ -171,7 +177,11 @@ export function WorkbenchPage() {
     const [isReviewing, setIsReviewing] = useState(false);
     const [isInspectorMounted, setIsInspectorMounted] = useState(selectedNodeId !== null);
     const [isInspectorActive, setIsInspectorActive] = useState(selectedNodeId !== null);
+    const [syncCommitCount, setSyncCommitCount] = useState(0);
+    const [syncAbortCount, setSyncAbortCount] = useState(0);
+    const [syncAbortReasons, setSyncAbortReasons] = useState<Record<string, number>>({});
     const reviewRequestIdRef = useRef(0);
+    const syncRelationFingerprintRef = useRef('');
     const previousSelectedNodeIdRef = useRef<string | null>(selectedNodeId);
     const persistencePanelRef = useRef<HTMLElement | null>(null);
     const historyDrawerAreaRef = useRef<HTMLElement | null>(null);
@@ -208,6 +218,20 @@ export function WorkbenchPage() {
     const reviewGlow = issueSummary.errorCount > 0
         ? '0 0 14px rgba(220, 38, 38, 0.42), 0 10px 22px rgba(220, 38, 38, 0.32)'
         : '0 0 14px rgba(22, 163, 74, 0.5), 0 10px 22px rgba(22, 163, 74, 0.34)';
+
+    const prepareGraphForValidation = useCallback((candidateGraph: typeof graph): typeof graph => {
+        const nextFingerprint = buildSyncRelationFingerprint(candidateGraph);
+        if (nextFingerprint === syncRelationFingerprintRef.current) {
+            return candidateGraph;
+        }
+        const reconciled = reconcileSyncManagedConfig(candidateGraph);
+        syncRelationFingerprintRef.current = reconciled.fingerprint;
+        if (reconciled.changed) {
+            setNodesInStore(reconciled.graph.nodes);
+            return reconciled.graph;
+        }
+        return candidateGraph;
+    }, [setNodesInStore]);
 
     useEffect(() => {
         setEditorMode('hand');
@@ -259,7 +283,8 @@ export function WorkbenchPage() {
         const timer = window.setTimeout(async () => {
             setIsReviewing(true);
             try {
-                const report = await apiClient.validateGraph(graph);
+                const graphForValidation = prepareGraphForValidation(graph);
+                const report = await apiClient.validateGraph(graphForValidation);
                 if (requestId !== reviewRequestIdRef.current) {
                     return;
                 }
@@ -285,7 +310,16 @@ export function WorkbenchPage() {
         return () => {
             window.clearTimeout(timer);
         };
-    }, [graph, isDirty, setValidationResult]);
+    }, [graph, isDirty, prepareGraphForValidation, setValidationResult]);
+
+    useEffect(() => {
+        if (runId) {
+            return;
+        }
+        setSyncCommitCount(0);
+        setSyncAbortCount(0);
+        setSyncAbortReasons({});
+    }, [runId]);
 
     useEffect(() => {
         if (!runId) {
@@ -303,12 +337,21 @@ export function WorkbenchPage() {
         };
         const poll = async (): Promise<void> => {
             try {
-                const snapshot = await apiClient.getRunStatus(runId);
+                const [snapshot, metricsPayload] = await Promise.all([
+                    apiClient.getRunStatus(runId),
+                    apiClient.getRunMetrics(runId).catch(() => null),
+                ]);
                 if (cancelled) {
                     return;
                 }
                 const mapped = mapBackendRunStatus(snapshot.status);
                 setRunStatus(mapped);
+                if (metricsPayload) {
+                    const summary = summarizeSyncMetrics(metricsPayload.node_metrics);
+                    setSyncCommitCount(summary.commitCount);
+                    setSyncAbortCount(summary.abortCount);
+                    setSyncAbortReasons(summary.abortReasons);
+                }
                 if (mapped !== 'running' && mapped !== 'validating') {
                     setRunError(snapshot.last_error);
                 }
@@ -463,10 +506,12 @@ export function WorkbenchPage() {
                 if (resolvedGraphId === currentGraphId) {
                     return;
                 }
-                replaceGraph({
+                const renamedGraph = {
                     ...currentGraph,
                     graph_id: resolvedGraphId,
-                });
+                };
+                syncRelationFingerprintRef.current = buildSyncRelationFingerprint(renamedGraph);
+                replaceGraph(renamedGraph);
                 setProjectNameDraft(resolvedGraphId);
             } catch (error) {
                 const message = toClientErrorMessage(error);
@@ -525,6 +570,7 @@ export function WorkbenchPage() {
         );
         const nextGraphId = buildUniqueGraphId(DEFAULT_NEW_GRAPH_BASE_ID, savedGraphIds);
         resetGraph(nextGraphId);
+        syncRelationFingerprintRef.current = '';
         setProjectNameDraft(nextGraphId);
         setProjectNameEditing(false);
         showInfoPopup(t('workbench.persistence.success.created', {graphId: nextGraphId}));
@@ -563,9 +609,12 @@ export function WorkbenchPage() {
         showInfoPopup(null);
         try {
             const loaded = await apiClient.getGraph(graphId);
-            replaceGraph(loaded);
+            const reconciledLoaded = reconcileSyncManagedConfig(loaded);
+            syncRelationFingerprintRef.current = reconciledLoaded.fingerprint;
+            const loadedForWorkbench = reconciledLoaded.graph;
+            replaceGraph(loadedForWorkbench);
             try {
-                const report = await apiClient.validateGraph(loaded);
+                const report = await apiClient.validateGraph(loadedForWorkbench);
                 setValidationResult(report.valid, report.issues);
             } catch (validationError) {
                 const validationMessage = toClientErrorMessage(validationError);
@@ -577,7 +626,7 @@ export function WorkbenchPage() {
                     },
                 ]);
             }
-            showInfoPopup(t('workbench.persistence.success.loaded', {graphId: loaded.graph_id}));
+            showInfoPopup(t('workbench.persistence.success.loaded', {graphId: loadedForWorkbench.graph_id}));
         } catch (error) {
             const message = toClientErrorMessage(error);
             showInfoPopup(t('workbench.persistence.errors.loadFailed', {message}));
@@ -930,6 +979,21 @@ export function WorkbenchPage() {
                         busySuffix: isRunBusy ? t('workbench.busySuffix') : '',
                     })}
                 </div>
+                {runId && (
+                    <div style={{fontSize: 12, marginTop: 4}} data-testid="run-sync-metrics">
+                        <div>{t('workbench.summary.syncCommitCount', {count: syncCommitCount})}</div>
+                        <div>{t('workbench.summary.syncAbortCount', {count: syncAbortCount})}</div>
+                        <div>
+                            {Object.keys(syncAbortReasons).length === 0
+                                ? t('workbench.summary.syncAbortReasonsEmpty')
+                                : t('workbench.summary.syncAbortReasons', {
+                                    reasons: Object.entries(syncAbortReasons)
+                                        .map(([reason, count]) => `${reason}(${count})`)
+                                        .join(', '),
+                                })}
+                        </div>
+                    </div>
+                )}
                 {runError && (
                     <div style={{fontSize: 12, color: '#b91c1c', marginTop: 4}} data-testid="run-action-error">
                         {runError}

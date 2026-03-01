@@ -20,11 +20,11 @@ def test_build_phase_f_scenarios_contains_expected_graphs() -> None:
     scenarios = build_phase_f_scenarios(runs_per_scenario=2, concurrency=1)
     assert [item.name for item in scenarios] == [
         "linear_async_chain",
-        "sync_timeline_chain",
+        "sync_group_commit_chain",
         "wide_parallel_fanout",
     ]
     sync_graph = scenarios[1].graph
-    assert any(node.type_name == "sync.timeline" for node in sync_graph.nodes)
+    assert any(node.type_name == "sync.initiator.dual" for node in sync_graph.nodes)
     wide_graph = scenarios[2].graph
     assert len(wide_graph.nodes) == 24
     assert len(wide_graph.edges) == 16
@@ -97,4 +97,3 @@ def test_run_phase_f_perf_baseline_rejects_invalid_args(
             )
 
     asyncio.run(_run())
-

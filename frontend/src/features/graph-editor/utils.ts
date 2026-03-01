@@ -4,6 +4,8 @@ import type {
     EdgeSpec,
     GraphSpec,
     NodeInstanceSpec,
+    NodeSpec,
+    PortSpec,
     ValidationIssue,
 } from '../../entities/workbench/types';
 
@@ -48,10 +50,39 @@ export const canBindTargetPort = (
     !edges.some((edge) => edge.target === targetNodeId && edge.targetHandle === targetHandle);
 
 export const isSchemaCompatible = (sourceSchema: string, targetSchema: string): boolean => {
-    if (sourceSchema === 'any' || targetSchema === 'any') {
+    const source = sourceSchema.trim().toLowerCase();
+    const target = targetSchema.trim().toLowerCase();
+    if (source === 'none' || target === 'none') {
+        return false;
+    }
+    if (source === 'any' || target === 'any') {
         return true;
     }
-    return sourceSchema === targetSchema;
+    const sourceSync = source.endsWith('.sync');
+    const targetSync = target.endsWith('.sync');
+    if (sourceSync !== targetSync) {
+        return false;
+    }
+    if (sourceSync && targetSync) {
+        const sourceBase = source.slice(0, -'.sync'.length);
+        const targetBase = target.slice(0, -'.sync'.length);
+        return sourceBase === 'any' || targetBase === 'any' || sourceBase === targetBase;
+    }
+    return source === target;
+};
+
+const normalizeSchema = (schema: string): string => schema.trim().toLowerCase();
+const isSyncSchema = (schema: string): boolean => normalizeSchema(schema).endsWith('.sync');
+const baseSchema = (schema: string): string => {
+    const normalized = normalizeSchema(schema);
+    return isSyncSchema(normalized) ? normalized.slice(0, -'.sync'.length) : normalized;
+};
+const toSyncSchema = (schema: string): string => {
+    const normalized = baseSchema(schema);
+    if (!normalized || normalized === 'any') {
+        return 'any.sync';
+    }
+    return `${normalized}.sync`;
 };
 
 export const simplifyFrameSchema = (schema: string): string => {
@@ -62,13 +93,33 @@ export const simplifyFrameSchema = (schema: string): string => {
     if (normalized === 'any') {
         return 'any';
     }
+    if (normalized === 'none') {
+        return 'none';
+    }
+    if (isSyncSchema(normalized)) {
+        const syncBase = baseSchema(normalized);
+        const [head] = syncBase.split('.');
+        const resolvedHead = head || syncBase || 'sync';
+        return `${resolvedHead}.sync`;
+    }
     const [head] = normalized.split('.');
     return head || normalized;
 };
 
 export const getSchemaColor = (schema: string): string => {
-    const simple = simplifyFrameSchema(schema);
-    switch (simple) {
+    const normalized = normalizeSchema(schema);
+    const root = (() => {
+        if (normalized === 'any') {
+            return 'any';
+        }
+        if (normalized === 'none') {
+            return 'none';
+        }
+        const noSync = isSyncSchema(normalized) ? baseSchema(normalized) : normalized;
+        const [head] = noSync.split('.');
+        return head || noSync;
+    })();
+    switch (root) {
         case 'text':
             return '#3b82f6';
         case 'audio':
@@ -79,9 +130,155 @@ export const getSchemaColor = (schema: string): string => {
             return '#0891b2';
         case 'any':
             return '#64748b';
+        case 'none':
+            return '#94a3b8';
         default:
             return '#8b5cf6';
     }
+};
+
+export interface ResolvedGraphPortSchemas {
+    inputs: Record<string, Record<string, string>>;
+    outputs: Record<string, Record<string, string>>;
+}
+
+const buildGraphAdjacency = (graph: GraphSpec): {
+    incoming: Record<string, EdgeSpec[]>;
+    outgoing: Record<string, EdgeSpec[]>;
+} => {
+    const incoming: Record<string, EdgeSpec[]> = {};
+    const outgoing: Record<string, EdgeSpec[]> = {};
+    for (const node of graph.nodes) {
+        incoming[node.node_id] = [];
+        outgoing[node.node_id] = [];
+    }
+    for (const edge of graph.edges) {
+        if (!outgoing[edge.source_node] || !incoming[edge.target_node]) {
+            continue;
+        }
+        outgoing[edge.source_node].push(edge);
+        incoming[edge.target_node].push(edge);
+    }
+    return {incoming, outgoing};
+};
+
+const buildTopologicalOrder = (graph: GraphSpec, outgoing: Record<string, EdgeSpec[]>): string[] => {
+    const indegree = new Map<string, number>();
+    for (const node of graph.nodes) {
+        indegree.set(node.node_id, 0);
+    }
+    for (const sourceEdges of Object.values(outgoing)) {
+        for (const edge of sourceEdges) {
+            indegree.set(edge.target_node, (indegree.get(edge.target_node) ?? 0) + 1);
+        }
+    }
+    const queue: string[] = [];
+    for (const [nodeId, degree] of indegree.entries()) {
+        if (degree === 0) {
+            queue.push(nodeId);
+        }
+    }
+    const order: string[] = [];
+    while (queue.length > 0) {
+        const current = queue.shift();
+        if (!current) {
+            continue;
+        }
+        order.push(current);
+        for (const edge of outgoing[current] ?? []) {
+            const nextDegree = (indegree.get(edge.target_node) ?? 0) - 1;
+            indegree.set(edge.target_node, nextDegree);
+            if (nextDegree === 0) {
+                queue.push(edge.target_node);
+            }
+        }
+    }
+    for (const node of graph.nodes) {
+        if (!order.includes(node.node_id)) {
+            order.push(node.node_id);
+        }
+    }
+    return order;
+};
+
+const resolveDynamicOutputSchema = (
+    outputPort: PortSpec,
+    dynamicInputSchemas: Record<string, string>,
+): string => {
+    if (!outputPort.derived_from_input) {
+        return normalizeSchema(outputPort.frame_schema);
+    }
+    const sourceInputSchema = dynamicInputSchemas[outputPort.derived_from_input] ?? 'any';
+    return toSyncSchema(baseSchema(sourceInputSchema));
+};
+
+export const resolveGraphPortSchemas = (
+    graph: GraphSpec,
+    catalogByType: Map<string, NodeSpec>,
+): ResolvedGraphPortSchemas => {
+    const {incoming, outgoing} = buildGraphAdjacency(graph);
+    const order = buildTopologicalOrder(graph, outgoing);
+    const inputs: Record<string, Record<string, string>> = {};
+    const outputs: Record<string, Record<string, string>> = {};
+
+    for (const nodeId of order) {
+        const node = graph.nodes.find((item) => item.node_id === nodeId);
+        if (!node) {
+            continue;
+        }
+        const spec = catalogByType.get(node.type_name);
+        if (!spec) {
+            inputs[nodeId] = {};
+            outputs[nodeId] = {};
+            continue;
+        }
+        const inputPorts = Array.isArray(spec.inputs) ? spec.inputs : [];
+        const outputPorts = Array.isArray(spec.outputs) ? spec.outputs : [];
+        const inputSchemas: Record<string, string> = {};
+        const dynamicInputSchemas: Record<string, string> = {};
+        for (const inputPort of inputPorts) {
+            const declaredSchema = normalizeSchema(inputPort.frame_schema);
+            const matchedEdge = (incoming[nodeId] ?? []).find((edge) => edge.target_port === inputPort.name);
+            let dynamicSchema = declaredSchema;
+            if (matchedEdge && (declaredSchema === 'any' || declaredSchema === 'any.sync')) {
+                const upstreamSchema = outputs[matchedEdge.source_node]?.[matchedEdge.source_port];
+                if (upstreamSchema) {
+                    dynamicSchema = upstreamSchema;
+                }
+            }
+            inputSchemas[inputPort.name] = dynamicSchema;
+            dynamicInputSchemas[inputPort.name] = dynamicSchema;
+        }
+        inputs[nodeId] = inputSchemas;
+
+        const outputSchemas: Record<string, string> = {};
+        for (const outputPort of outputPorts) {
+            outputSchemas[outputPort.name] = resolveDynamicOutputSchema(outputPort, dynamicInputSchemas);
+        }
+        outputs[nodeId] = outputSchemas;
+    }
+
+    for (const node of graph.nodes) {
+        if (inputs[node.node_id] && outputs[node.node_id]) {
+            continue;
+        }
+        const spec = catalogByType.get(node.type_name);
+        if (!spec) {
+            inputs[node.node_id] = {};
+            outputs[node.node_id] = {};
+            continue;
+        }
+        const inputPorts = Array.isArray(spec.inputs) ? spec.inputs : [];
+        const outputPorts = Array.isArray(spec.outputs) ? spec.outputs : [];
+        inputs[node.node_id] = Object.fromEntries(
+            inputPorts.map((port) => [port.name, normalizeSchema(port.frame_schema)]),
+        );
+        outputs[node.node_id] = Object.fromEntries(
+            outputPorts.map((port) => [port.name, normalizeSchema(port.frame_schema)]),
+        );
+    }
+
+    return {inputs, outputs};
 };
 
 export const edgeToSpec = (edge: Pick<Edge, 'source' | 'sourceHandle' | 'target' | 'targetHandle'>): EdgeSpec | null => {

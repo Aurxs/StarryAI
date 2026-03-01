@@ -86,8 +86,13 @@ def _sync_graph_payload() -> dict[str, Any]:
                 {"node_id": "n1", "type_name": "mock.input"},
                 {"node_id": "n2", "type_name": "mock.tts"},
                 {"node_id": "n3", "type_name": "mock.motion"},
-                {"node_id": "n4", "type_name": "sync.timeline"},
-                {"node_id": "n5", "type_name": "mock.output"},
+                {
+                    "node_id": "n4",
+                    "type_name": "sync.initiator.dual",
+                    "config": {"sync_group": "g_api_sync", "sync_round": 0},
+                },
+                {"node_id": "n5", "type_name": "audio.play.sync", "config": {"sync_group": "g_api_sync"}},
+                {"node_id": "n6", "type_name": "motion.play.sync", "config": {"sync_group": "g_api_sync"}},
             ],
             "edges": [
                 {
@@ -106,18 +111,24 @@ def _sync_graph_payload() -> dict[str, Any]:
                     "source_node": "n2",
                     "source_port": "audio",
                     "target_node": "n4",
-                    "target_port": "audio",
+                    "target_port": "in_a",
                 },
                 {
                     "source_node": "n3",
                     "source_port": "motion",
                     "target_node": "n4",
-                    "target_port": "motion",
+                    "target_port": "in_b",
                 },
                 {
                     "source_node": "n4",
-                    "source_port": "sync",
+                    "source_port": "out_a",
                     "target_node": "n5",
+                    "target_port": "in",
+                },
+                {
+                    "source_node": "n4",
+                    "source_port": "out_b",
+                    "target_node": "n6",
                     "target_port": "in",
                 },
             ],
@@ -320,7 +331,7 @@ def test_run_endpoints_return_404_when_missing() -> None:
 
 
 def test_sync_run_events_contain_alignment_details() -> None:
-    """同步链路事件应包含 stream_id/seq/play_at 与策略信息。"""
+    """同步链路事件应包含 stream_id/group/round/commit 信息。"""
     with TestClient(app) as client:
         create = client.post("/api/v1/runs", json=_sync_graph_payload())
         assert create.status_code == 200
@@ -344,9 +355,9 @@ def test_sync_run_events_contain_alignment_details() -> None:
         details = sync_events[0]["details"]
         assert details["stream_id"] == "stream_api_sync"
         assert details["seq"] == 0
-        assert isinstance(details["play_at"], float)
-        assert details["strategy"] == "clock_lock"
-        assert sync_events[0]["edge_key"] == "n4.sync->n5.in"
+        assert details["sync_group"] == "g_api_sync"
+        assert details["sync_round"] == 0
+        assert sync_events[0]["edge_key"] in {"n4.out_a->n5.in", "n4.out_b->n6.in"}
         assert sync_events[0]["component"] in {"edge", "sync"}
 
 

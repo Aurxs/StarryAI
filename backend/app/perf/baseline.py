@@ -98,15 +98,21 @@ def _build_sync_graph(graph_id: str) -> GraphSpec:
             NodeInstanceSpec(node_id="n1", type_name="mock.input"),
             NodeInstanceSpec(node_id="n2", type_name="mock.tts"),
             NodeInstanceSpec(node_id="n3", type_name="mock.motion"),
-            NodeInstanceSpec(node_id="n4", type_name="sync.timeline"),
-            NodeInstanceSpec(node_id="n5", type_name="mock.output"),
+            NodeInstanceSpec(
+                node_id="n4",
+                type_name="sync.initiator.dual",
+                config={"sync_group": "av_group", "sync_round": 0},
+            ),
+            NodeInstanceSpec(node_id="n5", type_name="audio.play.sync", config={"sync_group": "av_group"}),
+            NodeInstanceSpec(node_id="n6", type_name="motion.play.sync", config={"sync_group": "av_group"}),
         ],
         edges=[
             EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="text"),
             EdgeSpec(source_node="n1", source_port="text", target_node="n3", target_port="text"),
-            EdgeSpec(source_node="n2", source_port="audio", target_node="n4", target_port="audio"),
-            EdgeSpec(source_node="n3", source_port="motion", target_node="n4", target_port="motion"),
-            EdgeSpec(source_node="n4", source_port="sync", target_node="n5", target_port="in"),
+            EdgeSpec(source_node="n2", source_port="audio", target_node="n4", target_port="in_a"),
+            EdgeSpec(source_node="n3", source_port="motion", target_node="n4", target_port="in_b"),
+            EdgeSpec(source_node="n4", source_port="out_a", target_node="n5", target_port="in"),
+            EdgeSpec(source_node="n4", source_port="out_b", target_node="n6", target_port="in"),
         ],
     )
 
@@ -164,11 +170,11 @@ def build_phase_f_scenarios(
             description="mock.input -> mock.llm -> mock.output",
         ),
         PerfScenario(
-            name="sync_timeline_chain",
-            graph=_build_sync_graph("perf_sync_timeline_chain"),
+            name="sync_group_commit_chain",
+            graph=_build_sync_graph("perf_sync_group_commit_chain"),
             runs=normalized_runs,
             concurrency=normalized_concurrency,
-            description="mock.input fanout + sync.timeline merge path",
+            description="mock.input fanout + sync initiator + dual sync executors",
         ),
         PerfScenario(
             name="wide_parallel_fanout",
@@ -305,11 +311,11 @@ async def run_phase_f_perf_baseline(
 
     if soak_seconds > 0:
         soak_scenario = PerfScenario(
-            name="soak_sync_timeline",
-            graph=_build_sync_graph("perf_soak_sync_timeline"),
+            name="soak_sync_group_commit",
+            graph=_build_sync_graph("perf_soak_sync_group_commit"),
             runs=1,
             concurrency=max(1, min(normalized_concurrency, 4)),
-            description="duration-based repeated sync.timeline runs",
+            description="duration-based repeated sync group commit runs",
         )
         soak_started = time.time()
         soak_deadline = time.monotonic() + soak_seconds
@@ -388,4 +394,3 @@ def write_perf_report(path: str | Path, report: dict[str, Any]) -> Path:
     payload = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
     target.write_text(payload + "\n", encoding="utf-8")
     return target
-

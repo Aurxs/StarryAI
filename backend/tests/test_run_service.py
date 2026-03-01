@@ -78,15 +78,29 @@ def _sync_graph(graph_id: str = "g_service_sync") -> GraphSpec:
             NodeInstanceSpec(node_id="n1", type_name="mock.input"),
             NodeInstanceSpec(node_id="n2", type_name="mock.tts"),
             NodeInstanceSpec(node_id="n3", type_name="mock.motion"),
-            NodeInstanceSpec(node_id="n4", type_name="sync.timeline"),
-            NodeInstanceSpec(node_id="n5", type_name="mock.output"),
+            NodeInstanceSpec(
+                node_id="n4",
+                type_name="sync.initiator.dual",
+                config={"sync_group": "g_service_sync", "sync_round": 0},
+            ),
+            NodeInstanceSpec(
+                node_id="n5",
+                type_name="audio.play.sync",
+                config={"sync_group": "g_service_sync"},
+            ),
+            NodeInstanceSpec(
+                node_id="n6",
+                type_name="motion.play.sync",
+                config={"sync_group": "g_service_sync"},
+            ),
         ],
         edges=[
             EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="text"),
             EdgeSpec(source_node="n1", source_port="text", target_node="n3", target_port="text"),
-            EdgeSpec(source_node="n2", source_port="audio", target_node="n4", target_port="audio"),
-            EdgeSpec(source_node="n3", source_port="motion", target_node="n4", target_port="motion"),
-            EdgeSpec(source_node="n4", source_port="sync", target_node="n5", target_port="in"),
+            EdgeSpec(source_node="n2", source_port="audio", target_node="n4", target_port="in_a"),
+            EdgeSpec(source_node="n3", source_port="motion", target_node="n4", target_port="in_b"),
+            EdgeSpec(source_node="n4", source_port="out_a", target_node="n5", target_port="in"),
+            EdgeSpec(source_node="n4", source_port="out_b", target_node="n6", target_port="in"),
         ],
     )
 
@@ -338,13 +352,14 @@ def test_run_service_sync_run_exposes_sync_metrics_and_events() -> None:
         snapshot = service.get_run_snapshot(record.run_id)
         assert snapshot["status"] == "completed"
         assert snapshot["metrics"]["edge_forwarded_frames"] >= 1
-        assert snapshot["node_states"]["n4"]["metrics"]["sync_emitted"] >= 1
+        assert snapshot["node_states"]["n4"]["metrics"]["sync_packets_emitted"] == 2
 
         events, _ = service.get_run_events(record.run_id, since=0, limit=300)
         sync_events = [event for event in events if event.event_type.value == "sync_frame_emitted"]
         assert len(sync_events) >= 1
         assert sync_events[0].details["stream_id"] == "stream_service_sync"
-        assert sync_events[0].details["seq"] == 0
+        assert sync_events[0].details["sync_group"] == "g_service_sync"
+        assert sync_events[0].details["sync_round"] == 0
 
     asyncio.run(_run())
 
