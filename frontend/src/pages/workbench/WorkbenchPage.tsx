@@ -91,6 +91,7 @@ export function WorkbenchPage() {
     const historyDrawerOpen = useUiStore((state) => state.historyDrawerOpen);
     const setReviewDrawerOpen = useUiStore((state) => state.setReviewDrawerOpen);
     const setHistoryDrawerOpen = useUiStore((state) => state.setHistoryDrawerOpen);
+    const setEditorMode = useUiStore((state) => state.setEditorMode);
     const setNodeLibraryOpen = useUiStore((state) => state.setNodeLibraryOpen);
     const setZoomMenuOpen = useUiStore((state) => state.setZoomMenuOpen);
 
@@ -115,6 +116,10 @@ export function WorkbenchPage() {
     const reviewGlow = issueSummary.errorCount > 0
         ? '0 0 14px rgba(220, 38, 38, 0.42), 0 10px 22px rgba(220, 38, 38, 0.32)'
         : '0 0 14px rgba(22, 163, 74, 0.5), 0 10px 22px rgba(22, 163, 74, 0.34)';
+
+    useEffect(() => {
+        setEditorMode('hand');
+    }, [setEditorMode]);
 
     useEffect(() => {
         if (!isDirty) {

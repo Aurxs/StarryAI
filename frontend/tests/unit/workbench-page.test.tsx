@@ -5,7 +5,7 @@ import {WorkbenchPage} from '../../src/pages/workbench/WorkbenchPage';
 import {localeStorageKey} from '../../src/shared/i18n/i18n';
 import {resetGraphStore, useGraphStore} from '../../src/shared/state/graph-store';
 import {resetRunStore, useRunStore} from '../../src/shared/state/run-store';
-import {resetUiStore} from '../../src/shared/state/ui-store';
+import {resetUiStore, useUiStore} from '../../src/shared/state/ui-store';
 
 describe('WorkbenchPage shell', () => {
     beforeEach(() => {
@@ -20,6 +20,14 @@ describe('WorkbenchPage shell', () => {
         expect(screen.getByRole('button', {name: '当前项目名称 ↓'})).toBeTruthy();
         expect(screen.getByRole('button', {name: '▶ 测试运行'})).toBeTruthy();
         expect(screen.getByTestId('review-bar').textContent).toContain('审查');
+    });
+
+    it('resets editor mode to hand when entering workbench', () => {
+        useUiStore.getState().setEditorMode('hand');
+
+        render(<WorkbenchPage/>);
+
+        expect(useUiStore.getState().editorMode).toBe('hand');
     });
 
     it('opens project menu and switches language with persistence', async () => {

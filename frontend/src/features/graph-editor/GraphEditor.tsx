@@ -46,6 +46,7 @@ interface WorkflowNodeData {
     title: string;
     spec: NodeSpec;
     onDeleteNode: (nodeId: string) => void;
+    onSelectNode: (nodeId: string) => void;
 }
 
 const EMPTY_PORTS: NodeSpec['inputs'] = [];
@@ -218,7 +219,11 @@ const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
     const outputs = data.spec.outputs ?? EMPTY_PORTS;
 
     return (
-        <div style={nodeCardStyle}>
+        <div
+            style={nodeCardStyle}
+            data-testid={`workflow-node-${data.nodeId}`}
+            onClick={() => data.onSelectNode(data.nodeId)}
+        >
             <button
                 type="button"
                 style={deleteNodeButtonStyle}
@@ -461,6 +466,7 @@ const GraphEditorInner = () => {
                         title: node.title || node.type_name,
                         spec,
                         onDeleteNode: deleteNodeById,
+                        onSelectNode: selectNode,
                     },
                 };
             }),
@@ -475,7 +481,18 @@ const GraphEditorInner = () => {
                 ),
             ),
         );
-    }, [catalogByType, deleteNodeById, fallbackNodeTypes, graph.edges, graph.nodes, positions, setRfEdges, setRfNodes, validationTargets]);
+    }, [
+        catalogByType,
+        deleteNodeById,
+        fallbackNodeTypes,
+        graph.edges,
+        graph.nodes,
+        positions,
+        selectNode,
+        setRfEdges,
+        setRfNodes,
+        validationTargets,
+    ]);
 
     useEffect(() => {
         if (fitCanvasRequestTick <= 0) {
@@ -794,7 +811,7 @@ const GraphEditorInner = () => {
                     fitViewOptions={{padding: 0.2}}
                     panOnDrag={isHandMode}
                     panOnScroll={isHandMode}
-                    nodesDraggable={isHandMode}
+                    nodesDraggable
                     selectionOnDrag={!isHandMode}
                 >
                     <Background
