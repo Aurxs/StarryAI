@@ -123,7 +123,12 @@
       "pointer": "指针模式",
       "hand": "手模式",
       "arrange": "自动整理节点",
-      "fit": "最大化画布"
+      "fit": "最大化画布",
+      "settings": "设置"
+    },
+    "settings": {
+      "title": "设置",
+      "close": "关闭设置"
     },
     "drawer": {
       "title": "节点栏",

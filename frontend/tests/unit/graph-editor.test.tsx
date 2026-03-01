@@ -159,6 +159,20 @@ describe('GraphEditor', () => {
         expect(screen.getByTestId('zoom-control-bar')).toBeTruthy();
     });
 
+    it('opens settings dialog and switches language option', async () => {
+        render(<GraphEditor/>);
+
+        fireEvent.click(screen.getByRole('button', {name: '设置'}));
+        const dialog = screen.getByRole('dialog', {name: '设置'});
+        const languageSelect = within(dialog).getByLabelText('语言') as HTMLSelectElement;
+        expect(languageSelect.value).toBe('zh-CN');
+
+        fireEvent.change(languageSelect, {target: {value: 'en-US'}});
+        await waitFor(() => {
+            expect(screen.getByRole('button', {name: 'Settings'})).toBeTruthy();
+        });
+    });
+
     it('supports +/-10% zoom controls and clamps ratio to [20%, 200%] (edge path)', async () => {
         render(<GraphEditor/>);
 
