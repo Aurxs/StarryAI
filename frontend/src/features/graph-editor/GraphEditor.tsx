@@ -9,7 +9,7 @@ import {
     type MouseEvent as ReactMouseEvent,
     type TouchEvent as ReactTouchEvent,
 } from 'react';
-import {Expand, Hand, LayoutGrid, MousePointer2, Plus} from 'lucide-react';
+import {Expand, Hand, LayoutGrid, Minus, MousePointer2, Plus} from 'lucide-react';
 import {useTranslation} from 'react-i18next';
 import ReactFlow, {
     Background,
@@ -70,9 +70,10 @@ interface WorkflowNodeData {
 
 const EMPTY_PORTS: NodeSpec['inputs'] = [];
 const ZOOM_PRESETS = [0.5, 0.7, 1, 1.2, 1.5];
-const ZOOM_BAR_HEIGHT = 36;
-const ZOOM_BAR_ICON_WIDTH = 30;
-const ZOOM_BAR_RATIO_WIDTH = 72;
+const ZOOM_HUD_HEIGHT = 44;
+const ZOOM_BAR_HEIGHT = ZOOM_HUD_HEIGHT;
+const ZOOM_BAR_ICON_WIDTH = 32;
+const ZOOM_BAR_RATIO_WIDTH = 68;
 const ZOOM_BAR_WIDTH = ZOOM_BAR_ICON_WIDTH * 2 + ZOOM_BAR_RATIO_WIDTH;
 const MINIMAP_WIDTH = ZOOM_BAR_WIDTH;
 const MINIMAP_HEIGHT = 84;
@@ -97,6 +98,7 @@ interface NodeContextMenuState {
 }
 
 type ContextMenuActionKey = 'copy' | 'duplicate' | 'delete';
+type ZoomControlActionKey = 'decrease' | 'ratio' | 'increase';
 
 const editorShellStyle: CSSProperties = {
     position: 'relative',
@@ -358,6 +360,8 @@ const GraphEditorInner = () => {
     const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
     const [nodeContextMenu, setNodeContextMenu] = useState<NodeContextMenuState | null>(null);
     const [hoveredContextAction, setHoveredContextAction] = useState<ContextMenuActionKey | null>(null);
+    const [hoveredZoomAction, setHoveredZoomAction] = useState<ZoomControlActionKey | null>(null);
+    const [hoveredZoomPreset, setHoveredZoomPreset] = useState<number | null>(null);
     const canvasViewportRef = useRef<HTMLDivElement | null>(null);
     const handledFitCanvasTickRef = useRef(0);
 
@@ -788,6 +792,31 @@ const GraphEditorInner = () => {
             };
         },
         [hoveredContextAction],
+    );
+
+    const buildZoomActionStyle = useCallback(
+        (action: ZoomControlActionKey): CSSProperties => {
+            const hovered = hoveredZoomAction === action;
+            const active = action === 'ratio' && zoomMenuOpen;
+            return {
+                width: '100%',
+                height: '100%',
+                border: 'none',
+                borderRadius: 0,
+                background: active ? '#f1f5f9' : hovered ? '#f8fafc' : 'transparent',
+                color: action === 'ratio' ? '#1f2937' : '#4b5563',
+                cursor: 'pointer',
+                fontWeight: action === 'ratio' ? 600 : 500,
+                fontSize: action === 'ratio' ? 14 : 15,
+                padding: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: `background-color 140ms ${NON_LINEAR_EASE}, transform 140ms ${NON_LINEAR_EASE}`,
+                transform: hovered || active ? 'translateY(-0.5px)' : 'translateY(0)',
+            };
+        },
+        [hoveredZoomAction, zoomMenuOpen],
     );
 
     useEffect(() => {
@@ -1311,7 +1340,7 @@ const GraphEditorInner = () => {
                             width: MINIMAP_WIDTH,
                             height: MINIMAP_HEIGHT,
                             right: 12 + bottomRightOffset,
-                            bottom: 12 + ZOOM_BAR_HEIGHT + MINIMAP_GAP,
+                            bottom: 12 + ZOOM_HUD_HEIGHT + MINIMAP_GAP,
                             margin: 0,
                             borderRadius: 12,
                             border: '1px solid #dce3ee',
@@ -1419,12 +1448,13 @@ const GraphEditorInner = () => {
                     data-testid="zoom-control-bar"
                     style={{
                         height: ZOOM_BAR_HEIGHT,
-                        border: '1px solid #dbe3ef',
+                        border: '1px solid #dce3ee',
                         borderRadius: 12,
-                        boxShadow: '0 12px 24px rgba(15, 23, 42, 0.08)',
-                        background: 'rgba(255, 255, 255, 0.98)',
+                        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.08), 0 8px 18px rgba(15, 23, 42, 0.1)',
+                        background: '#ffffff',
                         display: 'grid',
-                        gridTemplateColumns: `${ZOOM_BAR_ICON_WIDTH}px ${ZOOM_BAR_RATIO_WIDTH}px ${ZOOM_BAR_ICON_WIDTH}px`,
+                        gridTemplateColumns: `1fr ${ZOOM_BAR_RATIO_WIDTH}px 1fr`,
+                        alignItems: 'stretch',
                         overflow: 'hidden',
                     }}
                 >
@@ -1433,29 +1463,21 @@ const GraphEditorInner = () => {
                         title={t('graphEditor.zoom.decrease')}
                         onClick={() => applyZoomDelta(-0.1)}
                         style={{
-                            border: 'none',
-                            borderRight: '1px solid #dbe3ef',
-                            background: 'transparent',
-                            cursor: 'pointer',
-                            fontSize: 14,
-                            color: '#475569',
-                            padding: 0,
+                            ...buildZoomActionStyle('decrease'),
+                            borderRight: '1px solid #e2e8f0',
                         }}
+                        onMouseEnter={() => setHoveredZoomAction('decrease')}
+                        onMouseLeave={() => setHoveredZoomAction(null)}
                     >
-                        −
+                        <Minus size={15} strokeWidth={2.2}/>
                     </button>
                     <button
                         type="button"
                         data-testid="zoom-ratio-button"
                         onClick={() => setZoomMenuOpen(!zoomMenuOpen)}
-                        style={{
-                            border: 'none',
-                            background: 'transparent',
-                            cursor: 'pointer',
-                            fontWeight: 600,
-                            color: '#334155',
-                            padding: 0,
-                        }}
+                        style={buildZoomActionStyle('ratio')}
+                        onMouseEnter={() => setHoveredZoomAction('ratio')}
+                        onMouseLeave={() => setHoveredZoomAction(null)}
                     >
                         {Math.round(zoomRatio * 100)}%
                     </button>
@@ -1464,52 +1486,82 @@ const GraphEditorInner = () => {
                         title={t('graphEditor.zoom.increase')}
                         onClick={() => applyZoomDelta(0.1)}
                         style={{
-                            border: 'none',
-                            borderLeft: '1px solid #dbe3ef',
-                            background: 'transparent',
-                            cursor: 'pointer',
-                            fontSize: 14,
-                            color: '#475569',
-                            padding: 0,
+                            ...buildZoomActionStyle('increase'),
+                            borderLeft: '1px solid #e2e8f0',
                         }}
+                        onMouseEnter={() => setHoveredZoomAction('increase')}
+                        onMouseLeave={() => setHoveredZoomAction(null)}
                     >
-                        +
+                        <Plus size={15} strokeWidth={2.2}/>
                     </button>
                 </div>
                 {zoomMenuOpen && (
                     <div
                         style={{
                             border: '1px solid #dce3ee',
-                            borderRadius: 12,
-                            background: '#fff',
-                            boxShadow: '0 14px 24px rgba(15, 23, 42, 0.1)',
+                            borderRadius: 10,
+                            background: '#ffffff',
+                            boxShadow:
+                                '0 1px 2px rgba(15, 23, 42, 0.08), 0 8px 18px rgba(15, 23, 42, 0.1), 0 16px 28px rgba(15, 23, 42, 0.04)',
                             padding: 6,
                             display: 'grid',
-                            gap: 4,
+                            gap: 2,
                             position: 'absolute',
                             left: '50%',
                             transform: 'translateX(-50%)',
                             bottom: ZOOM_BAR_HEIGHT + 8,
+                            minWidth: 120,
                         }}
                     >
                         {ZOOM_PRESETS.map((preset) => (
-                            <button
-                                key={preset}
-                                type="button"
-                                onClick={() => {
-                                    const viewport = reactFlow.getViewport();
-                                    const nextZoom = safeZoomRatio(preset);
-                                    reactFlow.setViewport({
-                                        x: safeViewportAxis(viewport.x),
-                                        y: safeViewportAxis(viewport.y),
-                                        zoom: nextZoom,
-                                    });
-                                    setZoomRatio(nextZoom);
-                                    setZoomMenuOpen(false);
-                                }}
-                            >
-                                {Math.round(preset * 100)}%
-                            </button>
+                            <div key={preset}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const viewport = reactFlow.getViewport();
+                                        const nextZoom = safeZoomRatio(preset);
+                                        reactFlow.setViewport({
+                                            x: safeViewportAxis(viewport.x),
+                                            y: safeViewportAxis(viewport.y),
+                                            zoom: nextZoom,
+                                        });
+                                        setZoomRatio(nextZoom);
+                                        setZoomMenuOpen(false);
+                                    }}
+                                    onMouseEnter={() => setHoveredZoomPreset(preset)}
+                                    onMouseLeave={() => setHoveredZoomPreset(null)}
+                                    style={{
+                                        height: 32,
+                                        width: '100%',
+                                        border: 'none',
+                                        borderRadius: 7,
+                                        background:
+                                            Math.round(preset * 100) === Math.round(zoomRatio * 100)
+                                                ? '#f1f5f9'
+                                                : hoveredZoomPreset === preset
+                                                  ? '#f8fafc'
+                                                  : 'transparent',
+                                        color: '#1f2937',
+                                        fontSize: 14,
+                                        fontWeight: Math.round(preset * 100) === Math.round(zoomRatio * 100) ? 600 : 500,
+                                        lineHeight: 1,
+                                        textAlign: 'left',
+                                        padding: '0 10px',
+                                        cursor: 'pointer',
+                                        transition: `background-color 140ms ${NON_LINEAR_EASE}, transform 140ms ${NON_LINEAR_EASE}, box-shadow 160ms ${NON_LINEAR_EASE}`,
+                                        transform: hoveredZoomPreset === preset ? 'translateX(1px)' : 'translateX(0)',
+                                        boxShadow:
+                                            hoveredZoomPreset === preset
+                                                ? 'inset 0 0 0 1px #e2e8f0'
+                                                : 'none',
+                                    }}
+                                >
+                                    {Math.round(preset * 100)}%
+                                </button>
+                                {preset !== ZOOM_PRESETS[ZOOM_PRESETS.length - 1] && (
+                                    <div style={{height: 1, background: '#e2e8f0', margin: '2px 4px 0'}}/>
+                                )}
+                            </div>
                         ))}
                     </div>
                 )}
