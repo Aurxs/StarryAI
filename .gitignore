@@ -62,4 +62,5 @@ test.md
 .augment/
 
 # Graph persistence
-/saved_graphs/*.json
+/saved_graphs/*
+!/saved_graphs/.gitkeep
