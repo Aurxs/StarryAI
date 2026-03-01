@@ -63,6 +63,9 @@ const NODE_LIBRARY_BOTTOM_INSET = 88;
 const EDITOR_TOAST_STAY_MS = 5000;
 const EDITOR_TOAST_EXIT_MS = 260;
 const EDITOR_TOAST_TOP = 96;
+const NON_LINEAR_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
+const NON_LINEAR_TIMING = (progress: number): number => 1 - Math.pow(1 - progress, 3);
+const BOTTOM_RIGHT_SHIFT_TRANSITION = `right 180ms ${NON_LINEAR_EASE}`;
 
 const editorShellStyle: CSSProperties = {
     position: 'relative',
@@ -502,6 +505,7 @@ const GraphEditorInner = () => {
             reactFlow.fitView({
                 duration: 180,
                 padding: 0.18,
+                ease: NON_LINEAR_TIMING,
             });
         });
     }, [fitCanvasRequestTick, reactFlow]);
@@ -644,7 +648,7 @@ const GraphEditorInner = () => {
                 y: safeViewportAxis(viewport.y),
                 zoom: nextZoom,
             },
-            {duration: 120},
+            {duration: 120, ease: NON_LINEAR_TIMING},
         );
         setZoomRatio(nextZoom);
     };
@@ -833,6 +837,7 @@ const GraphEditorInner = () => {
                             border: '1px solid #dce3ee',
                             boxShadow: '0 14px 24px rgba(15, 23, 42, 0.08)',
                             background: 'rgba(255, 255, 255, 0.96)',
+                            transition: BOTTOM_RIGHT_SHIFT_TRANSITION,
                         }}
                     />
                 </ReactFlow>
@@ -856,7 +861,7 @@ const GraphEditorInner = () => {
                         maxWidth: 360,
                         transform: isEditorToastLeaving ? 'translateX(28px)' : 'translateX(0)',
                         opacity: isEditorToastLeaving ? 0 : 1,
-                        transition: `transform ${EDITOR_TOAST_EXIT_MS}ms ease, opacity ${EDITOR_TOAST_EXIT_MS}ms ease`,
+                        transition: `transform ${EDITOR_TOAST_EXIT_MS}ms ${NON_LINEAR_EASE}, opacity ${EDITOR_TOAST_EXIT_MS}ms ${NON_LINEAR_EASE}, ${BOTTOM_RIGHT_SHIFT_TRANSITION}`,
                         pointerEvents: 'none',
                     }}
                 >
@@ -871,6 +876,7 @@ const GraphEditorInner = () => {
                     bottom: 12,
                     zIndex: 7,
                     width: ZOOM_BAR_WIDTH,
+                    transition: BOTTOM_RIGHT_SHIFT_TRANSITION,
                 }}
             >
                 <div
@@ -960,7 +966,7 @@ const GraphEditorInner = () => {
                                         x: safeViewportAxis(viewport.x),
                                         y: safeViewportAxis(viewport.y),
                                         zoom: preset,
-                                    }, {duration: 120});
+                                    }, {duration: 120, ease: NON_LINEAR_TIMING});
                                     setZoomRatio(preset);
                                     setZoomMenuOpen(false);
                                 }}

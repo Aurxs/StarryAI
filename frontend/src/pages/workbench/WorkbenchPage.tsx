@@ -62,6 +62,9 @@ const historyTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
     minute: '2-digit',
     second: '2-digit',
 });
+const INSPECTOR_TRANSITION_MS = 220;
+const INSPECTOR_DOCK_WIDTH = 352;
+const NON_LINEAR_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 export function WorkbenchPage() {
     const {t} = useTranslation();
@@ -99,7 +102,10 @@ export function WorkbenchPage() {
     const [activeProject, setActiveProject] = useState('当前项目名称');
     const [projectMenuOpen, setProjectMenuOpen] = useState(false);
     const [isReviewing, setIsReviewing] = useState(false);
+    const [isInspectorMounted, setIsInspectorMounted] = useState(selectedNodeId !== null);
+    const [isInspectorActive, setIsInspectorActive] = useState(selectedNodeId !== null);
     const reviewRequestIdRef = useRef(0);
+    const previousSelectedNodeIdRef = useRef<string | null>(selectedNodeId);
 
     const issueSummary = useMemo(() => {
         const errorCount = validationIssues.filter((issue) => issue.level === 'error').length;
@@ -111,8 +117,8 @@ export function WorkbenchPage() {
     }, [validationIssues]);
 
     const canRun = validationCheckedAt !== null && issueSummary.errorCount === 0 && !isReviewing && !isRunBusy;
-    const bottomShift = selectedNodeId ? 124 : 0;
-    const inspectorShift = selectedNodeId ? 352 : 0;
+    const inspectorShift = selectedNodeId ? INSPECTOR_DOCK_WIDTH : 0;
+    const bottomShift = inspectorShift / 2;
     const reviewGlow = issueSummary.errorCount > 0
         ? '0 0 14px rgba(220, 38, 38, 0.42), 0 10px 22px rgba(220, 38, 38, 0.32)'
         : '0 0 14px rgba(22, 163, 74, 0.5), 0 10px 22px rgba(22, 163, 74, 0.34)';
@@ -120,6 +126,43 @@ export function WorkbenchPage() {
     useEffect(() => {
         setEditorMode('hand');
     }, [setEditorMode]);
+
+    useEffect(() => {
+        let unmountTimer: number | null = null;
+        let activateFrameA: number | null = null;
+        let activateFrameB: number | null = null;
+        const wasInspectorOpen = previousSelectedNodeIdRef.current !== null;
+        if (selectedNodeId) {
+            setIsInspectorMounted(true);
+            if (!wasInspectorOpen) {
+                setIsInspectorActive(false);
+                activateFrameA = window.requestAnimationFrame(() => {
+                    activateFrameB = window.requestAnimationFrame(() => {
+                        setIsInspectorActive(true);
+                    });
+                });
+            } else {
+                setIsInspectorActive(true);
+            }
+        } else {
+            setIsInspectorActive(false);
+            unmountTimer = window.setTimeout(() => {
+                setIsInspectorMounted(false);
+            }, INSPECTOR_TRANSITION_MS);
+        }
+        previousSelectedNodeIdRef.current = selectedNodeId;
+        return () => {
+            if (activateFrameA !== null) {
+                window.cancelAnimationFrame(activateFrameA);
+            }
+            if (activateFrameB !== null) {
+                window.cancelAnimationFrame(activateFrameB);
+            }
+            if (unmountTimer !== null) {
+                window.clearTimeout(unmountTimer);
+            }
+        };
+    }, [selectedNodeId]);
 
     useEffect(() => {
         if (!isDirty) {
@@ -336,7 +379,7 @@ export function WorkbenchPage() {
                     zIndex: 10,
                     padding: 10,
                     minWidth: 192,
-                    transition: 'right 180ms ease',
+                    transition: `right 180ms ${NON_LINEAR_EASE}`,
                 }}
             >
                 <button
@@ -437,7 +480,7 @@ export function WorkbenchPage() {
                     transform: 'translateX(-50%)',
                     bottom: 12,
                     zIndex: 10,
-                    transition: 'left 180ms ease',
+                    transition: `left 180ms ${NON_LINEAR_EASE}`,
                 }}
             >
                 <button
@@ -491,7 +534,7 @@ export function WorkbenchPage() {
                 )}
             </section>
 
-            {selectedNodeId && (
+            {isInspectorMounted && (
                 <aside
                     aria-label="node-inspector-drawer"
                     style={{
@@ -506,6 +549,10 @@ export function WorkbenchPage() {
                         borderLeft: '1px solid rgba(148, 163, 184, 0.45)',
                         padding: 10,
                         overflow: 'auto',
+                        transform: isInspectorActive ? 'translateX(0)' : 'translateX(100%)',
+                        opacity: isInspectorActive ? 1 : 0,
+                        transition: `transform ${INSPECTOR_TRANSITION_MS}ms ${NON_LINEAR_EASE}, opacity ${INSPECTOR_TRANSITION_MS}ms ${NON_LINEAR_EASE}`,
+                        pointerEvents: isInspectorActive ? 'auto' : 'none',
                     }}
                 >
                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
