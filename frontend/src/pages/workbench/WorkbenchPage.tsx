@@ -153,6 +153,7 @@ export function WorkbenchPage() {
     const replaceGraph = useGraphStore((state) => state.replaceGraph);
     const setNodesInStore = useGraphStore((state) => state.setNodes);
     const setValidationResult = useGraphStore((state) => state.setValidationResult);
+    const markClean = useGraphStore((state) => state.markClean);
 
     const runId = useRunStore((state) => state.runId);
     const runStatus = useRunStore((state) => state.status);
@@ -549,6 +550,7 @@ export function WorkbenchPage() {
         try {
             const saved = await apiClient.saveGraph(graph);
             await pullSavedGraphs();
+            markClean();
             showInfoPopup(t('workbench.persistence.success.saved', {graphId: saved.graph_id}));
         } catch (error) {
             const message = toClientErrorMessage(error);

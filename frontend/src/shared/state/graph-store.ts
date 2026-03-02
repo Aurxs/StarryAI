@@ -41,6 +41,7 @@ export interface GraphState {
     redo: () => void;
     setValidationResult: (valid: boolean, issues: ValidationIssue[]) => void;
     clearValidation: () => void;
+    markClean: () => void;
     resetGraph: (graphId?: string) => void;
     replaceGraph: (graph: GraphSpec) => void;
 }
@@ -337,6 +338,7 @@ export const useGraphStore = create<GraphState>((set) => ({
             validationCheckedAt: Date.now(),
         })),
     clearValidation: () => set(() => createEmptyValidationState()),
+    markClean: () => set(() => ({isDirty: false})),
     resetGraph: (graphId) =>
         set(() => ({
             graph: createDefaultGraph(graphId?.trim() || DEFAULT_GRAPH_ID),
