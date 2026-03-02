@@ -60,6 +60,7 @@ test.md
 .copilot/
 .gemini/
 .augment/
+.aiassistant/
 
 # Graph persistence
 /saved_graphs/*
