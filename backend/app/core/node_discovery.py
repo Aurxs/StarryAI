@@ -22,7 +22,10 @@ class NodeDiscoveryError(RuntimeError):
 
 
 def _iter_package_module_names(package_name: str) -> list[str]:
-    package = importlib.import_module(package_name)
+    try:
+        package = importlib.import_module(package_name)
+    except Exception as exc:  # noqa: BLE001 - 导入错误需聚合为发现错误
+        raise NodeDiscoveryError(f"导入节点包失败: {package_name}: {exc}") from exc
     package_paths = getattr(package, "__path__", None)
     if package_paths is None:
         raise NodeDiscoveryError(f"节点包无效: {package_name}")

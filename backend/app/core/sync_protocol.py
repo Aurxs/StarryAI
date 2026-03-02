@@ -57,7 +57,7 @@ def build_sync_envelope(*, data: Any, sync: SyncMeta | dict[str, Any]) -> dict[s
     """构造同步 envelope 的可序列化字典。"""
     sync_meta = sync if isinstance(sync, SyncMeta) else SyncMeta.model_validate(sync)
     envelope = SyncEnvelope(data=data, sync=sync_meta)
-    return envelope.model_dump(mode="json")
+    return envelope.model_dump()
 
 
 def parse_sync_envelope(payload: Any) -> tuple[Any, SyncMeta]:

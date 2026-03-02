@@ -72,4 +72,4 @@ class SyncNode(BaseNode):
     def unpack_sync_payload(payload: Any) -> tuple[Any, dict[str, Any]]:
         """解析标准同步 envelope，返回业务数据与同步元信息。"""
         data, sync_meta = parse_sync_envelope(payload)
-        return data, sync_meta.model_dump(mode="json")
+        return data, sync_meta.model_dump()

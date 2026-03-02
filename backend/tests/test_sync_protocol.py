@@ -58,3 +58,23 @@ def test_build_and_parse_sync_envelope_roundtrip() -> None:
 def test_parse_sync_envelope_rejects_invalid_payload() -> None:
     with pytest.raises(ValidationError):
         parse_sync_envelope({"data": {"x": 1}})
+
+
+def test_build_sync_envelope_preserves_binary_payload() -> None:
+    """非 UTF-8 bytes 数据应原样保留，不被 JSON 序列化破坏。"""
+    raw_audio = b"\x80\xff\x00\xfe"
+    payload = build_sync_envelope(
+        data=raw_audio,
+        sync={
+            "stream_id": "audio_stream",
+            "sync_group": "mix",
+            "sync_round": 0,
+        },
+    )
+    assert payload["data"] is raw_audio
+
+    data, meta = parse_sync_envelope(payload)
+    assert data == raw_audio
+    assert isinstance(data, bytes)
+    assert meta.stream_id == "audio_stream"
+
