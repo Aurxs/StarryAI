@@ -4,6 +4,7 @@ import {beforeEach, describe, expect, it} from 'vitest';
 
 import {GraphEditor} from '../../src/features/graph-editor/GraphEditor';
 import {resetGraphStore, useGraphStore} from '../../src/shared/state/graph-store';
+import {resetGlobalInfoStore, useGlobalInfoStore} from '../../src/shared/state/global-info-store';
 import {resetUiStore, useUiStore} from '../../src/shared/state/ui-store';
 import {server} from '../mocks/server';
 
@@ -17,6 +18,7 @@ describe('GraphEditor', () => {
     beforeEach(() => {
         resetGraphStore();
         resetUiStore();
+        resetGlobalInfoStore();
     });
 
     it('adds nodes into graph store via drawer add buttons', async () => {
@@ -201,7 +203,10 @@ describe('GraphEditor', () => {
         addNodeFromDrawer('mock.output');
 
         useUiStore.getState().requestAutoLayout();
-        await screen.findByText('节点已自动整理');
+        await waitFor(() => {
+            const messages = useGlobalInfoStore.getState().messages;
+            expect(messages.some((item) => item.message === '节点已自动整理')).toBe(true);
+        });
     });
 
     it('renders updated canvas background, locator dots and minimap sizing', async () => {

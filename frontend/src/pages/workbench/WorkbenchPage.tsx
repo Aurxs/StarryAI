@@ -13,7 +13,7 @@ import {
 import {apiClient, ApiClientError} from '../../shared/api/client';
 import {translateRunStatus} from '../../shared/i18n/label-mappers';
 import {isRunActiveStatus, isRunTerminalStatus, mapBackendRunStatus} from '../../shared/run-status';
-import {clearGlobalInfoMessage, pushGlobalInfoMessage} from '../../shared/state/global-info-store';
+import {notifyUser, type GlobalInfoLevel} from '../../shared/state/global-info-store';
 import {useGraphStore} from '../../shared/state/graph-store';
 import {useRunStore} from '../../shared/state/run-store';
 import {useUiStore} from '../../shared/state/ui-store';
@@ -95,8 +95,8 @@ const PANEL_COLLAPSED_MAX_WIDTH = 520;
 const PANEL_COLLAPSED_HORIZONTAL_PADDING = 16;
 const PANEL_COLLAPSED_HEADER_FIXED_WIDTH = 41;
 const PANEL_COLLAPSED_EXTRA_WIDTH = 16;
+const RUN_DOCK_WIDTH = 228;
 const IGNORED_REVIEW_ISSUE_CODES = new Set(['graph.empty_nodes']);
-const INFO_POPUP_TOP = 104;
 const DEFAULT_NEW_GRAPH_BASE_ID = 'graph_new';
 
 const isEditableElement = (target: EventTarget | null): boolean => {
@@ -409,12 +409,12 @@ export function WorkbenchPage() {
     const toClientErrorMessage = (error: unknown): string =>
         error instanceof ApiClientError ? error.message : String(error);
 
-    const showInfoPopup = (message: string | null): void => {
+    const showInfoPopup = (message: string | null, level: GlobalInfoLevel = 'info'): void => {
         if (message === null) {
-            clearGlobalInfoMessage();
+            notifyUser.clear();
             return;
         }
-        pushGlobalInfoMessage(message);
+        notifyUser[level](message);
     };
 
     const openPanel = (): void => {
@@ -462,7 +462,7 @@ export function WorkbenchPage() {
         if (!normalizedProjectName) {
             setProjectNameDraft(graph.graph_id);
             setProjectNameEditing(false);
-            showInfoPopup(t('workbench.persistence.errors.emptyGraphId'));
+            showInfoPopup(t('workbench.persistence.errors.emptyGraphId'), 'error');
             return;
         }
         if (normalizedProjectName !== graph.graph_id) {
@@ -516,7 +516,7 @@ export function WorkbenchPage() {
                 setProjectNameDraft(resolvedGraphId);
             } catch (error) {
                 const message = toClientErrorMessage(error);
-                showInfoPopup(t('workbench.persistence.errors.listFailed', {message}));
+                showInfoPopup(t('workbench.persistence.errors.listFailed', {message}), 'error');
             }
         };
         void loadSavedGraphs();
@@ -529,10 +529,10 @@ export function WorkbenchPage() {
         showInfoPopup(null);
         try {
             await pullSavedGraphs();
-            showInfoPopup(t('workbench.persistence.success.refreshed'));
+            showInfoPopup(t('workbench.persistence.success.refreshed'), 'success');
         } catch (error) {
             const message = toClientErrorMessage(error);
-            showInfoPopup(t('workbench.persistence.errors.listFailed', {message}));
+            showInfoPopup(t('workbench.persistence.errors.listFailed', {message}), 'error');
         } finally {
             setIsPersisting(false);
         }
@@ -541,7 +541,7 @@ export function WorkbenchPage() {
     const saveCurrentGraph = async (): Promise<void> => {
         const normalizedGraphId = graph.graph_id.trim();
         if (!normalizedGraphId) {
-            showInfoPopup(t('workbench.persistence.errors.emptyGraphId'));
+            showInfoPopup(t('workbench.persistence.errors.emptyGraphId'), 'error');
             return;
         }
 
@@ -551,10 +551,10 @@ export function WorkbenchPage() {
             const saved = await apiClient.saveGraph(graph);
             await pullSavedGraphs();
             markClean();
-            showInfoPopup(t('workbench.persistence.success.saved', {graphId: saved.graph_id}));
+            showInfoPopup(t('workbench.persistence.success.saved', {graphId: saved.graph_id}), 'success');
         } catch (error) {
             const message = toClientErrorMessage(error);
-            showInfoPopup(t('workbench.persistence.errors.saveFailed', {message}));
+            showInfoPopup(t('workbench.persistence.errors.saveFailed', {message}), 'error');
         } finally {
             setIsPersisting(false);
         }
@@ -575,7 +575,7 @@ export function WorkbenchPage() {
         syncRelationFingerprintRef.current = '';
         setProjectNameDraft(nextGraphId);
         setProjectNameEditing(false);
-        showInfoPopup(t('workbench.persistence.success.created', {graphId: nextGraphId}));
+        showInfoPopup(t('workbench.persistence.success.created', {graphId: nextGraphId}), 'success');
     };
 
     useEffect(() => {
@@ -628,10 +628,10 @@ export function WorkbenchPage() {
                     },
                 ]);
             }
-            showInfoPopup(t('workbench.persistence.success.loaded', {graphId: loadedForWorkbench.graph_id}));
+            showInfoPopup(t('workbench.persistence.success.loaded', {graphId: loadedForWorkbench.graph_id}), 'success');
         } catch (error) {
             const message = toClientErrorMessage(error);
-            showInfoPopup(t('workbench.persistence.errors.loadFailed', {message}));
+            showInfoPopup(t('workbench.persistence.errors.loadFailed', {message}), 'error');
         } finally {
             setIsPersisting(false);
         }
@@ -650,10 +650,10 @@ export function WorkbenchPage() {
         try {
             await apiClient.deleteGraph(graphId);
             await pullSavedGraphs();
-            showInfoPopup(t('workbench.persistence.success.deleted', {graphId}));
+            showInfoPopup(t('workbench.persistence.success.deleted', {graphId}), 'success');
         } catch (error) {
             const message = toClientErrorMessage(error);
-            showInfoPopup(t('workbench.persistence.errors.deleteFailed', {message}));
+            showInfoPopup(t('workbench.persistence.errors.deleteFailed', {message}), 'error');
         } finally {
             setIsPersisting(false);
         }
@@ -944,72 +944,75 @@ export function WorkbenchPage() {
 
             <section
                 style={{
-                    ...surfaceStyle,
                     position: 'absolute',
                     right: 10 + inspectorShift,
                     top: 10,
+                    width: RUN_DOCK_WIDTH,
                     zIndex: 10,
-                    padding: 10,
-                    minWidth: 192,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
                     transition: `right 180ms ${NON_LINEAR_EASE}`,
                 }}
+                data-testid="run-dock"
             >
-                <button
-                    type="button"
-                    onClick={() => {
-                        void startRun();
-                    }}
-                    disabled={!canRun}
+                <section
                     style={{
-                        ...floatingButtonStyle,
+                        ...surfaceStyle,
+                        padding: 10,
                         width: '100%',
-                        height: 38,
-                        borderColor: canRun ? '#1d4ed8' : '#d5dff0',
-                        background: canRun ? '#2563eb' : '#f8fafc',
-                        color: canRun ? '#ffffff' : '#94a3b8',
-                        fontWeight: 700,
                     }}
                 >
-                    <span style={{display: 'inline-flex', alignItems: 'center', gap: 6}}>
-                        <Play size={15} aria-hidden="true"/>
-                        <span>{runButtonText()}</span>
-                    </span>
-                </button>
-                <div style={{fontSize: 12, marginTop: 6}}>
-                    {t('workbench.summary.runStatus', {
-                        status: translateRunStatus(t, runStatus),
-                        busySuffix: isRunBusy ? t('workbench.busySuffix') : '',
-                    })}
-                </div>
-                {runId && (
-                    <div style={{fontSize: 12, marginTop: 4}} data-testid="run-sync-metrics">
-                        <div>{t('workbench.summary.syncCommitCount', {count: syncCommitCount})}</div>
-                        <div>{t('workbench.summary.syncAbortCount', {count: syncAbortCount})}</div>
-                        <div>
-                            {Object.keys(syncAbortReasons).length === 0
-                                ? t('workbench.summary.syncAbortReasonsEmpty')
-                                : t('workbench.summary.syncAbortReasons', {
-                                    reasons: Object.entries(syncAbortReasons)
-                                        .map(([reason, count]) => `${reason}(${count})`)
-                                        .join(', '),
-                                })}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            void startRun();
+                        }}
+                        disabled={!canRun}
+                        style={{
+                            ...floatingButtonStyle,
+                            width: '100%',
+                            height: 38,
+                            borderColor: canRun ? '#1d4ed8' : '#d5dff0',
+                            background: canRun ? '#2563eb' : '#f8fafc',
+                            color: canRun ? '#ffffff' : '#94a3b8',
+                            fontWeight: 700,
+                        }}
+                    >
+                        <span style={{display: 'inline-flex', alignItems: 'center', gap: 6}}>
+                            <Play size={15} aria-hidden="true"/>
+                            <span>{runButtonText()}</span>
+                        </span>
+                    </button>
+                    <div style={{fontSize: 12, marginTop: 6}}>
+                        {t('workbench.summary.runStatus', {
+                            status: translateRunStatus(t, runStatus),
+                            busySuffix: isRunBusy ? t('workbench.busySuffix') : '',
+                        })}
+                    </div>
+                    {runId && (
+                        <div style={{fontSize: 12, marginTop: 4}} data-testid="run-sync-metrics">
+                            <div>{t('workbench.summary.syncCommitCount', {count: syncCommitCount})}</div>
+                            <div>{t('workbench.summary.syncAbortCount', {count: syncAbortCount})}</div>
+                            <div>
+                                {Object.keys(syncAbortReasons).length === 0
+                                    ? t('workbench.summary.syncAbortReasonsEmpty')
+                                    : t('workbench.summary.syncAbortReasons', {
+                                        reasons: Object.entries(syncAbortReasons)
+                                            .map(([reason, count]) => `${reason}(${count})`)
+                                            .join(', '),
+                                    })}
+                            </div>
                         </div>
-                    </div>
-                )}
-                {runError && (
-                    <div style={{fontSize: 12, color: '#b91c1c', marginTop: 4}} data-testid="run-action-error">
-                        {runError}
-                    </div>
-                )}
+                    )}
+                    {runError && (
+                        <div style={{fontSize: 12, color: '#b91c1c', marginTop: 4}} data-testid="run-action-error">
+                            {runError}
+                        </div>
+                    )}
+                </section>
+                <GlobalInfoPopupHost testId="workbench-info-popup"/>
             </section>
-
-            <GlobalInfoPopupHost
-                right={10 + inspectorShift}
-                top={INFO_POPUP_TOP}
-                zIndex={11}
-                extraTransition={`right 180ms ${NON_LINEAR_EASE}`}
-                testId="workbench-info-popup"
-            />
 
             <section
                     ref={historyDrawerAreaRef}

@@ -44,8 +44,8 @@ import type {EdgeSpec, NodeInstanceSpec, NodeSpec, PortSpec} from '../../entitie
 import {apiClient} from '../../shared/api/client';
 import {changeAppLanguage, normalizeLanguage, supportedLanguages} from '../../shared/i18n/i18n';
 import {useGraphStore} from '../../shared/state/graph-store';
+import {notifyUser} from '../../shared/state/global-info-store';
 import {useUiStore} from '../../shared/state/ui-store';
-import {InfoPopup} from '../../shared/ui/InfoPopup';
 import {buildInitiatorDefaultConfig, isSyncInitiatorNodeType} from '../sync-config/managed-config';
 import {
     SOURCE_HANDLE_PREFIX,
@@ -89,9 +89,6 @@ const MINIMAP_HEIGHT = 84;
 const MINIMAP_GAP = 8;
 const NODE_LIBRARY_TOP_INSET = 60;
 const NODE_LIBRARY_BOTTOM_INSET = 88;
-const EDITOR_TOAST_STAY_MS = 5000;
-const EDITOR_TOAST_EXIT_MS = 260;
-const EDITOR_TOAST_TOP = 96;
 const NON_LINEAR_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 const BOTTOM_RIGHT_SHIFT_TRANSITION = `right 180ms ${NON_LINEAR_EASE}`;
 const DEFAULT_EDGE_COLOR = '#64748b';
@@ -439,8 +436,6 @@ const GraphEditorInner = () => {
         [t],
     );
     const [catalog, setCatalog] = useState<NodeSpec[]>(fallbackNodeTypes);
-    const [editorMessage, setEditorMessage] = useState<string | null>(null);
-    const [isEditorToastLeaving, setIsEditorToastLeaving] = useState(false);
     const [zoomRatio, setZoomRatio] = useState(DEFAULT_ZOOM_RATIO);
     const [activeConnectionColor, setActiveConnectionColor] = useState(DEFAULT_EDGE_COLOR);
     const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -613,7 +608,7 @@ const GraphEditorInner = () => {
             }
             clipboardRef.current = snapshot;
             pasteCountRef.current = 0;
-            setEditorMessage(
+            notifyUser.success(
                 t('graphEditor.status.copiedNodes', {
                     count: snapshot.nodes.length,
                 }),
@@ -651,7 +646,7 @@ const GraphEditorInner = () => {
         );
         setSelectedNodeIds(pasteResult.createdNodeIds);
         selectNode(pasteResult.createdNodeIds[0] ?? null);
-        setEditorMessage(
+        notifyUser.success(
             t('graphEditor.status.pastedNodes', {
                 count: pasteResult.createdNodeIds.length,
             }),
@@ -679,7 +674,6 @@ const GraphEditorInner = () => {
                 return next;
             }, remainingNodeIds);
             setSelectedNodeIds((current) => current.filter((nodeId) => !normalizedNodeIds.includes(nodeId)));
-            setEditorMessage(null);
         },
         [graph.nodes, removeNode, updateNodePositions],
     );
@@ -758,7 +752,7 @@ const GraphEditorInner = () => {
         (typeName: string, position?: XYPosition) => {
             const spec = catalogByType.get(typeName);
             if (!spec) {
-                setEditorMessage(t('graphEditor.errors.unknownNodeType', {typeName}));
+                notifyUser.error(t('graphEditor.errors.unknownNodeType', {typeName}));
                 return;
             }
             const nodeId = nextNodeId(graph.nodes);
@@ -779,7 +773,6 @@ const GraphEditorInner = () => {
                 }),
                 [...graphNodeIds, nodeId],
             );
-            setEditorMessage(null);
         },
         [catalogByType, graph.nodes, graphNodeIds, reactFlow, t, updateNodePositions, upsertNode],
     );
@@ -794,7 +787,7 @@ const GraphEditorInner = () => {
                 }
             } catch (error) {
                 if (!cancelled) {
-                    setEditorMessage(t('graphEditor.errors.catalogUnavailable', {message: String(error)}));
+                    notifyUser.warning(t('graphEditor.status.fallbackCatalog', {error: String(error)}));
                 }
             }
         };
@@ -803,25 +796,6 @@ const GraphEditorInner = () => {
             cancelled = true;
         };
     }, [t]);
-
-    useEffect(() => {
-        if (!editorMessage) {
-            setIsEditorToastLeaving(false);
-            return;
-        }
-        setIsEditorToastLeaving(false);
-        const leaveTimer = window.setTimeout(() => {
-            setIsEditorToastLeaving(true);
-        }, EDITOR_TOAST_STAY_MS);
-        const clearTimer = window.setTimeout(() => {
-            setEditorMessage(null);
-            setIsEditorToastLeaving(false);
-        }, EDITOR_TOAST_STAY_MS + EDITOR_TOAST_EXIT_MS);
-        return () => {
-            window.clearTimeout(leaveTimer);
-            window.clearTimeout(clearTimer);
-        };
-    }, [editorMessage]);
 
     useEffect(() => {
         setRfNodes(
@@ -893,7 +867,7 @@ const GraphEditorInner = () => {
             ...current,
             ...autoLayoutPositions,
         }));
-        setEditorMessage(t('graphEditor.status.autoLayoutDone'));
+        notifyUser.success(t('graphEditor.status.autoLayoutDone'));
     }, [autoLayoutRequestTick, graph, t, updateNodePositions]);
 
     const resolveCopyCandidateNodeIds = useCallback((): string[] => {
@@ -1132,11 +1106,11 @@ const GraphEditorInner = () => {
     const onConnect = useCallback(
         (connection: Connection) => {
             if (!connection.source || !connection.target || !connection.sourceHandle || !connection.targetHandle) {
-                setEditorMessage(t('graphEditor.errors.invalidConnection'));
+                notifyUser.warning(t('graphEditor.errors.invalidConnection'));
                 return;
             }
             if (!canBindTargetPort(rfEdges, connection.target, connection.targetHandle)) {
-                setEditorMessage(t('graphEditor.errors.targetPortDuplicate'));
+                notifyUser.warning(t('graphEditor.errors.targetPortDuplicate'));
                 return;
             }
 
@@ -1145,11 +1119,11 @@ const GraphEditorInner = () => {
             const outputPort = resolveOutputPort(connection.source, sourcePort);
             const inputPort = resolveInputPort(connection.target, targetPort);
             if (!outputPort || !inputPort) {
-                setEditorMessage(t('graphEditor.errors.invalidConnection'));
+                notifyUser.warning(t('graphEditor.errors.invalidConnection'));
                 return;
             }
             if (!isSchemaCompatible(outputPort.frame_schema, inputPort.frame_schema)) {
-                setEditorMessage(
+                notifyUser.warning(
                     t('graphEditor.errors.schemaMismatch', {
                         sourceType: simplifyFrameSchema(outputPort.frame_schema),
                         targetType: simplifyFrameSchema(inputPort.frame_schema),
@@ -1178,7 +1152,6 @@ const GraphEditorInner = () => {
                 syncEdgesToStore(next);
                 return next;
             });
-            setEditorMessage(null);
         },
         [resolveInputPort, resolveOutputPort, rfEdges, setRfEdges, syncEdgesToStore, t],
     );
@@ -1211,7 +1184,6 @@ const GraphEditorInner = () => {
                 syncEdgesToStore(next);
                 return next;
             });
-            setEditorMessage(null);
         },
         [setRfEdges, syncEdgesToStore],
     );
@@ -1636,20 +1608,6 @@ const GraphEditorInner = () => {
                     />
                 </ReactFlow>
             </div>
-
-            {editorMessage && (
-                <InfoPopup
-                    message={editorMessage}
-                    leaving={isEditorToastLeaving}
-                    right={10 + bottomRightOffset}
-                    top={EDITOR_TOAST_TOP}
-                    zIndex={6}
-                    exitMs={EDITOR_TOAST_EXIT_MS}
-                    ease={NON_LINEAR_EASE}
-                    extraTransition={BOTTOM_RIGHT_SHIFT_TRANSITION}
-                    testId="graph-editor-status"
-                />
-            )}
 
             {nodeContextMenu && (
                 <div
