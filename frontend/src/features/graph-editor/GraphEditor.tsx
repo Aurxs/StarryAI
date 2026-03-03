@@ -21,6 +21,7 @@ import ReactFlow, {
     MiniMap,
     Position,
     ReactFlowProvider,
+    SelectionMode,
     applyEdgeChanges,
     applyNodeChanges,
     getNodesBounds,
@@ -1686,6 +1687,7 @@ const GraphEditorInner = () => {
                     panOnScroll={isHandMode}
                     nodesDraggable
                     selectionOnDrag={!isHandMode}
+                    selectionMode={SelectionMode.Partial}
                     connectionLineStyle={{
                         stroke: activeConnectionColor,
                         strokeWidth: 2,
