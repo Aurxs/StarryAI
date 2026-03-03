@@ -1,3 +1,4 @@
+import ELK, {type ElkExtendedEdge, type ElkNode, type ElkPort} from 'elkjs/lib/elk.bundled.js';
 import type {Edge, XYPosition} from 'reactflow';
 
 import type {
@@ -311,6 +312,166 @@ const cloneNode = (node: NodeInstanceSpec): NodeInstanceSpec => ({
 const cloneEdge = (edge: EdgeSpec): EdgeSpec => ({...edge});
 
 const DEFAULT_POSITION: XYPosition = {x: 0, y: 0};
+const DEFAULT_LAYOUT_NODE_WIDTH = 210;
+const DEFAULT_LAYOUT_NODE_HEIGHT = 124;
+const DEFAULT_LAYER_SPACING = 64;
+const DEFAULT_NODE_SPACING = 48;
+
+interface ElkAutoLayoutOptions {
+    startX?: number;
+    startY?: number;
+    nodeWidth?: number;
+    nodeHeight?: number;
+    layerSpacing?: number;
+    nodeSpacing?: number;
+    nodeSizes?: Record<string, {width: number; height: number}>;
+}
+
+interface CollectedPorts {
+    input: Set<string>;
+    output: Set<string>;
+}
+
+const comparePortNames = (left: string, right: string): number =>
+    left.localeCompare(right, undefined, {numeric: true, sensitivity: 'base'});
+const isPositiveFiniteNumber = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isFinite(value) && value > 0;
+
+const collectNodePorts = (graph: GraphSpec): Map<string, CollectedPorts> => {
+    const collected = new Map<string, CollectedPorts>();
+    for (const node of graph.nodes) {
+        collected.set(node.node_id, {
+            input: new Set<string>(),
+            output: new Set<string>(),
+        });
+    }
+    for (const edge of graph.edges) {
+        collected.get(edge.source_node)?.output.add(edge.source_port);
+        collected.get(edge.target_node)?.input.add(edge.target_port);
+    }
+    return collected;
+};
+
+const buildLayerGroups = (graph: GraphSpec): {layers: Map<string, number>; groups: Map<number, string[]>} => {
+    const {incoming, outgoing} = buildGraphAdjacency(graph);
+    const order = buildTopologicalOrder(graph, outgoing);
+    const layers = new Map<string, number>();
+    for (const nodeId of order) {
+        const parentLayers = (incoming[nodeId] ?? [])
+            .map((edge) => layers.get(edge.source_node) ?? 0);
+        layers.set(nodeId, parentLayers.length > 0 ? Math.max(...parentLayers) + 1 : 0);
+    }
+    const groups = new Map<number, string[]>();
+    for (const nodeId of order) {
+        const layer = layers.get(nodeId) ?? 0;
+        if (!groups.has(layer)) {
+            groups.set(layer, []);
+        }
+        groups.get(layer)?.push(nodeId);
+    }
+    return {layers, groups};
+};
+
+const buildTargetPortOrder = (graph: GraphSpec): Map<string, Map<string, number>> => {
+    const targetPorts = new Map<string, Set<string>>();
+    for (const edge of graph.edges) {
+        if (!targetPorts.has(edge.target_node)) {
+            targetPorts.set(edge.target_node, new Set<string>());
+        }
+        targetPorts.get(edge.target_node)?.add(edge.target_port);
+    }
+    const targetPortOrder = new Map<string, Map<string, number>>();
+    for (const [targetNodeId, portSet] of targetPorts.entries()) {
+        const sortedPorts = [...portSet].sort(comparePortNames);
+        const orderMap = new Map<string, number>();
+        sortedPorts.forEach((portName, index) => {
+            orderMap.set(portName, index);
+        });
+        targetPortOrder.set(targetNodeId, orderMap);
+    }
+    return targetPortOrder;
+};
+
+const applyPortAwareLayerOrdering = (
+    graph: GraphSpec,
+    positions: Record<string, XYPosition>,
+    nodeHeights: Record<string, number>,
+    fallbackNodeHeight: number,
+): Record<string, XYPosition> => {
+    const {layers, groups} = buildLayerGroups(graph);
+    const targetPortOrder = buildTargetPortOrder(graph);
+    const nextPositions: Record<string, XYPosition> = {...positions};
+
+    const maxLayer = Math.max(...groups.keys(), 0);
+    for (let layer = 0; layer <= maxLayer; layer += 1) {
+        const layerNodes = groups.get(layer) ?? [];
+        if (layerNodes.length < 2) {
+            continue;
+        }
+
+        const slotYs = layerNodes
+            .map((nodeId) => nextPositions[nodeId]?.y)
+            .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+            .sort((left, right) => left - right);
+        if (slotYs.length !== layerNodes.length) {
+            continue;
+        }
+
+        const nodeScores = layerNodes.map((nodeId) => {
+            const currentY = nextPositions[nodeId]?.y ?? 0;
+            const contributions = graph.edges
+                .filter((edge) => edge.source_node === nodeId)
+                .map((edge) => {
+                    const targetLayer = layers.get(edge.target_node) ?? layer;
+                    if (targetLayer <= layer) {
+                        return null;
+                    }
+                    const targetY = nextPositions[edge.target_node]?.y;
+                    if (typeof targetY !== 'number' || !Number.isFinite(targetY)) {
+                        return null;
+                    }
+                    const portOrder = targetPortOrder.get(edge.target_node);
+                    const portRank = portOrder?.get(edge.target_port) ?? 0;
+                    const portCount = Math.max(1, portOrder?.size ?? 1);
+                    const targetNodeHeight = nodeHeights[edge.target_node] ?? fallbackNodeHeight;
+                    const normalizedPortOffset = ((portRank + 1) / (portCount + 1)) * targetNodeHeight - targetNodeHeight / 2;
+                    return targetY + normalizedPortOffset;
+                })
+                .filter((value): value is number => value !== null);
+            const score = contributions.length > 0
+                ? contributions.reduce((sum, value) => sum + value, 0) / contributions.length
+                : currentY;
+            return {nodeId, score, currentY};
+        });
+
+        nodeScores.sort((left, right) => {
+            if (left.score !== right.score) {
+                return left.score - right.score;
+            }
+            if (left.currentY !== right.currentY) {
+                return left.currentY - right.currentY;
+            }
+            return left.nodeId.localeCompare(right.nodeId);
+        });
+
+        nodeScores.forEach((item, index) => {
+            const slotY = slotYs[index];
+            if (typeof slotY !== 'number') {
+                return;
+            }
+            const currentPosition = nextPositions[item.nodeId];
+            if (!currentPosition) {
+                return;
+            }
+            nextPositions[item.nodeId] = {
+                x: currentPosition.x,
+                y: slotY,
+            };
+        });
+    }
+
+    return nextPositions;
+};
 
 const buildNextNodeId = (existingIds: Set<string>): string => {
     let index = existingIds.size + 1;
@@ -451,73 +612,10 @@ export const buildSimpleAutoLayout = (
     startX = 80,
     startY = 80,
 ): Record<string, {x: number; y: number}> => {
-    const nodeIds = graph.nodes.map((node) => node.node_id);
-    if (nodeIds.length === 0) {
+    if (graph.nodes.length === 0) {
         return {};
     }
-
-    const indegree = new Map<string, number>();
-    const outgoing = new Map<string, string[]>();
-    const incoming = new Map<string, string[]>();
-    for (const nodeId of nodeIds) {
-        indegree.set(nodeId, 0);
-        outgoing.set(nodeId, []);
-        incoming.set(nodeId, []);
-    }
-
-    for (const edge of graph.edges) {
-        if (!indegree.has(edge.source_node) || !indegree.has(edge.target_node)) {
-            continue;
-        }
-        indegree.set(edge.target_node, (indegree.get(edge.target_node) ?? 0) + 1);
-        outgoing.get(edge.source_node)?.push(edge.target_node);
-        incoming.get(edge.target_node)?.push(edge.source_node);
-    }
-
-    const queue: string[] = [];
-    for (const [nodeId, degree] of indegree.entries()) {
-        if (degree === 0) {
-            queue.push(nodeId);
-        }
-    }
-
-    const order: string[] = [];
-    while (queue.length > 0) {
-        const nodeId = queue.shift();
-        if (!nodeId) {
-            continue;
-        }
-        order.push(nodeId);
-        for (const nextNode of outgoing.get(nodeId) ?? []) {
-            const nextDegree = (indegree.get(nextNode) ?? 0) - 1;
-            indegree.set(nextNode, nextDegree);
-            if (nextDegree === 0) {
-                queue.push(nextNode);
-            }
-        }
-    }
-
-    for (const nodeId of nodeIds) {
-        if (!order.includes(nodeId)) {
-            order.push(nodeId);
-        }
-    }
-
-    const layers = new Map<string, number>();
-    for (const nodeId of order) {
-        const parentLayers = (incoming.get(nodeId) ?? [])
-            .map((parentId) => layers.get(parentId) ?? 0);
-        layers.set(nodeId, parentLayers.length > 0 ? Math.max(...parentLayers) + 1 : 0);
-    }
-
-    const groups = new Map<number, string[]>();
-    for (const nodeId of order) {
-        const layer = layers.get(nodeId) ?? 0;
-        if (!groups.has(layer)) {
-            groups.set(layer, []);
-        }
-        groups.get(layer)?.push(nodeId);
-    }
+    const {groups} = buildLayerGroups(graph);
 
     const layerIds = [...groups.keys()].sort((a, b) => a - b);
     const xGap = 260;
@@ -535,6 +633,115 @@ export const buildSimpleAutoLayout = (
     }
 
     return positions;
+};
+
+export const buildElkAutoLayout = async (
+    graph: GraphSpec,
+    options: ElkAutoLayoutOptions = {},
+): Promise<Record<string, {x: number; y: number}>> => {
+    const startX = options.startX ?? 80;
+    const startY = options.startY ?? 80;
+    const nodeWidth = options.nodeWidth ?? DEFAULT_LAYOUT_NODE_WIDTH;
+    const nodeHeight = options.nodeHeight ?? DEFAULT_LAYOUT_NODE_HEIGHT;
+    const layerSpacing = options.layerSpacing ?? DEFAULT_LAYER_SPACING;
+    const nodeSpacing = options.nodeSpacing ?? DEFAULT_NODE_SPACING;
+    const fallback = buildSimpleAutoLayout(graph, startX, startY);
+
+    if (graph.nodes.length === 0) {
+        return {};
+    }
+
+    const nodeIdSet = new Set(graph.nodes.map((node) => node.node_id));
+    const nodePorts = collectNodePorts(graph);
+    const nodeHeights: Record<string, number> = {};
+    const elkNodes: ElkNode[] = graph.nodes.map((node) => {
+        const customSize = options.nodeSizes?.[node.node_id];
+        const resolvedWidth = isPositiveFiniteNumber(customSize?.width) ? customSize.width : nodeWidth;
+        const resolvedHeight = isPositiveFiniteNumber(customSize?.height) ? customSize.height : nodeHeight;
+        nodeHeights[node.node_id] = resolvedHeight;
+
+        const ports = nodePorts.get(node.node_id);
+        const inputPorts = [...(ports?.input ?? [])].sort(comparePortNames);
+        const outputPorts = [...(ports?.output ?? [])].sort(comparePortNames);
+        const elkPorts: ElkPort[] = [
+            ...inputPorts.map((portName, index) => ({
+                id: `${node.node_id}::in::${portName}`,
+                layoutOptions: {
+                    'org.eclipse.elk.port.side': 'WEST',
+                    'org.eclipse.elk.port.index': String(index),
+                },
+            })),
+            ...outputPorts.map((portName, index) => ({
+                id: `${node.node_id}::out::${portName}`,
+                layoutOptions: {
+                    'org.eclipse.elk.port.side': 'EAST',
+                    'org.eclipse.elk.port.index': String(index),
+                },
+            })),
+        ];
+
+        return {
+            id: node.node_id,
+            width: resolvedWidth,
+            height: resolvedHeight,
+            ports: elkPorts,
+            layoutOptions: {
+                'org.eclipse.elk.portConstraints': 'FIXED_ORDER',
+            },
+        };
+    });
+
+    const elkEdges: ElkExtendedEdge[] = graph.edges
+        .filter((edge) => nodeIdSet.has(edge.source_node) && nodeIdSet.has(edge.target_node))
+        .map((edge, index) => ({
+            id: `edge_${index}_${edge.source_node}_${edge.target_node}`,
+            sources: [`${edge.source_node}::out::${edge.source_port}`],
+            targets: [`${edge.target_node}::in::${edge.target_port}`],
+        }));
+
+    const elkGraph: ElkNode = {
+        id: 'root',
+        children: elkNodes,
+        edges: elkEdges,
+        layoutOptions: {
+            'org.eclipse.elk.algorithm': 'org.eclipse.elk.layered',
+            'org.eclipse.elk.direction': 'RIGHT',
+            'org.eclipse.elk.edgeRouting': 'SPLINES',
+            'org.eclipse.elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+            'org.eclipse.elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+            'org.eclipse.elk.layered.spacing.nodeNodeBetweenLayers': String(layerSpacing),
+            'org.eclipse.elk.spacing.nodeNode': String(nodeSpacing),
+            'org.eclipse.elk.spacing.edgeNode': '20',
+            'org.eclipse.elk.spacing.edgeEdge': '12',
+        },
+    };
+
+    try {
+        const elk = new ELK();
+        const laidOut = await elk.layout(elkGraph);
+        const positions = {...fallback};
+        for (const node of laidOut.children ?? []) {
+            if (!node.id || !(node.id in positions)) {
+                continue;
+            }
+            if (
+                typeof node.x !== 'number' ||
+                !Number.isFinite(node.x) ||
+                typeof node.y !== 'number' ||
+                !Number.isFinite(node.y)
+            ) {
+                continue;
+            }
+            positions[node.id] = {
+                x: startX + node.x,
+                y: startY + node.y,
+            };
+        }
+        return applyPortAwareLayerOrdering(graph, positions, nodeHeights, nodeHeight);
+    } catch (error) {
+        console.warn('[graph-editor] ELK auto layout failed, fallback to simple layout', error);
+        return fallback;
+    }
 };
 
 export const deriveValidationTargets = (

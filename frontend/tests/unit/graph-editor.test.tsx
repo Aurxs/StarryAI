@@ -201,11 +201,15 @@ describe('GraphEditor', () => {
 
         addNodeFromDrawer('mock.input');
         addNodeFromDrawer('mock.output');
+        const previousFitTick = useUiStore.getState().fitCanvasRequestTick;
 
         useUiStore.getState().requestAutoLayout();
         await waitFor(() => {
             const messages = useGlobalInfoStore.getState().messages;
             expect(messages.some((item) => item.message === '节点已自动整理')).toBe(true);
+        });
+        await waitFor(() => {
+            expect(useUiStore.getState().fitCanvasRequestTick).toBeGreaterThan(previousFitTick);
         });
     });
 

@@ -5,6 +5,7 @@ import {
     TARGET_HANDLE_PREFIX,
     applyGraphClipboardSnapshot,
     buildSimpleAutoLayout,
+    buildElkAutoLayout,
     buildGraphClipboardSnapshot,
     buildEdgeId,
     canBindTargetPort,
@@ -150,6 +151,104 @@ describe('graph-editor utils', () => {
         expect(positions.n1).toBeTruthy();
         expect(positions.n2).toBeTruthy();
         expect(positions.n3).toBeTruthy();
+    });
+
+    it('uses ELK auto-layout to preserve initiator output ordering (edge path)', async () => {
+        const positions = await buildElkAutoLayout({
+            graph_id: 'g_elk_sync',
+            version: '0.1.0',
+            nodes: [
+                {node_id: 'n1', type_name: 'mock.motion', title: 'motion-src', config: {}},
+                {node_id: 'n2', type_name: 'mock.tts', title: 'audio-src', config: {}},
+                {node_id: 'n3', type_name: 'sync.initiator.dual', title: 'initiator', config: {}},
+                {node_id: 'n4', type_name: 'audio.play.sync', title: 'audio-exec', config: {}},
+                {node_id: 'n5', type_name: 'motion.play.sync', title: 'motion-exec', config: {}},
+            ],
+            edges: [
+                {
+                    source_node: 'n1',
+                    source_port: 'motion',
+                    target_node: 'n3',
+                    target_port: 'in_b',
+                    queue_maxsize: 0,
+                },
+                {
+                    source_node: 'n2',
+                    source_port: 'audio',
+                    target_node: 'n3',
+                    target_port: 'in_a',
+                    queue_maxsize: 0,
+                },
+                {
+                    source_node: 'n3',
+                    source_port: 'out_a',
+                    target_node: 'n4',
+                    target_port: 'in',
+                    queue_maxsize: 0,
+                },
+                {
+                    source_node: 'n3',
+                    source_port: 'out_b',
+                    target_node: 'n5',
+                    target_port: 'in',
+                    queue_maxsize: 0,
+                },
+            ],
+            metadata: {},
+        });
+
+        expect(positions.n4).toBeTruthy();
+        expect(positions.n5).toBeTruthy();
+        expect(positions.n2.y).toBeLessThanOrEqual(positions.n1.y);
+        expect(positions.n4.y).toBeLessThanOrEqual(positions.n5.y);
+    });
+
+    it('reorders same-layer upstream nodes by initiator input port order (edge path)', async () => {
+        const positions = await buildElkAutoLayout({
+            graph_id: 'g_elk_port_order',
+            version: '0.1.0',
+            nodes: [
+                {node_id: 'n1', type_name: 'mock.llm', title: 'llm', config: {}},
+                {node_id: 'n2', type_name: 'mock.motion', title: 'motion', config: {}},
+                {node_id: 'n3', type_name: 'mock.tts', title: 'tts', config: {}},
+                {node_id: 'n4', type_name: 'sync.initiator.dual', title: 'initiator', config: {}},
+            ],
+            edges: [
+                {
+                    source_node: 'n1',
+                    source_port: 'out',
+                    target_node: 'n2',
+                    target_port: 'intext',
+                    queue_maxsize: 0,
+                },
+                {
+                    source_node: 'n1',
+                    source_port: 'out',
+                    target_node: 'n3',
+                    target_port: 'intext',
+                    queue_maxsize: 0,
+                },
+                {
+                    source_node: 'n3',
+                    source_port: 'audio',
+                    target_node: 'n4',
+                    target_port: 'in_a',
+                    queue_maxsize: 0,
+                },
+                {
+                    source_node: 'n2',
+                    source_port: 'motion',
+                    target_node: 'n4',
+                    target_port: 'in_b',
+                    queue_maxsize: 0,
+                },
+            ],
+            metadata: {},
+        });
+
+        expect(positions.n2).toBeTruthy();
+        expect(positions.n3).toBeTruthy();
+        expect(positions.n3.y).toBeLessThanOrEqual(positions.n2.y);
     });
 
     it('resolves dynamic initiator output schema from upstream connection', () => {

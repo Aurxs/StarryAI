@@ -52,8 +52,8 @@ import {
     TARGET_HANDLE_PREFIX,
     applyGraphClipboardSnapshot,
     buildEdgeId,
+    buildElkAutoLayout,
     buildGraphClipboardSnapshot,
-    buildSimpleAutoLayout,
     canBindTargetPort,
     deriveValidationTargets,
     edgeToSpec,
@@ -429,6 +429,7 @@ const GraphEditorInner = () => {
     const setNodeLibraryOpen = useUiStore((state) => state.setNodeLibraryOpen);
     const setEditorMode = useUiStore((state) => state.setEditorMode);
     const setZoomMenuOpen = useUiStore((state) => state.setZoomMenuOpen);
+    const requestFitCanvas = useUiStore((state) => state.requestFitCanvas);
 
     const reactFlow = useReactFlow();
     const fallbackNodeTypes = useMemo(
@@ -448,6 +449,8 @@ const GraphEditorInner = () => {
     const zoomControlRef = useRef<HTMLDivElement | null>(null);
     const handledFitCanvasTickRef = useRef(0);
     const handledAutoLayoutTickRef = useRef(0);
+    const pendingAutoLayoutFitRef = useRef(false);
+    const autoLayoutFitFallbackTimerRef = useRef<number | null>(null);
 
     const clipboardRef = useRef<ReturnType<typeof buildGraphClipboardSnapshot>>(null);
     const pasteCountRef = useRef(0);
@@ -461,6 +464,52 @@ const GraphEditorInner = () => {
         const platform = navigator.platform.toLowerCase();
         return platform.includes('mac') ? '⌘' : 'Ctrl';
     }, []);
+
+    const clearAutoLayoutFitFallbackTimer = useCallback(() => {
+        if (autoLayoutFitFallbackTimerRef.current !== null) {
+            window.clearTimeout(autoLayoutFitFallbackTimerRef.current);
+            autoLayoutFitFallbackTimerRef.current = null;
+        }
+    }, []);
+
+    const completePendingAutoLayoutFit = useCallback(() => {
+        pendingAutoLayoutFitRef.current = false;
+        clearAutoLayoutFitFallbackTimer();
+        requestFitCanvas();
+    }, [clearAutoLayoutFitFallbackTimer, requestFitCanvas]);
+
+    const canCompletePendingAutoLayoutFit = useCallback((): boolean => {
+        if (graph.nodes.length === 0 || rfNodes.length === 0) {
+            return false;
+        }
+        const internalNodes = reactFlow.getNodes();
+        if (internalNodes.length < graph.nodes.length) {
+            return false;
+        }
+        return internalNodes.every(
+            (node) =>
+                typeof node.width === 'number' &&
+                Number.isFinite(node.width) &&
+                node.width > 0 &&
+                typeof node.height === 'number' &&
+                Number.isFinite(node.height) &&
+                node.height > 0,
+        );
+    }, [graph.nodes.length, reactFlow, rfNodes]);
+
+    const scheduleAutoLayoutFitFallback = useCallback(() => {
+        clearAutoLayoutFitFallbackTimer();
+        autoLayoutFitFallbackTimerRef.current = window.setTimeout(() => {
+            if (!pendingAutoLayoutFitRef.current) {
+                return;
+            }
+            completePendingAutoLayoutFit();
+        }, 120);
+    }, [clearAutoLayoutFitFallbackTimer, completePendingAutoLayoutFit]);
+
+    useEffect(() => () => {
+        clearAutoLayoutFitFallbackTimer();
+    }, [clearAutoLayoutFitFallbackTimer]);
 
     const catalogByType = useMemo(() => {
         const index = new Map<string, NodeSpec>();
@@ -496,7 +545,9 @@ const GraphEditorInner = () => {
     }, []);
 
     const fitCanvasToVisibleArea = useCallback(() => {
-        if (rfNodes.length === 0) {
+        const internalNodes = reactFlow.getNodes();
+        const nodesForBounds = internalNodes.length > 0 ? internalNodes : rfNodes;
+        if (nodesForBounds.length === 0) {
             return;
         }
         const viewportContainer = canvasViewportRef.current;
@@ -514,7 +565,7 @@ const GraphEditorInner = () => {
             containerWidth - (isInspectorOpen ? INSPECTOR_OVERLAY_WIDTH : 0),
             containerWidth * 0.35,
         );
-        const bounds = getNodesBounds(rfNodes);
+        const bounds = getNodesBounds(nodesForBounds);
         const viewport = getViewportForBounds(bounds, visibleWidth, containerHeight, 0.2, 2, FIT_CANVAS_PADDING);
         const nextZoom = safeZoomRatio(viewport.zoom);
         reactFlow.setViewport({
@@ -577,6 +628,27 @@ const GraphEditorInner = () => {
         },
         [positions, reactFlow],
     );
+
+    const collectNodeSizesForLayout = useCallback((): Record<string, {width: number; height: number}> => {
+        const measuredSizes: Record<string, {width: number; height: number}> = {};
+        for (const nodeId of graphNodeIds) {
+            const flowNode = reactFlow.getNode(nodeId);
+            const width = flowNode?.width;
+            const height = flowNode?.height;
+            if (
+                typeof width !== 'number' ||
+                !Number.isFinite(width) ||
+                width <= 0 ||
+                typeof height !== 'number' ||
+                !Number.isFinite(height) ||
+                height <= 0
+            ) {
+                continue;
+            }
+            measuredSizes[nodeId] = {width, height};
+        }
+        return measuredSizes;
+    }, [graphNodeIds, reactFlow]);
 
     const resolveNodeIdsForAction = useCallback(
         (anchorNodeId: string): string[] => {
@@ -858,17 +930,52 @@ const GraphEditorInner = () => {
     }, [fitCanvasRequestTick, fitCanvasToVisibleArea]);
 
     useEffect(() => {
+        if (!pendingAutoLayoutFitRef.current) {
+            return;
+        }
+        if (graph.nodes.length === 0 || rfNodes.length === 0) {
+            pendingAutoLayoutFitRef.current = false;
+            clearAutoLayoutFitFallbackTimer();
+            return;
+        }
+        if (!canCompletePendingAutoLayoutFit()) {
+            return;
+        }
+        completePendingAutoLayoutFit();
+    }, [
+        canCompletePendingAutoLayoutFit,
+        clearAutoLayoutFitFallbackTimer,
+        completePendingAutoLayoutFit,
+        graph.nodes.length,
+        rfNodes,
+    ]);
+
+    useEffect(() => {
         if (autoLayoutRequestTick <= 0 || autoLayoutRequestTick === handledAutoLayoutTickRef.current) {
             return;
         }
         handledAutoLayoutTickRef.current = autoLayoutRequestTick;
-        const autoLayoutPositions = buildSimpleAutoLayout(graph);
-        updateNodePositions((current) => ({
-            ...current,
-            ...autoLayoutPositions,
-        }));
-        notifyUser.success(t('graphEditor.status.autoLayoutDone'));
-    }, [autoLayoutRequestTick, graph, t, updateNodePositions]);
+        let cancelled = false;
+        const runAutoLayout = async () => {
+            const autoLayoutPositions = await buildElkAutoLayout(graph, {
+                nodeSizes: collectNodeSizesForLayout(),
+            });
+            if (cancelled) {
+                return;
+            }
+            updateNodePositions((current) => ({
+                ...current,
+                ...autoLayoutPositions,
+            }));
+            notifyUser.success(t('graphEditor.status.autoLayoutDone'));
+            pendingAutoLayoutFitRef.current = true;
+            scheduleAutoLayoutFitFallback();
+        };
+        void runAutoLayout();
+        return () => {
+            cancelled = true;
+        };
+    }, [autoLayoutRequestTick, collectNodeSizesForLayout, graph, scheduleAutoLayoutFitFallback, t, updateNodePositions]);
 
     const resolveCopyCandidateNodeIds = useCallback((): string[] => {
         if (selectedNodeIds.length > 0) {
@@ -1400,7 +1507,7 @@ const GraphEditorInner = () => {
                     title={t('graphEditor.quick.fit')}
                     aria-label={t('graphEditor.quick.fit')}
                     style={quickToolButtonStyle}
-                    onClick={() => useUiStore.getState().requestFitCanvas()}
+                    onClick={requestFitCanvas}
                 >
                     <Expand size={16} aria-hidden="true"/>
                 </button>
