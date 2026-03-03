@@ -731,21 +731,7 @@ export function WorkbenchPage() {
             >
                 <div style={{display: 'flex', alignItems: 'center'}}>
                     <div style={{flex: 1, minWidth: 0}}>
-                        {panelExpanded ? (
-                            <button
-                                type="button"
-                                className="button-hover-exempt"
-                                style={{
-                                    ...projectNameBaseStyle,
-                                    width: '100%',
-                                    cursor: 'default',
-                                    pointerEvents: 'none',
-                                }}
-                                data-testid="project-name-display"
-                            >
-                                {displayProjectNameWithDirtyMark}
-                            </button>
-                        ) : projectNameEditing ? (
+                        {projectNameEditing ? (
                             <input
                                 value={projectNameDraft}
                                 onChange={(event) => setProjectNameDraft(event.target.value)}
