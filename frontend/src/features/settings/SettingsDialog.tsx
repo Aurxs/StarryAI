@@ -53,7 +53,7 @@ const contentStyle: CSSProperties = {
     display: 'grid',
     gap: 20,
     overflow: 'auto',
-    paddingRight: 2,
+    padding: 4,
 };
 
 const sectionStyle: CSSProperties = {
@@ -130,7 +130,7 @@ export function SettingsDialog({open, currentLanguage, onClose, onLanguageChange
                     </button>
                 </div>
 
-                <div style={contentStyle}>
+                <div data-testid="settings-dialog-content" style={contentStyle}>
                     <section data-testid="settings-general-panel" style={sectionStyle}>
                         <div style={sectionHeaderStyle}>{t('graphEditor.settings.tabs.general')}</div>
                         <label htmlFor="app-language-select" style={fieldLabelStyle}>
