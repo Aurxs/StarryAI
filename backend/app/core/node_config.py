@@ -14,8 +14,11 @@ class CommonNodeConfig(BaseModel):
     # 允许节点在子类中扩展业务字段；未迁移节点保持宽松兼容。
     model_config = ConfigDict(extra="allow")
 
-    timeout_s: float | None = Field(default=None, gt=0)
-    max_retries: int = Field(default=0, ge=0)
-    retry_backoff_ms: int = Field(default=0, ge=0)
-    continue_on_error: bool = Field(default=False)
-    critical: bool = Field(default=False)
+    timeout_s: float | None = Field(default=None, gt=0, description="Per-execution timeout in seconds.")
+    max_retries: int = Field(default=0, ge=0, description="Maximum number of retries after a failure.")
+    retry_backoff_ms: int = Field(default=0, ge=0, description="Backoff interval between retries in milliseconds.")
+    continue_on_error: bool = Field(
+        default=False,
+        description="Whether the workflow may continue after this node fails.",
+    )
+    critical: bool = Field(default=False, description="Whether this node is treated as critical.")

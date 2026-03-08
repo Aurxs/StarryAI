@@ -142,7 +142,7 @@
       "close": "关闭设置",
       "tabs": {
         "general": "通用",
-        "secrets": "Secrets"
+        "secrets": "密钥"
       }
     },
     "drawer": {
@@ -189,11 +189,59 @@
       "unsupportedRoot": "当前节点配置 schema 暂不支持自动表单化，请使用高级 JSON 编辑。",
       "unsupportedField": "当前字段类型暂不支持自动渲染: {{fieldType}}"
     },
+    "schemaFields": {
+      "content": "内容",
+      "model": "模型",
+      "temperature": "温度",
+      "system_prompt": "系统提示词",
+      "api_key": "API 密钥",
+      "base_url": "基础地址",
+      "api_path": "请求路径",
+      "auth_header_name": "鉴权请求头",
+      "auth_scheme": "鉴权方案",
+      "max_tokens": "最大 Token 数",
+      "top_p": "Top-p",
+      "extra_body_json": "额外请求体 JSON",
+      "timeout_s": "超时时间（秒）",
+      "max_retries": "最大重试次数",
+      "retry_backoff_ms": "重试退避（毫秒）",
+      "continue_on_error": "出错后继续",
+      "critical": "关键节点",
+      "sync_group": "同步组名",
+      "sync_round": "同步轮次",
+      "ready_timeout_ms": "就绪超时（毫秒）",
+      "commit_lead_ms": "提交预留（毫秒）"
+    },
+    "schemaFieldDescriptions": {
+      "_shared": {
+        "content": "节点输出的固定文本内容。",
+        "model": "目标模型名称。",
+        "temperature": "采样温度。",
+        "system_prompt": "发送给模型的系统提示词。",
+        "api_key": "用于访问远端 LLM 服务的 API 密钥。",
+        "base_url": "LLM 服务基础地址。",
+        "api_path": "请求路径；支持完整 URL 或相对路径。",
+        "auth_header_name": "鉴权请求头名称，例如 Authorization 或 api-key。",
+        "auth_scheme": "鉴权方案；留空则直接发送 API 密钥。",
+        "max_tokens": "最大输出 token 数；留空表示由服务端决定。",
+        "top_p": "Top-p 采样参数。",
+        "extra_body_json": "额外请求体 JSON（对象），用于注入 provider 特有参数。",
+        "timeout_s": "单次执行超时时间（秒）。",
+        "max_retries": "失败后的最大重试次数。",
+        "retry_backoff_ms": "两次重试之间的退避时间（毫秒）。",
+        "continue_on_error": "当前节点失败后，是否允许流程继续执行。",
+        "critical": "是否将当前节点标记为关键节点。",
+        "sync_group": "同步任务所属的同步组名。",
+        "sync_round": "同步任务的当前轮次。",
+        "ready_timeout_ms": "等待参与节点就绪的最长时间（毫秒）。",
+        "commit_lead_ms": "协调器发出提交前预留的提前量（毫秒）。"
+      }
+    },
     "secret": {
-      "badge": "Secret",
-      "selectRequired": "请选择 Secret",
-      "selectOptional": "可选：选择 Secret",
-      "createInline": "新建 Secret",
+      "badge": "密钥",
+      "selectRequired": "请选择密钥",
+      "selectOptional": "可选：选择密钥",
+      "createInline": "新建密钥",
       "cancelCreate": "取消新建",
       "createAndBind": "创建并绑定",
       "clear": "清除绑定"
@@ -203,8 +251,8 @@
       "fields": {
         "syncGroup": "同步组名 (sync_group)",
         "syncRound": "轮次 (sync_round)",
-        "readyTimeoutMs": "Ready 超时 (ready_timeout_ms)",
-        "commitLeadMs": "Commit 预留 (commit_lead_ms)"
+        "readyTimeoutMs": "就绪超时 (ready_timeout_ms)",
+        "commitLeadMs": "提交预留 (commit_lead_ms)"
       },
       "hints": {
         "initiatorManaged": "当前节点为同步发起器，可编辑同步参数并向下游同步节点下发。",
@@ -222,7 +270,7 @@
     "errors": {
       "mustBeObject": "配置必须是 JSON 对象。",
       "invalidJson": "配置 JSON 格式无效。",
-      "secretPlaintextForbidden": "Secret 字段不允许保存明文值，请改为引用 Secret。问题字段: {{paths}}。",
+      "secretPlaintextForbidden": "密钥字段不允许保存明文值，请改为引用密钥。问题字段: {{paths}}。",
       "syncGroupRequired": "同步组名不能为空。",
       "syncRoundInvalid": "sync_round 必须是大于等于 0 的整数。",
       "readyTimeoutInvalid": "ready_timeout_ms 必须是大于等于 1 的整数。",
@@ -233,18 +281,18 @@
     }
   },
   "secretManager": {
-    "title": "Secret 管理器",
-    "summary": "共 {{count}} 个 Secret",
-    "searchPlaceholder": "按名称、ID、类型搜索 Secret",
-    "empty": "还没有 Secret，可在这里创建，或在节点配置页里就地创建。",
+    "title": "密钥管理器",
+    "summary": "共 {{count}} 个密钥",
+    "searchPlaceholder": "按名称、ID、类型搜索密钥",
+    "empty": "还没有密钥，可在这里创建，或在节点配置页里就地创建。",
     "inUse": "已被引用",
     "notInUse": "未被引用",
     "fields": {
       "label": "名称",
       "kind": "类型",
       "description": "描述",
-      "secretId": "Secret ID（可选）",
-      "value": "Secret 值"
+      "secretId": "密钥 ID（可选）",
+      "value": "密钥值"
     },
     "meta": {
       "kind": "类型: {{kind}}",
@@ -252,25 +300,49 @@
       "usage": "引用数: {{count}}",
       "updatedAt": "更新时间: {{time}}"
     },
+    "kinds": {
+      "generic": "通用",
+      "api_key": "API 密钥"
+    },
+    "providers": {
+      "memory": "内存"
+    },
     "actions": {
       "refresh": "刷新",
       "loading": "刷新中...",
-      "create": "新建 Secret",
+      "create": "新建密钥",
       "edit": "编辑",
       "rotate": "轮换值",
       "delete": "删除",
-      "deleteConfirm": "确认删除 Secret「{{label}}」吗？如果它仍被引用，后端会拒绝删除。"
+      "deleteConfirm": "确认删除密钥「{{label}}」吗？如果它仍被引用，后端会拒绝删除。"
     },
     "dialog": {
-      "createTitle": "新建 Secret",
-      "editTitle": "编辑 Secret",
-      "rotateTitle": "轮换 Secret 值"
+      "createTitle": "新建密钥",
+      "editTitle": "编辑密钥",
+      "rotateTitle": "轮换密钥值"
     },
     "errors": {
-      "labelRequired": "Secret 名称不能为空。",
-      "kindRequired": "Secret 类型不能为空。",
-      "valueRequired": "Secret 值不能为空。",
-      "missingItem": "当前 Secret 不存在，请刷新后重试。"
+      "labelRequired": "密钥名称不能为空。",
+      "kindRequired": "密钥类型不能为空。",
+      "valueRequired": "密钥值不能为空。",
+      "missingItem": "当前密钥不存在，请刷新后重试。"
+    }
+  },
+  "nodeTypeDescriptions": {
+    "audio_play_base": "基础音频执行节点，收到输入后立即执行。",
+    "audio_play_sync": "同步音频执行节点，由协调器统一提交后执行。",
+    "llm_openai_compatible": "真实 LLM 节点，兼容 OpenAI Chat Completions 接口。",
+    "mock_input": "模拟输入节点，产出完整文本。",
+    "mock_llm": "模拟 LLM 节点，输入完整文本并输出完整回复。",
+    "mock_motion": "模拟动作规划节点，输出完整动作轨迹。",
+    "mock_output": "模拟输出节点。",
+    "mock_tts": "模拟 TTS 节点，输入文本并输出完整音频元信息。",
+    "motion_play_sync": "同步动作执行节点，由协调器统一提交后执行。",
+    "sync_initiator_dual": "同步发起器，将双路输入封装为双路同步任务包。"
+  },
+  "nodePortDescriptions": {
+    "mock_input": {
+      "text": "完整文本输出。"
     }
   },
   "graphValidation": {

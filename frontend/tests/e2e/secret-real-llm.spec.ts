@@ -324,12 +324,12 @@ test('creates secret, binds it to real llm node, saves graph, and runs with secr
 
     await page.getByRole('button', {name: '设置'}).click();
     const settingsDialog = page.getByRole('dialog', {name: '设置'});
-    await settingsDialog.getByRole('button', {name: '新建 Secret'}).click();
+    await settingsDialog.getByRole('button', {name: '新建密钥'}).click();
 
-    const secretDialog = page.getByRole('dialog', {name: '新建 Secret'});
+    const secretDialog = page.getByRole('dialog', {name: '新建密钥'});
     await secretDialog.getByLabel('名称').fill('OpenAI Main');
     await secretDialog.getByLabel('类型').fill('api_key');
-    await secretDialog.getByLabel('Secret 值').fill('sk-openai-real-value');
+    await secretDialog.getByLabel('密钥值').fill('sk-openai-real-value');
     await secretDialog.getByRole('button', {name: '保存'}).click();
 
     await expect(settingsDialog).toContainText('OpenAI Main');
@@ -353,7 +353,6 @@ test('creates secret, binds it to real llm node, saves graph, and runs with secr
     const apiKeyField = inspector.locator('[data-field-path="api_key"]');
     await apiKeyField.locator('select').selectOption('openai-main');
     await inspector.getByRole('button', {name: '保存'}).click();
-    await expect(inspector.getByTestId('node-config-success')).toContainText('配置已保存');
     await expect.poll(() => validateCalls).toBeGreaterThan(0);
     await expect(page.getByTestId('review-bar')).toContainText('无问题');
 

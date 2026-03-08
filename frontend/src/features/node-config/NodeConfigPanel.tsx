@@ -363,6 +363,7 @@ export function NodeConfigPanel() {
             </label>
 
             <SchemaForm
+                nodeTypeName={selectedNode.type_name}
                 schema={runtimeSchema}
                 value={runtimeConfigDraft}
                 secrets={secrets}

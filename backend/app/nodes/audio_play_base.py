@@ -34,7 +34,7 @@ AUDIO_PLAY_BASE_SPEC = NodeSpec(
     mode=NodeMode.ASYNC,
     inputs=[PortSpec(name="in", frame_schema="audio.full", required=True)],
     outputs=[],
-    description="基础音频执行节点（收到即执行）",
+    description="Base audio executor node that runs immediately when it receives input.",
     config_schema=AudioPlayBaseConfig.model_json_schema(),
 )
 

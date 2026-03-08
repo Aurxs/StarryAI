@@ -17,10 +17,16 @@ from app.core.sync_protocol import SyncMeta
 class SyncInitiatorDualConfig(CommonNodeConfig):
     """同步发起器配置。"""
 
-    sync_group: Any = Field(default=None)
-    sync_round: Any = Field(default=0)
-    ready_timeout_ms: Any = Field(default=800)
-    commit_lead_ms: Any = Field(default=50)
+    sync_group: Any = Field(default=None, description="Sync group name for the task.")
+    sync_round: Any = Field(default=0, description="Current sync round for the task.")
+    ready_timeout_ms: Any = Field(
+        default=800,
+        description="Maximum wait time for participants to become ready, in milliseconds.",
+    )
+    commit_lead_ms: Any = Field(
+        default=50,
+        description="Lead time reserved before the coordinator commits, in milliseconds.",
+    )
 
 
 class SyncInitiatorDualNode(SyncNode):
@@ -114,7 +120,7 @@ SYNC_INITIATOR_DUAL_SPEC = NodeSpec(
         strategy=SyncStrategy.BARRIER,
         role=SyncRole.INITIATOR,
     ),
-    description="同步发起器：将双路输入封装为双路同步任务包",
+    description="Sync initiator that packages dual inputs into paired sync tasks.",
     config_schema=SyncInitiatorDualConfig.model_json_schema(),
 )
 

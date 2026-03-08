@@ -42,6 +42,7 @@ import 'reactflow/dist/style.css';
 import type {EdgeSpec, NodeInstanceSpec, NodeSpec, PortSpec} from '../../entities/workbench/types';
 import {apiClient} from '../../shared/api/client';
 import {changeAppLanguage, normalizeLanguage} from '../../shared/i18n/i18n';
+import {translateNodeTypeDescription, translatePortDescription} from '../../shared/i18n/label-mappers';
 import {useGraphStore} from '../../shared/state/graph-store';
 import {notifyUser} from '../../shared/state/global-info-store';
 import {useUiStore} from '../../shared/state/ui-store';
@@ -264,11 +265,14 @@ const toRfEdge = (edge: EdgeSpec, strokeColor: string, highlighted = false): Edg
     },
 });
 
-const PortTag = ({prefix, port}: { prefix: 'in' | 'out'; port: PortSpec }) => {
+const PortTag = ({nodeTypeName, prefix, port}: { nodeTypeName: string; prefix: 'in' | 'out'; port: PortSpec }) => {
+    const {t} = useTranslation();
     const simpleType = simplifyFrameSchema(port.frame_schema);
     const color = getSchemaColor(port.frame_schema);
+    const localizedDescription = translatePortDescription(t, nodeTypeName, port.name, port.description);
     return (
         <div
+            title={localizedDescription}
             style={{
                 display: 'flex',
                 justifyContent: 'space-between',
@@ -331,7 +335,7 @@ const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
                                     background: '#fff',
                                 }}
                             />
-                            <PortTag prefix="in" port={port}/>
+                            <PortTag nodeTypeName={data.spec.type_name} prefix="in" port={port}/>
                         </div>
                     ))}
                 </div>
@@ -350,7 +354,7 @@ const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
                                     background: '#fff',
                                 }}
                             />
-                            <PortTag prefix="out" port={port}/>
+                            <PortTag nodeTypeName={data.spec.type_name} prefix="out" port={port}/>
                         </div>
                     ))}
                 </div>
@@ -963,8 +967,9 @@ const GraphEditorInner = () => {
 
     const contextMenuAboutText = useMemo(() => {
         const rawDescription = contextMenuNodeSpec?.description;
-        if (typeof rawDescription === 'string' && rawDescription.trim()) {
-            return rawDescription.trim();
+        const typeName = contextMenuNodeSpec?.type_name;
+        if (typeof rawDescription === 'string' && rawDescription.trim() && typeName) {
+            return translateNodeTypeDescription(t, typeName, rawDescription.trim());
         }
         return t('graphEditor.contextMenu.aboutFallback');
     }, [contextMenuNodeSpec, t]);
@@ -1541,7 +1546,12 @@ const GraphEditorInner = () => {
                                             <div style={{fontSize: 10, color: '#94a3b8'}}>{t('common.none')}</div>
                                         )}
                                         {(nodeType.inputs ?? EMPTY_PORTS).map((port) => (
-                                            <PortTag key={`lib-in-${nodeType.type_name}-${port.name}`} prefix="in" port={port}/>
+                                            <PortTag
+                                                key={`lib-in-${nodeType.type_name}-${port.name}`}
+                                                nodeTypeName={nodeType.type_name}
+                                                prefix="in"
+                                                port={port}
+                                            />
                                         ))}
                                     </div>
                                     <div>
@@ -1549,7 +1559,12 @@ const GraphEditorInner = () => {
                                             <div style={{fontSize: 10, color: '#94a3b8'}}>{t('common.none')}</div>
                                         )}
                                         {(nodeType.outputs ?? EMPTY_PORTS).map((port) => (
-                                            <PortTag key={`lib-out-${nodeType.type_name}-${port.name}`} prefix="out" port={port}/>
+                                            <PortTag
+                                                key={`lib-out-${nodeType.type_name}-${port.name}`}
+                                                nodeTypeName={nodeType.type_name}
+                                                prefix="out"
+                                                port={port}
+                                            />
                                         ))}
                                     </div>
                                 </div>

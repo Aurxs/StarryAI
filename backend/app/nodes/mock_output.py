@@ -39,7 +39,7 @@ MOCK_OUTPUT_SPEC = NodeSpec(
     mode=NodeMode.ASYNC,
     inputs=[PortSpec(name="in", frame_schema="any", required=True)],
     outputs=[],
-    description="模拟输出节点",
+    description="Mock output node.",
     config_schema=MockOutputConfig.model_json_schema(),
 )
 

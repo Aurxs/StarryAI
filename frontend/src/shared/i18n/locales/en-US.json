@@ -189,6 +189,54 @@
       "unsupportedRoot": "This node config schema cannot be rendered as a form yet. Use advanced JSON editing instead.",
       "unsupportedField": "This field type is not rendered automatically yet: {{fieldType}}"
     },
+    "schemaFields": {
+      "content": "Content",
+      "model": "Model",
+      "temperature": "Temperature",
+      "system_prompt": "System Prompt",
+      "api_key": "API Key",
+      "base_url": "Base URL",
+      "api_path": "API Path",
+      "auth_header_name": "Auth Header Name",
+      "auth_scheme": "Auth Scheme",
+      "max_tokens": "Max Tokens",
+      "top_p": "Top-p",
+      "extra_body_json": "Extra Body JSON",
+      "timeout_s": "Timeout (s)",
+      "max_retries": "Max Retries",
+      "retry_backoff_ms": "Retry Backoff (ms)",
+      "continue_on_error": "Continue on Error",
+      "critical": "Critical",
+      "sync_group": "Sync Group",
+      "sync_round": "Sync Round",
+      "ready_timeout_ms": "Ready Timeout (ms)",
+      "commit_lead_ms": "Commit Lead (ms)"
+    },
+    "schemaFieldDescriptions": {
+      "_shared": {
+        "content": "Static text emitted by the node.",
+        "model": "Target model name.",
+        "temperature": "Sampling temperature.",
+        "system_prompt": "System prompt sent to the model.",
+        "api_key": "API key used to access the remote LLM service.",
+        "base_url": "Base URL of the LLM service.",
+        "api_path": "Request path. Supports either a full URL or a relative path.",
+        "auth_header_name": "Authentication header name, such as Authorization or api-key.",
+        "auth_scheme": "Authentication scheme. Leave empty to send the API key directly.",
+        "max_tokens": "Maximum number of output tokens. Leave empty to let the service decide.",
+        "top_p": "Top-p sampling parameter.",
+        "extra_body_json": "Extra request body JSON object used to inject provider-specific parameters.",
+        "timeout_s": "Per-execution timeout in seconds.",
+        "max_retries": "Maximum number of retries after a failure.",
+        "retry_backoff_ms": "Backoff interval between retries in milliseconds.",
+        "continue_on_error": "Whether the workflow may continue after this node fails.",
+        "critical": "Whether this node is treated as critical.",
+        "sync_group": "Sync group name for the task.",
+        "sync_round": "Current sync round for the task.",
+        "ready_timeout_ms": "Maximum wait time for participants to become ready, in milliseconds.",
+        "commit_lead_ms": "Lead time reserved before the coordinator commits, in milliseconds."
+      }
+    },
     "secret": {
       "badge": "Secret",
       "selectRequired": "Select a secret",
@@ -252,6 +300,13 @@
       "usage": "Usage: {{count}}",
       "updatedAt": "Updated: {{time}}"
     },
+    "kinds": {
+      "generic": "Generic",
+      "api_key": "API Key"
+    },
+    "providers": {
+      "memory": "Memory"
+    },
     "actions": {
       "refresh": "Refresh",
       "loading": "Refreshing...",
@@ -271,6 +326,23 @@
       "kindRequired": "Secret kind is required.",
       "valueRequired": "Secret value is required.",
       "missingItem": "The selected secret no longer exists. Refresh and try again."
+    }
+  },
+  "nodeTypeDescriptions": {
+    "audio_play_base": "Base audio executor node that runs immediately when it receives input.",
+    "audio_play_sync": "Synchronous audio executor node that runs after a coordinated commit.",
+    "llm_openai_compatible": "Real LLM node compatible with the OpenAI Chat Completions API.",
+    "mock_input": "Mock input node that emits complete text payloads.",
+    "mock_llm": "Mock LLM node that consumes complete text and returns a complete reply.",
+    "mock_motion": "Mock motion planning node that outputs a full motion timeline.",
+    "mock_output": "Mock output node.",
+    "mock_tts": "Mock TTS node that consumes text and outputs complete audio metadata.",
+    "motion_play_sync": "Synchronous motion executor node that runs after a coordinated commit.",
+    "sync_initiator_dual": "Sync initiator that packages dual inputs into paired sync tasks."
+  },
+  "nodePortDescriptions": {
+    "mock_input": {
+      "text": "Complete text output."
     }
   },
   "graphValidation": {

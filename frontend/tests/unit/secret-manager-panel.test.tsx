@@ -56,18 +56,20 @@ describe('SecretManagerPanel', () => {
 
         expect(await screen.findByText('OpenAI Main')).toBeTruthy();
 
-        fireEvent.click(screen.getByRole('button', {name: '新建 Secret'}));
-        const dialog = screen.getByRole('dialog', {name: '新建 Secret'});
+        fireEvent.click(screen.getByRole('button', {name: '新建密钥'}));
+        const dialog = screen.getByRole('dialog', {name: '新建密钥'});
         fireEvent.change(within(dialog).getByLabelText('名称'), {target: {value: 'Audio Main'}});
         fireEvent.change(within(dialog).getByLabelText('类型'), {target: {value: 'device_token'}});
-        fireEvent.change(within(dialog).getByLabelText('Secret ID（可选）'), {target: {value: 'audio-main'}});
+        fireEvent.change(within(dialog).getByLabelText('密钥 ID（可选）'), {target: {value: 'audio-main'}});
         fireEvent.change(within(dialog).getByLabelText('描述'), {target: {value: 'Audio device token'}});
-        fireEvent.change(within(dialog).getByLabelText('Secret 值'), {target: {value: 'raw-audio-token'}});
+        fireEvent.change(within(dialog).getByLabelText('密钥值'), {target: {value: 'raw-audio-token'}});
         fireEvent.click(within(dialog).getByRole('button', {name: '保存'}));
 
         expect(await screen.findByText('Audio Main')).toBeTruthy();
         expect(screen.queryByText('raw-audio-token')).toBeNull();
-        expect(screen.getByText('共 2 个 Secret')).toBeTruthy();
+        expect(screen.getByText('共 2 个密钥')).toBeTruthy();
+        expect(screen.getByText('类型: API 密钥')).toBeTruthy();
+        expect(screen.getAllByText('存储: 内存').length).toBeGreaterThan(0);
     });
 
     it('shows backend delete conflict when secret is still referenced', async () => {

@@ -5,6 +5,8 @@
 ## 当前实现补充
 
 - 节点配置面板文案与提示信息已迁移到语言包。
+- 节点配置表单的字段标题、字段说明、Secret 类型/存储显示值必须从 i18n JSON 读取，不允许在 TS 文件里维护翻译映射表。
+- 后端通过 schema 暴露给前端的 `title`/`description` 统一使用英文源文案；中文展示由前端按当前语言从 i18n JSON 映射。
 - 同步参数托管规则（第三批）：
   - 同步发起器可编辑：`sync_group`、`ready_timeout_ms`、`commit_lead_ms`；
   - `sync_round` 在前端统一只读展示（自动轮次）；

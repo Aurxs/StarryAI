@@ -16,7 +16,10 @@ from app.core.spec import NodeMode, NodeSpec, PortSpec
 class MockInputConfig(CommonNodeConfig):
     """Mock 输入节点配置。"""
 
-    content: str = Field(default="你好，这是 StarryAI 的输入消息")
+    content: str = Field(
+        default="你好，这是 StarryAI 的输入消息",
+        description="Static text emitted by the node.",
+    )
 
 
 class MockInputNode(AsyncNode):
@@ -60,10 +63,10 @@ MOCK_INPUT_SPEC = NodeSpec(
             frame_schema="text.final",
             is_stream=False,
             required=True,
-            description="完整文本输出",
+            description="Complete text output.",
         )
     ],
-    description="模拟输入节点，产出完整文本",
+    description="Mock input node that emits complete text payloads.",
     config_schema=MockInputConfig.model_json_schema(),
 )
 

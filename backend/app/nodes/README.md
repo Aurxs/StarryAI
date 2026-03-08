@@ -139,6 +139,7 @@ NODE_DEFINITIONS = [
 2. `self.config` / `self.raw_config` 只保留兼容用途。
 3. 需要前端控制表单顺序时，可使用 `json_schema_extra={"x-starryai-order": 10}`。
 4. 需要 Secret 选择器、多行文本等控件时，参考现有 `mock_llm.py`、`llm_openai_compatible.py` 的 `json_schema_extra` 写法。
+5. 面向前端展示的 `Field.description`、`PortSpec.description`、`NodeSpec.description` 统一使用英文源文案；不同语言的展示文本由前端从 i18n JSON 映射，节点文件中不要直接维护多语言内容。
 
 ### 5.2 定义 NodeSpec
 

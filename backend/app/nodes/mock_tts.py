@@ -57,7 +57,7 @@ MOCK_TTS_SPEC = NodeSpec(
     mode=NodeMode.ASYNC,
     inputs=[PortSpec(name="text", frame_schema="text.final", required=True)],
     outputs=[PortSpec(name="audio", frame_schema="audio.full", required=True)],
-    description="模拟 TTS 节点（输入文本，输出完整音频元信息）",
+    description="Mock TTS node that consumes text and outputs complete audio metadata.",
     config_schema=MockTTSConfig.model_json_schema(),
 )
 

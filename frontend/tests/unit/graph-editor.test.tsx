@@ -145,6 +145,48 @@ describe('GraphEditor', () => {
         expect(within(menu).getByText('暂无节点说明。')).toBeTruthy();
     });
 
+    it('localizes node and port descriptions from i18n mappings', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'mock.input',
+                            version: '0.1.0',
+                            mode: 'async',
+                            inputs: [],
+                            outputs: [
+                                {
+                                    name: 'text',
+                                    frame_schema: 'text.final',
+                                    is_stream: false,
+                                    required: true,
+                                    description: 'Complete text output.',
+                                },
+                            ],
+                            sync_config: null,
+                            config_schema: {},
+                            description: 'Mock input node that emits complete text payloads.',
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        render(<GraphEditor/>);
+
+        addNodeFromDrawer('mock.input');
+
+        const nodeCard = await screen.findByTestId('workflow-node-n1');
+        const portTag = within(nodeCard).getByText('out:text').closest('div');
+        expect(portTag?.getAttribute('title')).toBe('完整文本输出。');
+
+        fireEvent.contextMenu(nodeCard);
+        const menu = screen.getByRole('menu', {name: 'node-context-menu'});
+        expect(within(menu).getByText('模拟输入节点，产出完整文本。')).toBeTruthy();
+    });
+
     it('supports single-node copy/paste shortcuts with full config cloning', async () => {
         render(<GraphEditor/>);
 

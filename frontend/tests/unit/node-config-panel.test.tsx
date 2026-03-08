@@ -3,6 +3,7 @@ import {http, HttpResponse} from 'msw';
 import {beforeEach, describe, expect, it} from 'vitest';
 
 import {NodeConfigPanel} from '../../src/features/node-config/NodeConfigPanel';
+import i18n from '../../src/shared/i18n/i18n';
 import {resetGraphStore, useGraphStore} from '../../src/shared/state/graph-store';
 import {server} from '../mocks/server';
 
@@ -239,24 +240,26 @@ describe('NodeConfigPanel', () => {
 
         render(<NodeConfigPanel/>);
 
-        fireEvent.change(await screen.findByLabelText(/Model/), {
+        fireEvent.change(await screen.findByLabelText(/模型/), {
             target: {value: 'mock-llm-v2'},
         });
 
-        const secretHeading = await screen.findByText('API Key');
+        const secretHeading = await screen.findByText('API 密钥');
         const secretSection = secretHeading.closest('[data-field-path="api_key"]');
         expect(secretSection).toBeTruthy();
 
-        fireEvent.click(within(secretSection as HTMLElement).getByRole('button', {name: '新建 Secret'}));
+        fireEvent.click(within(secretSection as HTMLElement).getByRole('button', {name: '新建密钥'}));
         fireEvent.change(within(secretSection as HTMLElement).getByLabelText('名称'), {
             target: {value: 'LLM Inline'},
         });
-        fireEvent.change(within(secretSection as HTMLElement).getByLabelText('Secret 值'), {
+        fireEvent.change(within(secretSection as HTMLElement).getByLabelText('密钥值'), {
             target: {value: 'sk-inline-value'},
         });
         fireEvent.click(within(secretSection as HTMLElement).getByRole('button', {name: '创建并绑定'}));
 
         await screen.findByText('LLM Inline (llm-inline)');
+        expect(within(secretSection as HTMLElement).getByText('类型: 通用')).toBeTruthy();
+        expect(within(secretSection as HTMLElement).getByText('存储: 内存')).toBeTruthy();
         fireEvent.click(screen.getByRole('button', {name: '保存'}));
 
         const node = useGraphStore.getState().graph.nodes.find((item) => item.node_id === 'n_llm');
@@ -333,7 +336,7 @@ describe('NodeConfigPanel', () => {
 
         render(<NodeConfigPanel/>);
 
-        await screen.findByText('API Key');
+        await screen.findByText('API 密钥');
         fireEvent.change(screen.getByTestId('node-config-json-input'), {
             target: {value: '{\n  "api_key": "sk-plaintext"\n}'},
         });
@@ -420,5 +423,74 @@ describe('NodeConfigPanel', () => {
         expect(screen.getByTestId('node-config-error').textContent).toContain('ready_timeout_ms');
         const node = useGraphStore.getState().graph.nodes.find((item) => item.node_id === 'n_init');
         expect(node?.config).toEqual({sync_group: 'g0', sync_round: 0});
+    });
+
+    it('shows english field descriptions when app language is english', async () => {
+        await i18n.changeLanguage('en-US');
+
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'llm.openai_compatible',
+                            version: '0.1.0',
+                            mode: 'async',
+                            inputs: [
+                                {
+                                    name: 'prompt',
+                                    frame_schema: 'text.final',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                },
+                            ],
+                            outputs: [
+                                {
+                                    name: 'answer',
+                                    frame_schema: 'text.final',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                },
+                            ],
+                            config_schema: {
+                                type: 'object',
+                                properties: {
+                                    base_url: {
+                                        type: 'string',
+                                        title: 'Base URL',
+                                        description: 'Base URL of the LLM service.',
+                                        default: 'https://api.openai.com',
+                                    },
+                                    model: {
+                                        type: 'string',
+                                        title: 'Model',
+                                        description: 'Target model name.',
+                                        default: 'gpt-4o-mini',
+                                    },
+                                },
+                            },
+                            description: 'Real LLM node compatible with the OpenAI Chat Completions API.',
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        useGraphStore.getState().upsertNode({
+            node_id: 'n_en',
+            type_name: 'llm.openai_compatible',
+            title: 'OpenAI LLM',
+            config: {},
+        });
+        useGraphStore.getState().selectNode('n_en');
+
+        render(<NodeConfigPanel/>);
+
+        expect(await screen.findByLabelText(/Base URL/)).toBeTruthy();
+        expect(screen.getByText('Base URL of the LLM service.')).toBeTruthy();
+        expect(screen.getByText('Target model name.')).toBeTruthy();
     });
 });

@@ -19,19 +19,19 @@ class MockLLMConfig(CommonNodeConfig):
 
     model: str = Field(
         default="mock-llm-v1",
-        description="模拟模型名称",
+        description="Target model name.",
         json_schema_extra={"x-starryai-order": 10},
     )
     temperature: float = Field(
         default=0.7,
         ge=0.0,
         le=2.0,
-        description="模拟采样温度",
+        description="Sampling temperature.",
         json_schema_extra={"x-starryai-order": 20},
     )
     system_prompt: str = Field(
         default="你是 StarryAI 的本地模拟 LLM。",
-        description="系统提示词",
+        description="System prompt sent to the model.",
         json_schema_extra={
             "x-starryai-order": 30,
             SECRET_WIDGET_KEY: TEXTAREA_WIDGET,
@@ -39,7 +39,7 @@ class MockLLMConfig(CommonNodeConfig):
     )
     api_key: str | None = Field(
         default=None,
-        description="用于演示 Secret 引用的模拟 API Key",
+        description="API key used to access the remote LLM service.",
         json_schema_extra={
             "x-starryai-order": 40,
             SECRET_FIELD_KEY: True,
@@ -85,7 +85,7 @@ MOCK_LLM_SPEC = NodeSpec(
     mode=NodeMode.ASYNC,
     inputs=[PortSpec(name="prompt", frame_schema="text.final", required=True)],
     outputs=[PortSpec(name="answer", frame_schema="text.final", required=True)],
-    description="模拟 LLM 节点（输入完整文本，输出完整回复）",
+    description="Mock LLM node that consumes complete text and returns a complete reply.",
     config_schema=MockLLMConfig.model_json_schema(),
 )
 

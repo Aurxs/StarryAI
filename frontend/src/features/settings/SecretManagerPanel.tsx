@@ -4,6 +4,7 @@ import {useTranslation} from 'react-i18next';
 
 import type {CreateSecretRequest, SecretCatalogEntry, UpdateSecretRequest} from '../../entities/workbench/types';
 import {ApiClientError} from '../../shared/api/client';
+import {translateSecretKind, translateSecretProvider} from '../../shared/i18n/label-mappers';
 import {useSecretStore} from '../../shared/state/secret-store';
 import {SecretEditorDialog} from './SecretEditorDialog';
 
@@ -254,8 +255,12 @@ export function SecretManagerPanel({listMaxHeight = 340}: SecretManagerPanelProp
                                 </div>
                             </div>
                             <div style={metaRowStyle}>
-                                <span style={pillStyle}>{t('secretManager.meta.kind', {kind: item.kind})}</span>
-                                <span style={pillStyle}>{t('secretManager.meta.provider', {provider: item.provider})}</span>
+                                <span style={pillStyle}>
+                                    {t('secretManager.meta.kind', {kind: translateSecretKind(t, item.kind)})}
+                                </span>
+                                <span style={pillStyle}>
+                                    {t('secretManager.meta.provider', {provider: translateSecretProvider(t, item.provider)})}
+                                </span>
                                 <span style={pillStyle}>{t('secretManager.meta.usage', {count: item.usage_count})}</span>
                             </div>
                             {item.description && (

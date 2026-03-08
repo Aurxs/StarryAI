@@ -39,7 +39,7 @@ AUDIO_PLAY_SYNC_SPEC = NodeSpec(
         commit_lead_ms=50,
         ready_timeout_ms=800,
     ),
-    description="同步音频执行节点（由协调器统一提交后执行）",
+    description="Synchronous audio executor node that runs after a coordinated commit.",
     config_schema=AudioPlaySyncConfig.model_json_schema(),
 )
 

@@ -62,7 +62,7 @@ MOCK_MOTION_SPEC = NodeSpec(
     mode=NodeMode.ASYNC,
     inputs=[PortSpec(name="text", frame_schema="text.final", required=True)],
     outputs=[PortSpec(name="motion", frame_schema="motion.timeline", required=True)],
-    description="模拟动作规划节点（输出完整动作轨迹）",
+    description="Mock motion planning node that outputs a full motion timeline.",
     config_schema=MockMotionConfig.model_json_schema(),
 )
 

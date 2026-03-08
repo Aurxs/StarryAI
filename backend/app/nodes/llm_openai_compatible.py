@@ -25,22 +25,22 @@ class OpenAICompatibleLLMConfig(CommonNodeConfig):
 
     base_url: str = Field(
         default="https://api.openai.com",
-        description="LLM 服务基础地址",
+        description="Base URL of the LLM service.",
         json_schema_extra={"x-starryai-order": 10},
     )
     api_path: str = Field(
         default="/v1/chat/completions",
-        description="请求路径；支持完整 URL 或相对路径",
+        description="Request path. Supports either a full URL or a relative path.",
         json_schema_extra={"x-starryai-order": 20},
     )
     model: str = Field(
         default="gpt-4o-mini",
-        description="目标模型名称",
+        description="Target model name.",
         json_schema_extra={"x-starryai-order": 30},
     )
     api_key: str | None = Field(
         default=None,
-        description="用于访问远端 LLM 服务的 API Key",
+        description="API key used to access the remote LLM service.",
         json_schema_extra={
             "x-starryai-order": 40,
             SECRET_FIELD_KEY: True,
@@ -51,17 +51,17 @@ class OpenAICompatibleLLMConfig(CommonNodeConfig):
     )
     auth_header_name: str = Field(
         default="Authorization",
-        description="鉴权请求头名称，例如 Authorization 或 api-key",
+        description="Authentication header name, such as Authorization or api-key.",
         json_schema_extra={"x-starryai-order": 50},
     )
     auth_scheme: str = Field(
         default="Bearer",
-        description="鉴权方案；留空则直接发送 API Key",
+        description="Authentication scheme. Leave empty to send the API key directly.",
         json_schema_extra={"x-starryai-order": 60},
     )
     system_prompt: str = Field(
         default="You are StarryAI's workflow LLM node.",
-        description="系统提示词",
+        description="System prompt sent to the model.",
         json_schema_extra={
             "x-starryai-order": 70,
             SECRET_WIDGET_KEY: TEXTAREA_WIDGET,
@@ -71,25 +71,25 @@ class OpenAICompatibleLLMConfig(CommonNodeConfig):
         default=0.2,
         ge=0.0,
         le=2.0,
-        description="采样温度",
+        description="Sampling temperature.",
         json_schema_extra={"x-starryai-order": 80},
     )
     max_tokens: int | None = Field(
         default=None,
         ge=1,
-        description="最大输出 token 数；留空表示由服务端决定",
+        description="Maximum number of output tokens. Leave empty to let the service decide.",
         json_schema_extra={"x-starryai-order": 90},
     )
     top_p: float | None = Field(
         default=None,
         gt=0.0,
         le=1.0,
-        description="Top-p 采样参数",
+        description="Top-p sampling parameter.",
         json_schema_extra={"x-starryai-order": 100},
     )
     extra_body_json: str = Field(
         default="",
-        description="额外请求体 JSON（对象），用于注入 provider 特有参数",
+        description="Extra request body JSON object used to inject provider-specific parameters.",
         json_schema_extra={
             "x-starryai-order": 110,
             SECRET_WIDGET_KEY: TEXTAREA_WIDGET,
@@ -366,7 +366,7 @@ OPENAI_COMPATIBLE_LLM_SPEC = NodeSpec(
     mode=NodeMode.ASYNC,
     inputs=[PortSpec(name="prompt", frame_schema="text.final", required=True)],
     outputs=[PortSpec(name="answer", frame_schema="text.final", required=True)],
-    description="真实 LLM 节点（OpenAI-compatible Chat Completions）",
+    description="Real LLM node compatible with the OpenAI Chat Completions API.",
     config_schema=OpenAICompatibleLLMConfig.model_json_schema(),
 )
 

@@ -4,6 +4,12 @@ import {useTranslation} from 'react-i18next';
 
 import type {CreateSecretRequest, SecretCatalogEntry} from '../../entities/workbench/types';
 import {
+    translateSchemaDescription,
+    translateSchemaFieldLabel,
+    translateSecretKind,
+    translateSecretProvider,
+} from '../i18n/label-mappers';
+import {
     applySchemaDefaults,
     getOrderedObjectEntries,
     getRequiredFieldSet,
@@ -174,8 +180,12 @@ function SecretField({
             </select>
             {selectedSecret && (
                 <div style={{display: 'flex', flexWrap: 'wrap', gap: 6, fontSize: 11, color: '#475569'}}>
-                    <span style={badgeStyle}>{t('secretManager.meta.kind', {kind: selectedSecret.kind})}</span>
-                    <span style={badgeStyle}>{t('secretManager.meta.provider', {provider: selectedSecret.provider})}</span>
+                    <span style={badgeStyle}>
+                        {t('secretManager.meta.kind', {kind: translateSecretKind(t, selectedSecret.kind)})}
+                    </span>
+                    <span style={badgeStyle}>
+                        {t('secretManager.meta.provider', {provider: translateSecretProvider(t, selectedSecret.provider)})}
+                    </span>
                     <span style={badgeStyle}>{t('secretManager.meta.usage', {count: selectedSecret.usage_count})}</span>
                 </div>
             )}
@@ -213,6 +223,7 @@ function SecretField({
 }
 
 interface SchemaFormProps {
+    nodeTypeName?: string;
     schema: JsonSchemaNode;
     value: Record<string, unknown>;
     secrets: SecretCatalogEntry[];
@@ -258,6 +269,7 @@ const getValueAtPath = (currentValue: Record<string, unknown>, path: string[]): 
 };
 
 interface SchemaFieldsProps {
+    nodeTypeName?: string;
     schema: JsonSchemaNode;
     rootSchema: JsonSchemaNode;
     value: Record<string, unknown>;
@@ -267,7 +279,7 @@ interface SchemaFieldsProps {
     onCreateSecret: (request: CreateSecretRequest) => Promise<SecretCatalogEntry>;
 }
 
-function SchemaFields({schema, rootSchema, value, path, secrets, onChange, onCreateSecret}: SchemaFieldsProps) {
+function SchemaFields({nodeTypeName, schema, rootSchema, value, path, secrets, onChange, onCreateSecret}: SchemaFieldsProps) {
     const {t} = useTranslation();
     const requiredFields = getRequiredFieldSet(schema);
 
@@ -277,8 +289,8 @@ function SchemaFields({schema, rootSchema, value, path, secrets, onChange, onCre
                 const fieldPath = [...path, fieldKey];
                 const fieldValue = getValueAtPath(value, fieldPath);
                 const required = requiredFields.has(fieldKey);
-                const label = fieldSchema.title ?? fieldKey;
-                const description = fieldSchema.description;
+                const label = translateSchemaFieldLabel(t, fieldKey, fieldSchema.title ?? fieldKey);
+                const description = translateSchemaDescription(t, fieldKey, fieldSchema.description, nodeTypeName);
                 const resolvedType = fieldSchema.type;
 
                 if (isSecretSchema(fieldSchema)) {
@@ -314,6 +326,7 @@ function SchemaFields({schema, rootSchema, value, path, secrets, onChange, onCre
                                 </div>
                             </div>
                             <SchemaFields
+                                nodeTypeName={nodeTypeName}
                                 schema={fieldSchema}
                                 rootSchema={rootSchema}
                                 value={nestedValue}
@@ -434,7 +447,7 @@ function SchemaFields({schema, rootSchema, value, path, secrets, onChange, onCre
     );
 }
 
-export function SchemaForm({schema, value, secrets, onChange, onCreateSecret}: SchemaFormProps) {
+export function SchemaForm({nodeTypeName, schema, value, secrets, onChange, onCreateSecret}: SchemaFormProps) {
     const {t} = useTranslation();
     const schemaRoot = useMemo(() => schema, [schema]);
     const effectiveValue = useMemo(() => applySchemaDefaults(schemaRoot, value), [schemaRoot, value]);
@@ -451,6 +464,7 @@ export function SchemaForm({schema, value, secrets, onChange, onCreateSecret}: S
     return (
         <section style={formRootStyle} data-testid="schema-form">
             <SchemaFields
+                nodeTypeName={nodeTypeName}
                 schema={schemaRoot}
                 rootSchema={schemaRoot}
                 value={effectiveValue}
