@@ -154,6 +154,7 @@ def test_discovery_scans_real_nodes_package_in_non_strict_mode() -> None:
     definitions = discover_node_definitions(package_name="app.nodes", strict=False)
     type_names = [definition.spec.type_name for definition in definitions]
     assert {
+        "llm.openai_compatible",
         "mock.input",
         "mock.llm",
         "mock.tts",
@@ -231,4 +232,3 @@ def test_missing_package_raises_discovery_error() -> None:
     """不存在的 package_name 应抛出 NodeDiscoveryError，而非 ModuleNotFoundError。"""
     with pytest.raises(NodeDiscoveryError, match="导入节点包失败"):
         discover_node_definitions(package_name="nonexistent.package.xyz_0123456789")
-

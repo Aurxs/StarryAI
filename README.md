@@ -6,7 +6,7 @@ StarryAI 是一个模块化、节点式 AI 虚拟人工作流引擎（Backend + 
 
 - 当前后端阶段：`Phase D`（可观测性与稳定性）。
 - 前端工作台范围：仅桌面端（Desktop Web）。
-- 不在当前范围：移动端适配、真实模型推理与外部网络调用。
+- 不在当前范围：移动端适配、大规模生产部署。
 
 ## 最近修复（2026-02-28）
 
@@ -117,6 +117,15 @@ StarryAI 是一个模块化、节点式 AI 虚拟人工作流引擎（Backend + 
     - `python -m pytest -q backend/tests`（`176 passed`）
     - `python -m ruff check backend/app backend/tests backend/scripts`（通过）
     - `python -m mypy backend/app`（通过）
+- 节点配置与 Secret 管理第一批（2026-03-08）：
+  - 后端新增 Secret Store / Secret API / 图保存与运行前 Secret 校验解析；
+  - 前端新增设置页 `Secret 管理器`，支持创建、轮换、删除、引用统计；
+  - 节点配置页升级为 schema-driven 表单，Secret 字段支持引用已有 Secret 或就地创建；
+  - 新增首个真实模型节点：`llm.openai_compatible`，默认对接 OpenAI-compatible Chat Completions；
+  - 当前验证：
+    - `python -m pytest -q backend/tests`（`186 passed`）
+    - `npm run test --prefix frontend`（`126 passed`）
+    - `npm run build --prefix frontend`（通过）
 
 ## 核心能力
 

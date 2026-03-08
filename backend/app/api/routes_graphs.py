@@ -9,6 +9,7 @@ from app.core.graph_compatibility import (
     enrich_graph_compat_metadata,
     get_primary_incompatibility,
 )
+from app.core.graph_builder import GraphBuildError
 from app.core.graph_builder import GraphBuilder
 from app.core.registry import create_default_registry
 from app.core.spec import GraphSpec
@@ -24,6 +25,7 @@ from app.services.graph_repository import (
     GraphRepositoryError,
     get_graph_repository,
 )
+from app.secrets.service import get_secret_service
 
 # 图配置相关路由。
 router = APIRouter(prefix="/api/v1/graphs", tags=["graphs"])
@@ -37,7 +39,7 @@ async def validate_graph(graph: GraphSpec) -> dict[str, object]:
     - 前端保存前预校验。
     - 后端运行前最终校验。
     """
-    builder = GraphBuilder(create_default_registry())
+    builder = GraphBuilder(create_default_registry(), secret_exists=get_secret_service().exists)
     report = builder.validate(graph)
     return report.model_dump(mode="json")
 
@@ -134,6 +136,21 @@ async def save_graph(graph_id: str, graph: GraphSpec) -> dict[str, object]:
         )
 
     registry = create_default_registry()
+    builder = GraphBuilder(registry, secret_exists=get_secret_service().exists)
+    report = builder.validate(graph)
+    config_errors = [issue for issue in report.issues if issue.code.startswith("node.config_") or issue.code.startswith("node.secret_")]
+    if config_errors:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "message": "图包含非法节点配置，禁止保存",
+                "report": {
+                    "graph_id": report.graph_id,
+                    "valid": False,
+                    "issues": [issue.model_dump(mode="json") for issue in config_errors],
+                },
+            },
+        )
     graph_with_compat = enrich_graph_compat_metadata(graph, registry)
     repository = get_graph_repository()
     try:

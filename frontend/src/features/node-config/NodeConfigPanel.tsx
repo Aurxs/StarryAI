@@ -2,8 +2,11 @@ import {useEffect, useMemo, useState, type CSSProperties} from 'react';
 import {useTranslation} from 'react-i18next';
 
 import type {NodeSpec} from '../../entities/workbench/types';
-import {apiClient} from '../../shared/api/client';
+import {apiClient, ApiClientError} from '../../shared/api/client';
+import {SchemaForm} from '../../shared/schema-form/SchemaForm';
+import {findPlaintextSecretPaths} from '../../shared/schema-form/normalize-schema';
 import {useGraphStore} from '../../shared/state/graph-store';
+import {useSecretStore} from '../../shared/state/secret-store';
 import {
     COMMIT_LEAD_KEY,
     DEFAULT_COMMIT_LEAD_MS,
@@ -24,10 +27,8 @@ import {
 
 const panelStyle: CSSProperties = {
     marginTop: 10,
-    border: '1px solid rgba(31, 41, 51, 0.14)',
-    borderRadius: 10,
-    padding: 10,
-    background: 'rgba(248, 250, 252, 0.95)',
+    display: 'grid',
+    gap: 12,
     color: '#0f172a',
 };
 
@@ -45,7 +46,7 @@ const inputStyle: CSSProperties = {
 
 const textareaStyle: CSSProperties = {
     ...inputStyle,
-    minHeight: 130,
+    minHeight: 140,
     resize: 'vertical',
     fontFamily: 'ui-monospace, Menlo, Consolas, monospace',
     lineHeight: 1.4,
@@ -64,6 +65,19 @@ const buttonStyle: CSSProperties = {
     color: '#0f172a',
     marginRight: 8,
     lineHeight: 1.1,
+};
+
+const sectionTitleStyle: CSSProperties = {
+    fontSize: 12,
+    fontWeight: 600,
+    color: '#334155',
+};
+
+const advancedSectionStyle: CSSProperties = {
+    display: 'grid',
+    gap: 8,
+    paddingTop: 12,
+    borderTop: '1px solid rgba(148, 163, 184, 0.28)',
 };
 
 const formatJson = (value: Record<string, unknown>): string => JSON.stringify(value, null, 2);
@@ -102,11 +116,38 @@ const buildSyncFieldDraft = (config: Record<string, unknown>): SyncFieldDraft =>
     };
 };
 
-const buildRuntimeConfigDraft = (config: Record<string, unknown>, role: SyncPanelRole): string => {
-    if (role === 'none') {
-        return formatJson(config);
+const buildRuntimeConfig = (config: Record<string, unknown>, role: SyncPanelRole): Record<string, unknown> =>
+    role === 'none' ? config : stripManagedSyncFields(config);
+
+const parseRuntimeConfigText = (
+    text: string,
+    t: (key: string) => string,
+): Record<string, unknown> => {
+    let rawParsed: unknown;
+    try {
+        rawParsed = JSON.parse(text) as unknown;
+    } catch {
+        throw new Error(t('nodeConfig.errors.invalidJson'));
     }
-    return formatJson(stripManagedSyncFields(config));
+    if (!rawParsed || typeof rawParsed !== 'object' || Array.isArray(rawParsed)) {
+        throw new Error(t('nodeConfig.errors.mustBeObject'));
+    }
+    return rawParsed as Record<string, unknown>;
+};
+
+const assertNoPlaintextSecrets = (
+    config: Record<string, unknown>,
+    configSchema: Record<string, unknown>,
+    t: (key: string, options?: Record<string, unknown>) => string,
+): void => {
+    const secretPaths = findPlaintextSecretPaths(configSchema, config);
+    if (secretPaths.length > 0) {
+        throw new Error(
+            t('nodeConfig.errors.secretPlaintextForbidden', {
+                paths: secretPaths.join(', '),
+            }),
+        );
+    }
 };
 
 export function NodeConfigPanel() {
@@ -114,7 +155,20 @@ export function NodeConfigPanel() {
     const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
     const nodes = useGraphStore((state) => state.graph.nodes);
     const patchNode = useGraphStore((state) => state.patchNode);
+
+    const secrets = useSecretStore((state) => state.items);
+    const loadSecrets = useSecretStore((state) => state.loadSecrets);
+    const createSecret = useSecretStore((state) => state.createSecret);
+
     const [catalogByType, setCatalogByType] = useState<Map<string, NodeSpec>>(new Map());
+    const [titleDraft, setTitleDraft] = useState('');
+    const [runtimeConfigDraft, setRuntimeConfigDraft] = useState<Record<string, unknown>>({});
+    const [configDraftText, setConfigDraftText] = useState('{}');
+    const [syncFieldDraft, setSyncFieldDraft] = useState<SyncFieldDraft>(createDefaultSyncFieldDraft());
+    const [showAdvancedJson, setShowAdvancedJson] = useState(false);
+    const [jsonDraftError, setJsonDraftError] = useState<string | null>(null);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
     const selectedNode = useMemo(
         () => nodes.find((node) => node.node_id === selectedNodeId) ?? null,
@@ -148,23 +202,21 @@ export function NodeConfigPanel() {
         () => (selectedNode && syncRole === 'executor' ? getManagedByNodeId(selectedNode.config) : null),
         [selectedNode, syncRole],
     );
-
-    const [titleDraft, setTitleDraft] = useState('');
-    const [configDraft, setConfigDraft] = useState('{}');
-    const [syncFieldDraft, setSyncFieldDraft] = useState<SyncFieldDraft>(createDefaultSyncFieldDraft());
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
-    const [successMessage, setSuccessMessage] = useState<string | null>(null);
+    const runtimeSchema = selectedSpec?.config_schema ?? {type: 'object', properties: {}};
 
     useEffect(() => {
         let cancelled = false;
         const loadCatalog = async () => {
             try {
-                const payload = await apiClient.listNodeTypes();
+                const [catalogPayload] = await Promise.all([
+                    apiClient.listNodeTypes(),
+                    loadSecrets().catch(() => undefined),
+                ]);
                 if (cancelled) {
                     return;
                 }
                 const next = new Map<string, NodeSpec>();
-                for (const item of payload.items) {
+                for (const item of catalogPayload.items) {
                     next.set(item.type_name, item);
                 }
                 setCatalogByType(next);
@@ -178,20 +230,26 @@ export function NodeConfigPanel() {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [loadSecrets]);
 
     useEffect(() => {
         if (!selectedNode) {
             setTitleDraft('');
-            setConfigDraft('{}');
+            setRuntimeConfigDraft({});
+            setConfigDraftText('{}');
             setSyncFieldDraft(createDefaultSyncFieldDraft());
+            setShowAdvancedJson(false);
+            setJsonDraftError(null);
             setErrorMessage(null);
             setSuccessMessage(null);
             return;
         }
+        const runtimeConfig = buildRuntimeConfig(selectedNode.config, syncRole);
         setTitleDraft(selectedNode.title);
-        setConfigDraft(buildRuntimeConfigDraft(selectedNode.config, syncRole));
+        setRuntimeConfigDraft(runtimeConfig);
+        setConfigDraftText(formatJson(runtimeConfig));
         setSyncFieldDraft(buildSyncFieldDraft(selectedNode.config));
+        setJsonDraftError(null);
         setErrorMessage(null);
         setSuccessMessage(null);
     }, [selectedNode, syncRole]);
@@ -199,7 +257,7 @@ export function NodeConfigPanel() {
     if (!selectedNode) {
         return (
             <section style={panelStyle} data-testid="node-config-empty">
-                <h3 style={{marginTop: 0}}>{t('nodeConfig.title')}</h3>
+                <h3 style={{margin: 0}}>{t('nodeConfig.title')}</h3>
                 <p style={{fontSize: 13, opacity: 0.82, marginBottom: 0}}>
                     {t('nodeConfig.emptyPrompt')}
                 </p>
@@ -211,15 +269,10 @@ export function NodeConfigPanel() {
         const nextTitle = titleDraft.trim() || selectedNode.type_name;
         let parsedRuntimeConfig: Record<string, unknown>;
         try {
-            const rawParsed = JSON.parse(configDraft) as unknown;
-            if (!rawParsed || typeof rawParsed !== 'object' || Array.isArray(rawParsed)) {
-                setErrorMessage(t('nodeConfig.errors.mustBeObject'));
-                setSuccessMessage(null);
-                return;
-            }
-            parsedRuntimeConfig = rawParsed as Record<string, unknown>;
-        } catch {
-            setErrorMessage(t('nodeConfig.errors.invalidJson'));
+            parsedRuntimeConfig = parseRuntimeConfigText(configDraftText, t);
+            assertNoPlaintextSecrets(parsedRuntimeConfig, runtimeSchema, t);
+        } catch (error) {
+            setErrorMessage(error instanceof Error ? error.message : String(error));
             setSuccessMessage(null);
             return;
         }
@@ -269,24 +322,29 @@ export function NodeConfigPanel() {
             title: nextTitle,
             config: parsedConfig,
         });
-        setConfigDraft(buildRuntimeConfigDraft(parsedConfig, syncRole));
+        setRuntimeConfigDraft(parsedRuntimeConfig);
+        setConfigDraftText(formatJson(parsedRuntimeConfig));
         setSyncFieldDraft(buildSyncFieldDraft(parsedConfig));
+        setJsonDraftError(null);
         setErrorMessage(null);
         setSuccessMessage(t('nodeConfig.success.saved'));
     };
 
     const onReset = (): void => {
         setTitleDraft(selectedNode.title);
-        setConfigDraft(buildRuntimeConfigDraft(selectedNode.config, syncRole));
+        const nextRuntimeConfig = buildRuntimeConfig(selectedNode.config, syncRole);
+        setRuntimeConfigDraft(nextRuntimeConfig);
+        setConfigDraftText(formatJson(nextRuntimeConfig));
         setSyncFieldDraft(buildSyncFieldDraft(selectedNode.config));
+        setJsonDraftError(null);
         setErrorMessage(null);
         setSuccessMessage(null);
     };
 
     return (
         <section style={panelStyle} data-testid="node-config-panel">
-            <h3 style={{marginTop: 0, marginBottom: 6}}>{t('nodeConfig.title')}</h3>
-            <div style={{fontSize: 12, opacity: 0.78, marginBottom: 8}}>
+            <h3 style={{margin: 0}}>{t('nodeConfig.title')}</h3>
+            <div style={{fontSize: 12, opacity: 0.78, display: 'grid', gap: 2}}>
                 <div>{t('nodeConfig.meta.nodeId', {nodeId: selectedNode.node_id})}</div>
                 <div>{t('nodeConfig.meta.typeName', {typeName: selectedNode.type_name})}</div>
             </div>
@@ -304,27 +362,77 @@ export function NodeConfigPanel() {
                 />
             </label>
 
-            <label style={{display: 'block', fontSize: 12, marginTop: 10}}>
-                {isSyncNode ? t('nodeConfig.fields.runtimeConfigJson') : t('nodeConfig.fields.configJson')}
-                <textarea
-                    value={configDraft}
-                    onChange={(event) => {
-                        setConfigDraft(event.target.value);
-                        setSuccessMessage(null);
-                    }}
-                    style={textareaStyle}
-                    data-testid="node-config-json-input"
-                />
-            </label>
+            <SchemaForm
+                schema={runtimeSchema}
+                value={runtimeConfigDraft}
+                secrets={secrets}
+                onCreateSecret={async (request) => {
+                    try {
+                        const created = await createSecret(request);
+                        return created;
+                    } catch (error) {
+                        throw new ApiClientError(
+                            error instanceof Error ? error.message : String(error),
+                            'validation',
+                            null,
+                            null,
+                        );
+                    }
+                }}
+                onChange={(nextConfig) => {
+                    setRuntimeConfigDraft(nextConfig);
+                    setConfigDraftText(formatJson(nextConfig));
+                    setJsonDraftError(null);
+                    setErrorMessage(null);
+                    setSuccessMessage(null);
+                }}
+            />
+
+            <section style={advancedSectionStyle} data-testid="node-config-advanced-json">
+                <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8}}>
+                    <div style={sectionTitleStyle}>{t('nodeConfig.fields.advancedJson')}</div>
+                    <button
+                        type="button"
+                        style={buttonStyle}
+                        onClick={() => setShowAdvancedJson((current) => !current)}
+                    >
+                        {showAdvancedJson ? t('nodeConfig.actions.hideAdvanced') : t('nodeConfig.actions.showAdvanced')}
+                    </button>
+                </div>
+                <div style={{display: showAdvancedJson ? 'block' : 'none'}}>
+                    <label style={{display: 'block', fontSize: 12}}>
+                        {isSyncNode ? t('nodeConfig.fields.runtimeConfigJson') : t('nodeConfig.fields.configJson')}
+                        <textarea
+                            value={configDraftText}
+                            onChange={(event) => {
+                                const nextText = event.target.value;
+                                setConfigDraftText(nextText);
+                                setErrorMessage(null);
+                                setSuccessMessage(null);
+                                try {
+                                    const nextRuntimeConfig = parseRuntimeConfigText(nextText, t);
+                                    assertNoPlaintextSecrets(nextRuntimeConfig, runtimeSchema, t);
+                                    setRuntimeConfigDraft(nextRuntimeConfig);
+                                    setJsonDraftError(null);
+                                } catch (error) {
+                                    setJsonDraftError(error instanceof Error ? error.message : String(error));
+                                }
+                            }}
+                            style={textareaStyle}
+                            data-testid="node-config-json-input"
+                        />
+                        {jsonDraftError && (
+                            <div style={{fontSize: 11, color: '#9f1239', marginTop: 4}}>{jsonDraftError}</div>
+                        )}
+                    </label>
+                </div>
+            </section>
 
             {isSyncNode && (
                 <section
                     style={{
+                        ...advancedSectionStyle,
                         marginTop: 10,
-                        border: '1px solid rgba(31, 41, 51, 0.14)',
-                        borderRadius: 8,
-                        padding: 8,
-                        background: '#ffffff',
                     }}
                     data-testid="node-config-sync-fields"
                 >

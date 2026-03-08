@@ -136,6 +136,59 @@ export interface NodeTypesResponse {
     count: number;
 }
 
+export interface SecretRef {
+    $kind: 'secret_ref';
+    secret_id: string;
+}
+
+export interface SecretCatalogEntry {
+    secret_id: string;
+    label: string;
+    kind: string;
+    description: string;
+    provider: string;
+    created_at: number;
+    updated_at: number;
+    usage_count: number;
+    in_use: boolean;
+}
+
+export interface SecretListResponse {
+    count: number;
+    items: SecretCatalogEntry[];
+}
+
+export interface CreateSecretRequest {
+    label: string;
+    value: string;
+    kind?: string;
+    description?: string;
+    secret_id?: string | null;
+}
+
+export interface UpdateSecretRequest {
+    label?: string | null;
+    kind?: string | null;
+    description?: string | null;
+}
+
+export interface RotateSecretRequest {
+    value: string;
+}
+
+export interface SecretUsageEntry {
+    graph_id: string;
+    node_id: string;
+    field_path: string;
+}
+
+export interface SecretUsageResponse {
+    secret_id: string;
+    usage_count: number;
+    in_use: boolean;
+    items: SecretUsageEntry[];
+}
+
 export interface CreateRunRequest {
     graph: GraphSpec;
     stream_id: string;

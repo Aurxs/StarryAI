@@ -8,6 +8,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from app.core.config_validation import resolve_secret_refs
 from app.core.frame import RuntimeEvent, RuntimeEventSeverity, RuntimeEventType
 from app.core.graph_builder import GraphBuilder
 from app.core.graph_runtime import GraphRuntimeState
@@ -15,6 +16,7 @@ from app.core.node_factory import NodeFactory, create_default_node_factory
 from app.core.registry import NodeTypeRegistry, create_default_registry
 from app.core.scheduler import GraphScheduler, SchedulerConfig
 from app.core.spec import GraphSpec
+from app.secrets.service import get_secret_service
 
 
 class RunNotFoundError(KeyError):
@@ -78,7 +80,6 @@ class RunService:
         self.max_retained_runs = max(1, max_retained_runs)
         self.retention_ttl_s = max(0.0, retention_ttl_s)
         self.max_active_runs = max(0, int(max_active_runs))
-        self.builder = GraphBuilder(self.registry)
 
         self._runs: dict[str, RunRecord] = {}
         self._lock = asyncio.Lock()
@@ -86,7 +87,7 @@ class RunService:
     async def create_run(self, graph: GraphSpec, *, stream_id: str = "stream_default") -> RunRecord:
         """创建并启动一个运行实例。"""
         normalized_stream_id = self._normalize_stream_id(stream_id)
-        compiled_graph = self.builder.build(graph)
+        compiled_graph = self._build_graph_builder().build(graph)
         async with self._lock:
             self._ensure_capacity_locked()
             run_id = f"run_{uuid.uuid4().hex[:12]}"
@@ -109,6 +110,9 @@ class RunService:
             self._runs[run_id] = record
             self._prune_runs_locked(now=time.time())
         return record
+
+    def _build_graph_builder(self) -> GraphBuilder:
+        return GraphBuilder(self.registry, secret_exists=get_secret_service().exists)
 
     async def stop_run(self, run_id: str, *, timeout_s: float = 3.0) -> RunRecord:
         """请求停止指定运行实例。"""
@@ -422,18 +426,31 @@ class RunService:
 _run_service_singleton: RunService | None = None
 
 
+def _default_node_factory_builder() -> NodeFactory:
+    secret_service = get_secret_service()
+
+    def _config_resolver(node, spec):
+        return resolve_secret_refs(
+            spec.config_schema,
+            node.config,
+            resolve_secret=secret_service.resolve_value,
+        )
+
+    return create_default_node_factory(config_resolver=_config_resolver)
+
+
 def get_run_service() -> RunService:
     """获取全局运行服务。"""
     global _run_service_singleton
     if _run_service_singleton is None:
-        _run_service_singleton = RunService()
+        _run_service_singleton = RunService(node_factory_builder=_default_node_factory_builder)
     return _run_service_singleton
 
 
 def reset_run_service_for_testing() -> None:
     """重置全局运行服务（供测试隔离使用）。"""
     global _run_service_singleton
-    _run_service_singleton = RunService()
+    _run_service_singleton = RunService(node_factory_builder=_default_node_factory_builder)
 
 
 __all__ = [

@@ -13,6 +13,7 @@ from app.api.routes_graphs import router as graphs_router
 from app.api.routes_node_types import router as node_types_router
 from app.api.routes_observability import router as observability_router
 from app.api.routes_runs import router as runs_router
+from app.api.routes_secrets import router as secrets_router
 from app.api.ws_runs import router as ws_runs_router
 
 # 创建后端应用实例。
@@ -36,6 +37,7 @@ app.add_middleware(
 
 # 逐个挂载模块化路由，方便后续按领域拆分维护。
 app.include_router(node_types_router)
+app.include_router(secrets_router)
 app.include_router(graphs_router)
 app.include_router(runs_router)
 app.include_router(observability_router)

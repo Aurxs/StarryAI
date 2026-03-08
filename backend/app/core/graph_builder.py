@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from typing import Callable
 
+from .config_validation import validate_node_config
 from .registry import NodeTypeRegistry
 from .spec import (
     EdgeSpec,
@@ -68,9 +70,15 @@ class CompiledGraph:
 class GraphBuilder:
     """图编译器。"""
 
-    def __init__(self, registry: NodeTypeRegistry) -> None:
+    def __init__(
+            self,
+            registry: NodeTypeRegistry,
+            *,
+            secret_exists: Callable[[str], bool] | None = None,
+    ) -> None:
         """注入节点类型注册中心。"""
         self.registry = registry
+        self.secret_exists = secret_exists
 
     def validate(self, graph: GraphSpec) -> GraphValidationReport:
         """校验图定义并输出报告。
@@ -100,6 +108,7 @@ class GraphBuilder:
 
         # 只有在节点类型成功解析后，才有意义做进一步校验。
         if node_specs:
+            self._validate_node_configs(graph, node_specs, issues)
             self._validate_required_inputs(node_specs, incoming, attempted_targets, issues)
             self._validate_sync_nodes(graph, node_specs, incoming, issues)
             self._validate_acyclic(node_specs, outgoing, issues)
@@ -177,6 +186,26 @@ class GraphBuilder:
             node_specs[node.node_id] = self.registry.get(node.type_name)
 
         return node_specs
+
+    def _validate_node_configs(
+        self,
+        graph: GraphSpec,
+        node_specs: dict[str, NodeSpec],
+        issues: list[ValidationIssue],
+    ) -> None:
+        node_instances = {node.node_id: node for node in graph.nodes}
+        for node_id, spec in node_specs.items():
+            node_instance = node_instances.get(node_id)
+            if node_instance is None:
+                continue
+            issues.extend(
+                validate_node_config(
+                    node_id=node_id,
+                    config_schema=spec.config_schema,
+                    config=node_instance.config,
+                    secret_exists=self.secret_exists,
+                )
+            )
 
     def _collect_edges(
         self,

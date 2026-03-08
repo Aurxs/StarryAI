@@ -4,6 +4,9 @@
 fastapi>=0.110.0
 uvicorn[standard]>=0.30.0
 pydantic>=2.6.0
+jsonschema>=4.23.0
+keyring>=25.6.0
+cryptography>=44.0.0
 
 # Development / Testing / Quality
 pytest>=8.0.0

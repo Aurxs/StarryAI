@@ -10,7 +10,11 @@
   },
   "common": {
     "none": "无",
-    "collapse": "收起"
+    "collapse": "收起",
+    "cancel": "取消",
+    "close": "关闭",
+    "save": "保存",
+    "saving": "保存中..."
   },
   "workbench": {
     "showLeft": "显示左侧",
@@ -135,7 +139,11 @@
     },
     "settings": {
       "title": "设置",
-      "close": "关闭设置"
+      "close": "关闭设置",
+      "tabs": {
+        "general": "通用",
+        "secrets": "Secrets"
+      }
     },
     "drawer": {
       "title": "节点栏",
@@ -172,7 +180,23 @@
     "fields": {
       "title": "标题",
       "configJson": "配置 JSON",
-      "runtimeConfigJson": "运行配置 JSON（不含同步托管字段）"
+      "runtimeConfigJson": "运行配置 JSON（不含同步托管字段）",
+      "formConfig": "表单配置",
+      "advancedJson": "高级 JSON"
+    },
+    "form": {
+      "emptyValue": "留空",
+      "unsupportedRoot": "当前节点配置 schema 暂不支持自动表单化，请使用高级 JSON 编辑。",
+      "unsupportedField": "当前字段类型暂不支持自动渲染: {{fieldType}}"
+    },
+    "secret": {
+      "badge": "Secret",
+      "selectRequired": "请选择 Secret",
+      "selectOptional": "可选：选择 Secret",
+      "createInline": "新建 Secret",
+      "cancelCreate": "取消新建",
+      "createAndBind": "创建并绑定",
+      "clear": "清除绑定"
     },
     "sync": {
       "title": "同步字段",
@@ -191,11 +215,14 @@
     },
     "actions": {
       "save": "保存",
-      "reset": "重置"
+      "reset": "重置",
+      "showAdvanced": "显示高级 JSON",
+      "hideAdvanced": "隐藏高级 JSON"
     },
     "errors": {
       "mustBeObject": "配置必须是 JSON 对象。",
       "invalidJson": "配置 JSON 格式无效。",
+      "secretPlaintextForbidden": "Secret 字段不允许保存明文值，请改为引用 Secret。问题字段: {{paths}}。",
       "syncGroupRequired": "同步组名不能为空。",
       "syncRoundInvalid": "sync_round 必须是大于等于 0 的整数。",
       "readyTimeoutInvalid": "ready_timeout_ms 必须是大于等于 1 的整数。",
@@ -203,6 +230,47 @@
     },
     "success": {
       "saved": "配置已保存。"
+    }
+  },
+  "secretManager": {
+    "title": "Secret 管理器",
+    "summary": "共 {{count}} 个 Secret",
+    "searchPlaceholder": "按名称、ID、类型搜索 Secret",
+    "empty": "还没有 Secret，可在这里创建，或在节点配置页里就地创建。",
+    "inUse": "已被引用",
+    "notInUse": "未被引用",
+    "fields": {
+      "label": "名称",
+      "kind": "类型",
+      "description": "描述",
+      "secretId": "Secret ID（可选）",
+      "value": "Secret 值"
+    },
+    "meta": {
+      "kind": "类型: {{kind}}",
+      "provider": "存储: {{provider}}",
+      "usage": "引用数: {{count}}",
+      "updatedAt": "更新时间: {{time}}"
+    },
+    "actions": {
+      "refresh": "刷新",
+      "loading": "刷新中...",
+      "create": "新建 Secret",
+      "edit": "编辑",
+      "rotate": "轮换值",
+      "delete": "删除",
+      "deleteConfirm": "确认删除 Secret「{{label}}」吗？如果它仍被引用，后端会拒绝删除。"
+    },
+    "dialog": {
+      "createTitle": "新建 Secret",
+      "editTitle": "编辑 Secret",
+      "rotateTitle": "轮换 Secret 值"
+    },
+    "errors": {
+      "labelRequired": "Secret 名称不能为空。",
+      "kindRequired": "Secret 类型不能为空。",
+      "valueRequired": "Secret 值不能为空。",
+      "missingItem": "当前 Secret 不存在，请刷新后重试。"
     }
   },
   "graphValidation": {

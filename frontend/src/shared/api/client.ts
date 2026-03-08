@@ -1,4 +1,5 @@
 import type {
+    CreateSecretRequest,
     CreateRunRequest,
     CreateRunResponse,
     DeleteGraphResponse,
@@ -7,12 +8,17 @@ import type {
     GraphSpec,
     GraphValidationReport,
     NodeTypesResponse,
+    RotateSecretRequest,
     RunDiagnosticsResponse,
     RunEventsResponse,
     RunMetricsResponse,
     RunStatusResponse,
     SaveGraphResponse,
+    SecretCatalogEntry,
+    SecretListResponse,
+    SecretUsageResponse,
     StopRunResponse,
+    UpdateSecretRequest,
 } from '../../entities/workbench/types';
 
 export type ApiErrorKind = 'http' | 'network' | 'parse' | 'validation';
@@ -41,6 +47,12 @@ export interface ApiClient {
     getBaseUrl: () => string;
     listNodeTypes: () => Promise<NodeTypesResponse>;
     validateGraph: (graph: GraphSpec) => Promise<GraphValidationReport>;
+    listSecrets: () => Promise<SecretListResponse>;
+    createSecret: (request: CreateSecretRequest) => Promise<SecretCatalogEntry>;
+    updateSecret: (secretId: string, request: UpdateSecretRequest) => Promise<SecretCatalogEntry>;
+    rotateSecret: (secretId: string, request: RotateSecretRequest) => Promise<SecretCatalogEntry>;
+    deleteSecret: (secretId: string) => Promise<{ secret_id: string; deleted: boolean }>;
+    getSecretUsage: (secretId: string) => Promise<SecretUsageResponse>;
     listGraphs: () => Promise<GraphListResponse>;
     getGraph: (graphId: string) => Promise<GraphSpec>;
     saveGraph: (graph: GraphSpec) => Promise<SaveGraphResponse>;
@@ -232,6 +244,12 @@ export const createApiClient = (options: ApiClientOptions = {}): ApiClient => {
         return `/api/v1/graphs/${encodeURIComponent(normalizedGraphId)}${suffix}`;
     };
 
+    const buildSecretPath = (secretId = '', suffix = ''): string => {
+        const normalizedSecretId = secretId ? normalizeRequiredText('secretId', secretId) : '';
+        const encoded = normalizedSecretId ? `/${encodeURIComponent(normalizedSecretId)}` : '';
+        return `/api/v1/secrets${encoded}${suffix}`;
+    };
+
     const buildRunEventsWsUrl = (runId: string, params?: GetRunEventsParams): string => {
         const base = buildUrl(buildRunPath(runId, '/events'));
         base.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -247,6 +265,28 @@ export const createApiClient = (options: ApiClientOptions = {}): ApiClient => {
                 method: 'POST',
                 body: JSON.stringify(graph),
             }),
+        listSecrets: () => requestJson<SecretListResponse>(buildSecretPath()),
+        createSecret: (request: CreateSecretRequest) =>
+            requestJson<SecretCatalogEntry>(buildSecretPath(), {
+                method: 'POST',
+                body: JSON.stringify(request),
+            }),
+        updateSecret: (secretId: string, request: UpdateSecretRequest) =>
+            requestJson<SecretCatalogEntry>(buildSecretPath(secretId), {
+                method: 'PATCH',
+                body: JSON.stringify(request),
+            }),
+        rotateSecret: (secretId: string, request: RotateSecretRequest) =>
+            requestJson<SecretCatalogEntry>(buildSecretPath(secretId, '/rotate'), {
+                method: 'POST',
+                body: JSON.stringify(request),
+            }),
+        deleteSecret: (secretId: string) =>
+            requestJson<{ secret_id: string; deleted: boolean }>(buildSecretPath(secretId), {
+                method: 'DELETE',
+            }),
+        getSecretUsage: (secretId: string) =>
+            requestJson<SecretUsageResponse>(buildSecretPath(secretId, '/usage')),
         listGraphs: () => requestJson<GraphListResponse>('/api/v1/graphs'),
         getGraph: (graphId: string) => requestJson<GraphSpec>(buildGraphPath(graphId)),
         saveGraph: (graph: GraphSpec) =>

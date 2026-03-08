@@ -10,7 +10,11 @@
   },
   "common": {
     "none": "N/A",
-    "collapse": "Collapse"
+    "collapse": "Collapse",
+    "cancel": "Cancel",
+    "close": "Close",
+    "save": "Save",
+    "saving": "Saving..."
   },
   "workbench": {
     "showLeft": "Show Left Panel",
@@ -135,7 +139,11 @@
     },
     "settings": {
       "title": "Settings",
-      "close": "Close settings"
+      "close": "Close settings",
+      "tabs": {
+        "general": "General",
+        "secrets": "Secrets"
+      }
     },
     "drawer": {
       "title": "Node Library",
@@ -172,7 +180,23 @@
     "fields": {
       "title": "Title",
       "configJson": "Config JSON",
-      "runtimeConfigJson": "Runtime Config JSON (without sync-managed fields)"
+      "runtimeConfigJson": "Runtime Config JSON (without sync-managed fields)",
+      "formConfig": "Form Config",
+      "advancedJson": "Advanced JSON"
+    },
+    "form": {
+      "emptyValue": "Empty",
+      "unsupportedRoot": "This node config schema cannot be rendered as a form yet. Use advanced JSON editing instead.",
+      "unsupportedField": "This field type is not rendered automatically yet: {{fieldType}}"
+    },
+    "secret": {
+      "badge": "Secret",
+      "selectRequired": "Select a secret",
+      "selectOptional": "Optional: select a secret",
+      "createInline": "Create secret",
+      "cancelCreate": "Cancel create",
+      "createAndBind": "Create and bind",
+      "clear": "Clear binding"
     },
     "sync": {
       "title": "Sync Fields",
@@ -191,11 +215,14 @@
     },
     "actions": {
       "save": "Save",
-      "reset": "Reset"
+      "reset": "Reset",
+      "showAdvanced": "Show Advanced JSON",
+      "hideAdvanced": "Hide Advanced JSON"
     },
     "errors": {
       "mustBeObject": "Config must be a JSON object.",
       "invalidJson": "Config JSON is invalid.",
+      "secretPlaintextForbidden": "Secret fields cannot store plaintext values. Use a Secret reference instead. Invalid fields: {{paths}}.",
       "syncGroupRequired": "sync_group is required.",
       "syncRoundInvalid": "sync_round must be an integer >= 0.",
       "readyTimeoutInvalid": "ready_timeout_ms must be an integer >= 1.",
@@ -203,6 +230,47 @@
     },
     "success": {
       "saved": "Config saved."
+    }
+  },
+  "secretManager": {
+    "title": "Secret Manager",
+    "summary": "{{count}} secret(s)",
+    "searchPlaceholder": "Search by label, ID, kind",
+    "empty": "No secrets yet. Create one here or inline from the node config form.",
+    "inUse": "In use",
+    "notInUse": "Unused",
+    "fields": {
+      "label": "Label",
+      "kind": "Kind",
+      "description": "Description",
+      "secretId": "Secret ID (optional)",
+      "value": "Secret Value"
+    },
+    "meta": {
+      "kind": "Kind: {{kind}}",
+      "provider": "Provider: {{provider}}",
+      "usage": "Usage: {{count}}",
+      "updatedAt": "Updated: {{time}}"
+    },
+    "actions": {
+      "refresh": "Refresh",
+      "loading": "Refreshing...",
+      "create": "Create Secret",
+      "edit": "Edit",
+      "rotate": "Rotate Value",
+      "delete": "Delete",
+      "deleteConfirm": "Delete secret \"{{label}}\"? The backend will reject it if graphs still reference it."
+    },
+    "dialog": {
+      "createTitle": "Create Secret",
+      "editTitle": "Edit Secret",
+      "rotateTitle": "Rotate Secret Value"
+    },
+    "errors": {
+      "labelRequired": "Secret label is required.",
+      "kindRequired": "Secret kind is required.",
+      "valueRequired": "Secret value is required.",
+      "missingItem": "The selected secret no longer exists. Refresh and try again."
     }
   },
   "graphValidation": {

@@ -30,6 +30,12 @@ export const handlers = [
             ],
         }),
     ),
+    http.get('*/api/v1/secrets', () =>
+        HttpResponse.json({
+            count: 0,
+            items: [],
+        }),
+    ),
     http.get('*/api/v1/runs/:runId', ({params}) =>
         HttpResponse.json({
             run_id: params.runId,

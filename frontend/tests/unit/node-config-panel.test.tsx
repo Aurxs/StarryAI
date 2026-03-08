@@ -1,4 +1,4 @@
-import {fireEvent, render, screen} from '@testing-library/react';
+import {fireEvent, render, screen, within} from '@testing-library/react';
 import {http, HttpResponse} from 'msw';
 import {beforeEach, describe, expect, it} from 'vitest';
 
@@ -148,6 +148,200 @@ describe('NodeConfigPanel', () => {
             commit_lead_ms: 120,
             __sync_managed_by: 'n_init_1',
         });
+    });
+
+    it('renders schema form and saves inline-created secret refs', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'mock.llm',
+                            version: '0.1.0',
+                            mode: 'async',
+                            inputs: [
+                                {
+                                    name: 'prompt',
+                                    frame_schema: 'text.final',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                },
+                            ],
+                            outputs: [
+                                {
+                                    name: 'answer',
+                                    frame_schema: 'text.final',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                },
+                            ],
+                            config_schema: {
+                                type: 'object',
+                                properties: {
+                                    model: {
+                                        type: 'string',
+                                        title: 'Model',
+                                        default: 'mock-llm-v1',
+                                        enum: ['mock-llm-v1', 'mock-llm-v2'],
+                                        'x-starryai-order': 10,
+                                    },
+                                    api_key: {
+                                        title: 'API Key',
+                                        description: 'Bind a secret',
+                                        anyOf: [{type: 'string'}, {type: 'null'}],
+                                        default: null,
+                                        'x-starryai-secret': true,
+                                        'x-starryai-widget': 'secret',
+                                        'x-starryai-order': 20,
+                                    },
+                                },
+                            },
+                            description: '',
+                        },
+                    ],
+                }),
+            ),
+            http.get('*/api/v1/secrets', () =>
+                HttpResponse.json({
+                    count: 0,
+                    items: [],
+                }),
+            ),
+            http.post('*/api/v1/secrets', async ({request}) => {
+                const body = (await request.json()) as Record<string, string | null>;
+                return HttpResponse.json(
+                    {
+                        secret_id: 'llm-inline',
+                        label: body.label ?? 'LLM Inline',
+                        kind: body.kind ?? 'generic',
+                        description: body.description ?? '',
+                        provider: 'memory',
+                        created_at: 1_700_000_100,
+                        updated_at: 1_700_000_100,
+                        usage_count: 0,
+                        in_use: false,
+                    },
+                    {status: 201},
+                );
+            }),
+        );
+
+        useGraphStore.getState().upsertNode({
+            node_id: 'n_llm',
+            type_name: 'mock.llm',
+            title: 'Mock LLM',
+            config: {},
+        });
+        useGraphStore.getState().selectNode('n_llm');
+
+        render(<NodeConfigPanel/>);
+
+        fireEvent.change(await screen.findByLabelText(/Model/), {
+            target: {value: 'mock-llm-v2'},
+        });
+
+        const secretHeading = await screen.findByText('API Key');
+        const secretSection = secretHeading.closest('[data-field-path="api_key"]');
+        expect(secretSection).toBeTruthy();
+
+        fireEvent.click(within(secretSection as HTMLElement).getByRole('button', {name: '新建 Secret'}));
+        fireEvent.change(within(secretSection as HTMLElement).getByLabelText('名称'), {
+            target: {value: 'LLM Inline'},
+        });
+        fireEvent.change(within(secretSection as HTMLElement).getByLabelText('Secret 值'), {
+            target: {value: 'sk-inline-value'},
+        });
+        fireEvent.click(within(secretSection as HTMLElement).getByRole('button', {name: '创建并绑定'}));
+
+        await screen.findByText('LLM Inline (llm-inline)');
+        fireEvent.click(screen.getByRole('button', {name: '保存'}));
+
+        const node = useGraphStore.getState().graph.nodes.find((item) => item.node_id === 'n_llm');
+        expect(node?.config).toMatchObject({
+            model: 'mock-llm-v2',
+            api_key: {
+                $kind: 'secret_ref',
+                secret_id: 'llm-inline',
+            },
+        });
+        expect(JSON.stringify(node?.config)).not.toContain('sk-inline-value');
+    });
+
+    it('rejects plaintext secret values from advanced json save', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'mock.llm',
+                            version: '0.1.0',
+                            mode: 'async',
+                            inputs: [
+                                {
+                                    name: 'prompt',
+                                    frame_schema: 'text.final',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                },
+                            ],
+                            outputs: [
+                                {
+                                    name: 'answer',
+                                    frame_schema: 'text.final',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                },
+                            ],
+                            config_schema: {
+                                type: 'object',
+                                properties: {
+                                    api_key: {
+                                        title: 'API Key',
+                                        anyOf: [{type: 'string'}, {type: 'null'}],
+                                        default: null,
+                                        'x-starryai-secret': true,
+                                        'x-starryai-widget': 'secret',
+                                    },
+                                },
+                            },
+                            description: '',
+                        },
+                    ],
+                }),
+            ),
+            http.get('*/api/v1/secrets', () =>
+                HttpResponse.json({
+                    count: 0,
+                    items: [],
+                }),
+            ),
+        );
+
+        useGraphStore.getState().upsertNode({
+            node_id: 'n_llm_plaintext',
+            type_name: 'mock.llm',
+            title: 'Mock LLM',
+            config: {},
+        });
+        useGraphStore.getState().selectNode('n_llm_plaintext');
+
+        render(<NodeConfigPanel/>);
+
+        await screen.findByText('API Key');
+        fireEvent.change(screen.getByTestId('node-config-json-input'), {
+            target: {value: '{\n  "api_key": "sk-plaintext"\n}'},
+        });
+        fireEvent.click(screen.getByRole('button', {name: '保存'}));
+
+        expect(screen.getByTestId('node-config-error').textContent).toContain('不允许保存明文值');
+        const node = useGraphStore.getState().graph.nodes.find((item) => item.node_id === 'n_llm_plaintext');
+        expect(node?.config).toEqual({});
     });
 
     it('rejects invalid sync numeric fields (edge path)', async () => {

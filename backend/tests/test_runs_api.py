@@ -19,6 +19,9 @@ from app.core.node_factory import NodeFactory, create_default_node_factory
 from app.core.registry import create_default_registry
 from app.core.spec import NodeMode, NodeSpec, PortSpec
 from app.main import app
+from app.nodes.llm_openai_compatible import OpenAICompatibleLLMNode
+from app.secrets.service import reset_secret_service_for_testing
+from app.secrets.store import InMemorySecretValueProvider, JsonSecretMetadataStore
 from app.services.run_service import RunService, reset_run_service_for_testing
 import app.services.run_service as run_service_module
 
@@ -37,6 +40,24 @@ def _reset_run_service() -> Generator[None, None, None]:
     reset_run_service_for_testing()
     yield
     reset_run_service_for_testing()
+
+
+@pytest.fixture(autouse=True)
+def _reset_secret_service(tmp_path) -> Generator[None, None, None]:
+    secret_dir = tmp_path / "secrets"
+    reset_secret_service_for_testing(
+        JsonSecretMetadataStore(
+            store_dir=secret_dir,
+            provider=InMemorySecretValueProvider(),
+        )
+    )
+    yield
+    reset_secret_service_for_testing(
+        JsonSecretMetadataStore(
+            store_dir=secret_dir,
+            provider=InMemorySecretValueProvider(),
+        )
+    )
 
 
 def _basic_graph_payload() -> dict[str, Any]:
@@ -137,6 +158,48 @@ def _sync_graph_payload() -> dict[str, Any]:
     }
 
 
+def _real_llm_graph_payload(secret_id: str) -> dict[str, Any]:
+    return {
+        "graph": {
+            "graph_id": "g_api_real_llm",
+            "nodes": [
+                {"node_id": "n1", "type_name": "mock.input"},
+                {
+                    "node_id": "n2",
+                    "type_name": "llm.openai_compatible",
+                    "config": {
+                        "base_url": "https://api.openai.com",
+                        "api_path": "/v1/chat/completions",
+                        "model": "gpt-4o-mini",
+                        "api_key": {
+                            "$kind": "secret_ref",
+                            "secret_id": secret_id,
+                        },
+                        "system_prompt": "Answer briefly.",
+                        "temperature": 0.1,
+                    },
+                },
+                {"node_id": "n3", "type_name": "mock.output"},
+            ],
+            "edges": [
+                {
+                    "source_node": "n1",
+                    "source_port": "text",
+                    "target_node": "n2",
+                    "target_port": "prompt",
+                },
+                {
+                    "source_node": "n2",
+                    "source_port": "answer",
+                    "target_node": "n3",
+                    "target_port": "in",
+                },
+            ],
+        },
+        "stream_id": "stream_api_real_llm",
+    }
+
+
 def _build_slow_run_service() -> RunService:
     registry = create_default_registry()
     registry.register(
@@ -222,6 +285,81 @@ def test_create_run_and_query_status_and_events() -> None:
         assert isinstance(first_event["event_seq"], int)
         assert first_event["severity"] in {"info", "warning", "error", "debug", "critical"}
         assert first_event["component"] in {"scheduler", "node", "edge", "sync", "service", "api"}
+
+
+def test_create_run_with_real_llm_and_secret_ref(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def _fake_send_request(
+        self: OpenAICompatibleLLMNode,
+        *,
+        url: str,
+        headers: dict[str, str],
+        body: dict[str, Any],
+        timeout_s: float | None,
+    ) -> dict[str, Any]:
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["body"] = body
+        captured["timeout_s"] = timeout_s
+        return {
+            "model": "gpt-4o-mini",
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "hello from provider",
+                    }
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 11,
+                "completion_tokens": 5,
+                "total_tokens": 16,
+            },
+        }
+
+    monkeypatch.setattr(OpenAICompatibleLLMNode, "send_request", _fake_send_request)
+
+    with TestClient(app) as client:
+        created_secret = client.post(
+            "/api/v1/secrets",
+            json={
+                "label": "OpenAI Main",
+                "value": "sk-live-test",
+                "kind": "api_key",
+            },
+        )
+        assert created_secret.status_code == 201
+        secret_id = created_secret.json()["secret_id"]
+
+        response = client.post("/api/v1/runs", json=_real_llm_graph_payload(secret_id))
+        assert response.status_code == 200
+        run_id = response.json()["run_id"]
+
+        final_status = "running"
+        for _ in range(40):
+            status_resp = client.get(f"/api/v1/runs/{run_id}")
+            assert status_resp.status_code == 200
+            final_status = status_resp.json()["status"]
+            if final_status in {"completed", "failed", "stopped"}:
+                break
+            time.sleep(0.05)
+
+        assert final_status == "completed"
+
+        snapshot = client.get(f"/api/v1/runs/{run_id}")
+        assert snapshot.status_code == 200
+        node_metrics = snapshot.json()["node_states"]["n2"]["metrics"]
+        assert node_metrics["llm_model"] == "gpt-4o-mini"
+        assert node_metrics["llm_total_tokens"] == 16
+
+    assert captured["url"] == "https://api.openai.com/v1/chat/completions"
+    assert captured["headers"]["Authorization"] == "Bearer sk-live-test"
+    assert captured["body"]["model"] == "gpt-4o-mini"
+    assert captured["body"]["messages"][1]["role"] == "user"
 
 
 def test_stop_run_endpoint_stops_running_instance(monkeypatch: pytest.MonkeyPatch) -> None:

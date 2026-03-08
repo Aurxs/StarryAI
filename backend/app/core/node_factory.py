@@ -7,9 +7,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from app.core.node_base import BaseNode
 from app.core.node_discovery import NodeDiscoveryError, discover_node_definitions
@@ -25,6 +26,7 @@ class NodeFactory:
     """节点实例工厂。"""
 
     _impls: dict[str, type[BaseNode]] = field(default_factory=dict)
+    _config_resolver: Callable[[NodeInstanceSpec, NodeSpec], dict[str, Any]] | None = None
 
     def register(self, type_name: str, impl_cls: type[BaseNode], *, overwrite: bool = False) -> None:
         """注册节点实现类。"""
@@ -45,7 +47,10 @@ class NodeFactory:
             impl_cls = self._impls[node.type_name]
         except KeyError as exc:
             raise NodeFactoryError(f"未找到节点实现: {node.type_name}") from exc
-        return impl_cls(node_id=node.node_id, spec=spec, config=node.config)
+        config = node.config
+        if self._config_resolver is not None:
+            config = self._config_resolver(node, spec)
+        return impl_cls(node_id=node.node_id, spec=spec, config=config)
 
 
 def create_default_node_factory(
@@ -54,9 +59,10 @@ def create_default_node_factory(
     package_names: Sequence[str] | None = None,
     search_dirs: Sequence[str | Path] | None = None,
     strict: bool = True,
+    config_resolver: Callable[[NodeInstanceSpec, NodeSpec], dict[str, Any]] | None = None,
 ) -> NodeFactory:
     """创建默认节点工厂并注入内置节点实现。"""
-    factory = NodeFactory()
+    factory = NodeFactory(_config_resolver=config_resolver)
     try:
         discovered_mappings = _build_discovered_mappings(
             package_name=package_name,

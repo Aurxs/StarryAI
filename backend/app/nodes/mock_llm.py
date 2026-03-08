@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import Field
+
+from app.core.config_validation import SECRET_FIELD_KEY, SECRET_WIDGET, SECRET_WIDGET_KEY, TEXTAREA_WIDGET
 from app.core.node_async import AsyncNode
 from app.core.node_base import NodeContext
 from app.core.node_config import CommonNodeConfig
@@ -13,6 +16,38 @@ from app.core.spec import NodeMode, NodeSpec, PortSpec
 
 class MockLLMConfig(CommonNodeConfig):
     """Mock LLM 节点配置。"""
+
+    model: str = Field(
+        default="mock-llm-v1",
+        description="模拟模型名称",
+        json_schema_extra={"x-starryai-order": 10},
+    )
+    temperature: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=2.0,
+        description="模拟采样温度",
+        json_schema_extra={"x-starryai-order": 20},
+    )
+    system_prompt: str = Field(
+        default="你是 StarryAI 的本地模拟 LLM。",
+        description="系统提示词",
+        json_schema_extra={
+            "x-starryai-order": 30,
+            SECRET_WIDGET_KEY: TEXTAREA_WIDGET,
+        },
+    )
+    api_key: str | None = Field(
+        default=None,
+        description="用于演示 Secret 引用的模拟 API Key",
+        json_schema_extra={
+            "x-starryai-order": 40,
+            SECRET_FIELD_KEY: True,
+            SECRET_WIDGET_KEY: SECRET_WIDGET,
+            "x-starryai-group": "auth",
+            "x-starryai-placeholder": "Select or create a secret",
+        },
+    )
 
 
 class MockLLMNode(AsyncNode):
@@ -34,9 +69,14 @@ class MockLLMNode(AsyncNode):
 
         # 从规范输入端口读取 prompt，不存在时按空字符串处理。
         prompt = str(inputs.get("prompt", ""))
+        cfg = self.cfg if isinstance(self.cfg, MockLLMConfig) else None
+        model_name = cfg.model if cfg is not None else str(self.config.get("model", "mock-llm-v1"))
+        system_prompt = cfg.system_prompt if cfg is not None else str(
+            self.config.get("system_prompt", "你是 StarryAI 的本地模拟 LLM。")
+        )
 
         # 生成可观察的 mock 输出，便于验证流程连通。
-        answer = f"[MockLLM回复] 已收到: {prompt}"
+        answer = f"[MockLLM回复] model={model_name} | {system_prompt} | 已收到: {prompt}"
         return {"answer": answer}
 
 

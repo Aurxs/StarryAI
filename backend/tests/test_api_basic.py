@@ -173,6 +173,7 @@ def test_list_node_types_contains_builtin_specs() -> None:
         assert body["count"] >= 6
         type_names = {item["type_name"] for item in body["items"]}
         assert "mock.input" in type_names
+        assert "llm.openai_compatible" in type_names
         assert "sync.initiator.dual" in type_names
 
 
