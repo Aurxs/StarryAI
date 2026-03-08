@@ -8,6 +8,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.node_async import AsyncNode
+from app.core.node_config import NodeField
 from app.core.spec import NodeMode, NodeSpec
 
 
@@ -68,3 +69,13 @@ def test_base_node_with_config_model_rejects_invalid_config() -> None:
             spec=_spec("typed.node"),
             config={"threshold": 0, "name": "bad"},
         )
+
+
+def test_node_field_emits_readonly_schema_metadata() -> None:
+    class ReadonlyConfig(BaseModel):
+        sync_round: int = NodeField(default=0, ge=0, readonly=True, json_schema_extra={"x-starryai-order": 10})
+
+    schema = ReadonlyConfig.model_json_schema()
+    sync_round_schema = schema["properties"]["sync_round"]
+    assert sync_round_schema["readOnly"] is True
+    assert sync_round_schema["x-starryai-order"] == 10

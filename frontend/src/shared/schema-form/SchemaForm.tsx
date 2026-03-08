@@ -13,6 +13,7 @@ import {
     applySchemaDefaults,
     getOrderedObjectEntries,
     getRequiredFieldSet,
+    isReadonlySchema,
     isSecretRef,
     isSecretSchema,
     isTextareaSchema,
@@ -67,6 +68,15 @@ const textareaStyle: CSSProperties = {
 const helpTextStyle: CSSProperties = {
     fontSize: 11,
     color: '#64748b',
+};
+
+const readonlyValueStyle: CSSProperties = {
+    fontSize: 13,
+    color: '#0f172a',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    minHeight: 20,
+    paddingTop: 2,
 };
 
 const inlineButtonStyle: CSSProperties = {
@@ -268,6 +278,19 @@ const getValueAtPath = (currentValue: Record<string, unknown>, path: string[]): 
     return cursor;
 };
 
+const formatReadonlyValue = (value: unknown, emptyText: string): string => {
+    if (value === undefined || value === null || value === '') {
+        return emptyText;
+    }
+    if (typeof value === 'string') {
+        return value;
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+        return String(value);
+    }
+    return JSON.stringify(value, null, 2);
+};
+
 interface SchemaFieldsProps {
     nodeTypeName?: string;
     schema: JsonSchemaNode;
@@ -292,6 +315,7 @@ function SchemaFields({nodeTypeName, schema, rootSchema, value, path, secrets, o
                 const label = translateSchemaFieldLabel(t, fieldKey, fieldSchema.title ?? fieldKey);
                 const description = translateSchemaDescription(t, fieldKey, fieldSchema.description, nodeTypeName);
                 const resolvedType = fieldSchema.type;
+                const readonlyValue = fieldValue ?? fieldSchema.default;
 
                 if (isSecretSchema(fieldSchema)) {
                     return (
@@ -306,6 +330,18 @@ function SchemaFields({nodeTypeName, schema, rootSchema, value, path, secrets, o
                             onCreateSecret={onCreateSecret}
                             onChange={(nextFieldValue) => onChange(setValueAtPath(value, fieldPath, nextFieldValue))}
                         />
+                    );
+                }
+
+                if (isReadonlySchema(fieldSchema)) {
+                    return (
+                        <div key={fieldPath.join('.')} style={labelStyle} data-field-path={fieldPath.join('.')}>
+                            <span>{label}{required ? ' *' : ''}</span>
+                            {description && <span style={helpTextStyle}>{description}</span>}
+                            <div style={readonlyValueStyle}>
+                                {formatReadonlyValue(readonlyValue, t('nodeConfig.form.emptyValue'))}
+                            </div>
+                        </div>
                     );
                 }
 

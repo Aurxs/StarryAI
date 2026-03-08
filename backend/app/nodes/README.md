@@ -131,15 +131,17 @@ NODE_DEFINITIONS = [
 4. `continue_on_error`
 5. `critical`
 
-业务字段写在自己的配置模型里。推荐使用 `pydantic.Field` 补充约束、描述和前端渲染元信息。
+业务字段写在自己的配置模型里。统一使用 `NodeField` 补充约束、描述和前端渲染元信息；它兼容 `pydantic.Field` 的常规参数，并额外支持 StarryAI 的表单元信息。
 
 开发约定：
 
 1. 节点业务逻辑优先读取 `self.cfg`，不要到处直接读原始 `dict`。
 2. `self.config` / `self.raw_config` 只保留兼容用途。
-3. 需要前端控制表单顺序时，可使用 `json_schema_extra={"x-starryai-order": 10}`。
-4. 需要 Secret 选择器、多行文本等控件时，参考现有 `mock_llm.py`、`llm_openai_compatible.py` 的 `json_schema_extra` 写法。
-5. 面向前端展示的 `Field.description`、`PortSpec.description`、`NodeSpec.description` 统一使用英文源文案；不同语言的展示文本由前端从 i18n JSON 映射，节点文件中不要直接维护多语言内容。
+3. 节点定义文件中的业务配置字段不要再直接使用 `pydantic.Field`；旧写法视为废弃，统一改为 `NodeField`。
+4. 需要前端控制表单顺序时，可使用 `json_schema_extra={"x-starryai-order": 10}`。
+5. 需要把字段设为只读时，使用 `NodeField(..., readonly=True)`；前端会按纯文本展示，不渲染输入框。
+6. 需要 Secret 选择器、多行文本等控件时，参考现有 `mock_llm.py`、`llm_openai_compatible.py` 的 `json_schema_extra` 写法。
+7. 面向前端展示的 `Field.description`、`PortSpec.description`、`NodeSpec.description` 统一使用英文源文案；不同语言的展示文本由前端从 i18n JSON 映射，节点文件中不要直接维护多语言内容。
 
 ### 5.2 定义 NodeSpec
 
@@ -206,11 +208,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import Field
-
 from app.core.node_async import AsyncNode
 from app.core.node_base import NodeContext
-from app.core.node_config import CommonNodeConfig
+from app.core.node_config import CommonNodeConfig, NodeField
 from app.core.node_definition import NodeDefinition
 from app.core.spec import NodeMode, NodeSpec, PortSpec
 
@@ -218,17 +218,17 @@ from app.core.spec import NodeMode, NodeSpec, PortSpec
 class TextTransformConfig(CommonNodeConfig):
     """文本转换节点配置。"""
 
-    prefix: str = Field(
+    prefix: str = NodeField(
         default="[Transformed]",
         description="输出前缀",
         json_schema_extra={"x-starryai-order": 10},
     )
-    uppercase: bool = Field(
+    uppercase: bool = NodeField(
         default=False,
         description="是否转为大写",
         json_schema_extra={"x-starryai-order": 20},
     )
-    trim: bool = Field(
+    trim: bool = NodeField(
         default=True,
         description="是否去除首尾空白",
         json_schema_extra={"x-starryai-order": 30},

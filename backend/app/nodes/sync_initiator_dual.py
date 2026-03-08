@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import Field
-
 from app.core.node_base import NodeContext
-from app.core.node_config import CommonNodeConfig
+from app.core.node_config import CommonNodeConfig, NodeField
 from app.core.node_definition import NodeDefinition
 from app.core.node_sync import SyncNode
 from app.core.spec import NodeMode, NodeSpec, PortSpec, SyncConfig, SyncRole, SyncStrategy
@@ -17,13 +15,17 @@ from app.core.sync_protocol import SyncMeta
 class SyncInitiatorDualConfig(CommonNodeConfig):
     """同步发起器配置。"""
 
-    sync_group: Any = Field(default=None, description="Sync group name for the task.")
-    sync_round: Any = Field(default=0, description="Current sync round for the task.")
-    ready_timeout_ms: Any = Field(
+    sync_group: Any = NodeField(default=None, description="Sync group name for the task.")
+    sync_round: Any = NodeField(
+        default=0,
+        description="Current sync round for the task.",
+        readonly=True,
+    )
+    ready_timeout_ms: Any = NodeField(
         default=800,
         description="Maximum wait time for participants to become ready, in milliseconds.",
     )
-    commit_lead_ms: Any = Field(
+    commit_lead_ms: Any = NodeField(
         default=50,
         description="Lead time reserved before the coordinator commits, in milliseconds.",
     )

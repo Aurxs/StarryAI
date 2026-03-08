@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import Field
-
 from app.core.config_validation import SECRET_FIELD_KEY, SECRET_WIDGET, SECRET_WIDGET_KEY, TEXTAREA_WIDGET
 from app.core.node_async import AsyncNode
 from app.core.node_base import NodeContext
-from app.core.node_config import CommonNodeConfig
+from app.core.node_config import CommonNodeConfig, NodeField
 from app.core.node_definition import NodeDefinition
 from app.core.spec import NodeMode, NodeSpec, PortSpec
 
@@ -17,19 +15,19 @@ from app.core.spec import NodeMode, NodeSpec, PortSpec
 class MockLLMConfig(CommonNodeConfig):
     """Mock LLM 节点配置。"""
 
-    model: str = Field(
+    model: str = NodeField(
         default="mock-llm-v1",
         description="Target model name.",
         json_schema_extra={"x-starryai-order": 10},
     )
-    temperature: float = Field(
+    temperature: float = NodeField(
         default=0.7,
         ge=0.0,
         le=2.0,
         description="Sampling temperature.",
         json_schema_extra={"x-starryai-order": 20},
     )
-    system_prompt: str = Field(
+    system_prompt: str = NodeField(
         default="你是 StarryAI 的本地模拟 LLM。",
         description="System prompt sent to the model.",
         json_schema_extra={
@@ -37,7 +35,7 @@ class MockLLMConfig(CommonNodeConfig):
             SECRET_WIDGET_KEY: TEXTAREA_WIDGET,
         },
     )
-    api_key: str | None = Field(
+    api_key: str | None = NodeField(
         default=None,
         description="API key used to access the remote LLM service.",
         json_schema_extra={

@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.core.node_async import AsyncNode
+from app.core.node_config import NodeField
 from app.core.node_definition import NodeDefinition
 from app.core.spec import NodeMode, NodeSpec
 
@@ -20,6 +21,10 @@ class DemoNode(AsyncNode):
 
 class DemoConfig(BaseModel):
     content: str = Field(default="x", min_length=1)
+
+
+class DemoReadonlyConfig(BaseModel):
+    sync_round: int = NodeField(default=0, ge=0, readonly=True)
 
 
 def _spec(*, config_schema: dict[str, Any] | None = None) -> NodeSpec:
@@ -58,3 +63,14 @@ def test_node_definition_without_config_model_keeps_spec() -> None:
     definition = NodeDefinition(spec=spec, impl_cls=DemoNode, config_model=None)
     resolved = definition.spec_with_config_schema()
     assert resolved is spec
+
+
+def test_node_definition_preserves_readonly_schema_metadata() -> None:
+    definition = NodeDefinition(
+        spec=_spec(),
+        impl_cls=DemoNode,
+        config_model=DemoReadonlyConfig,
+    )
+    resolved = definition.spec_with_config_schema()
+    sync_round_schema = resolved.config_schema["properties"]["sync_round"]
+    assert sync_round_schema["readOnly"] is True

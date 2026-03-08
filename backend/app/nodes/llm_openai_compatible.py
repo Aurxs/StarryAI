@@ -6,12 +6,12 @@ import json
 from typing import Any
 
 import httpx
-from pydantic import Field, field_validator
+from pydantic import field_validator
 
 from app.core.config_validation import SECRET_FIELD_KEY, SECRET_WIDGET, SECRET_WIDGET_KEY, TEXTAREA_WIDGET
 from app.core.node_async import AsyncNode
 from app.core.node_base import NodeContext
-from app.core.node_config import CommonNodeConfig
+from app.core.node_config import CommonNodeConfig, NodeField
 from app.core.node_definition import NodeDefinition
 from app.core.spec import NodeMode, NodeSpec, PortSpec
 
@@ -23,22 +23,22 @@ def _trim_string(value: str) -> str:
 class OpenAICompatibleLLMConfig(CommonNodeConfig):
     """Config for OpenAI-compatible chat completion nodes."""
 
-    base_url: str = Field(
+    base_url: str = NodeField(
         default="https://api.openai.com",
         description="Base URL of the LLM service.",
         json_schema_extra={"x-starryai-order": 10},
     )
-    api_path: str = Field(
+    api_path: str = NodeField(
         default="/v1/chat/completions",
         description="Request path. Supports either a full URL or a relative path.",
         json_schema_extra={"x-starryai-order": 20},
     )
-    model: str = Field(
+    model: str = NodeField(
         default="gpt-4o-mini",
         description="Target model name.",
         json_schema_extra={"x-starryai-order": 30},
     )
-    api_key: str | None = Field(
+    api_key: str | None = NodeField(
         default=None,
         description="API key used to access the remote LLM service.",
         json_schema_extra={
@@ -49,17 +49,17 @@ class OpenAICompatibleLLMConfig(CommonNodeConfig):
             "x-starryai-placeholder": "Select or create a secret",
         },
     )
-    auth_header_name: str = Field(
+    auth_header_name: str = NodeField(
         default="Authorization",
         description="Authentication header name, such as Authorization or api-key.",
         json_schema_extra={"x-starryai-order": 50},
     )
-    auth_scheme: str = Field(
+    auth_scheme: str = NodeField(
         default="Bearer",
         description="Authentication scheme. Leave empty to send the API key directly.",
         json_schema_extra={"x-starryai-order": 60},
     )
-    system_prompt: str = Field(
+    system_prompt: str = NodeField(
         default="You are StarryAI's workflow LLM node.",
         description="System prompt sent to the model.",
         json_schema_extra={
@@ -67,27 +67,27 @@ class OpenAICompatibleLLMConfig(CommonNodeConfig):
             SECRET_WIDGET_KEY: TEXTAREA_WIDGET,
         },
     )
-    temperature: float | None = Field(
+    temperature: float | None = NodeField(
         default=0.2,
         ge=0.0,
         le=2.0,
         description="Sampling temperature.",
         json_schema_extra={"x-starryai-order": 80},
     )
-    max_tokens: int | None = Field(
+    max_tokens: int | None = NodeField(
         default=None,
         ge=1,
         description="Maximum number of output tokens. Leave empty to let the service decide.",
         json_schema_extra={"x-starryai-order": 90},
     )
-    top_p: float | None = Field(
+    top_p: float | None = NodeField(
         default=None,
         gt=0.0,
         le=1.0,
         description="Top-p sampling parameter.",
         json_schema_extra={"x-starryai-order": 100},
     )
-    extra_body_json: str = Field(
+    extra_body_json: str = NodeField(
         default="",
         description="Extra request body JSON object used to inject provider-specific parameters.",
         json_schema_extra={

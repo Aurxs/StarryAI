@@ -5,7 +5,24 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
+
+
+def NodeField(*args: Any, readonly: bool = False, **kwargs: Any) -> Any:
+    """包装 pydantic.Field，补充 StarryAI 节点配置字段元信息。
+
+    当前支持：
+    - `readonly=True`：前端按只读文本展示，不渲染输入框。
+    """
+
+    json_schema_extra = dict(kwargs.pop("json_schema_extra", {}) or {})
+    if readonly:
+        json_schema_extra["readOnly"] = True
+    if json_schema_extra:
+        kwargs["json_schema_extra"] = json_schema_extra
+    return Field(*args, **kwargs)
 
 
 class CommonNodeConfig(BaseModel):

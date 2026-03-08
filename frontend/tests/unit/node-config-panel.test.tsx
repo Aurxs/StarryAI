@@ -129,10 +129,11 @@ describe('NodeConfigPanel', () => {
         render(<NodeConfigPanel/>);
 
         const syncGroupInput = await screen.findByTestId('node-config-sync-group-input');
-        expect((syncGroupInput as HTMLInputElement).disabled).toBe(true);
-        expect((screen.getByTestId('node-config-sync-round-input') as HTMLInputElement).disabled).toBe(true);
-        expect((screen.getByTestId('node-config-ready-timeout-input') as HTMLInputElement).disabled).toBe(true);
-        expect((screen.getByTestId('node-config-commit-lead-input') as HTMLInputElement).disabled).toBe(true);
+        expect(syncGroupInput.tagName).toBe('DIV');
+        expect(syncGroupInput.textContent).toBe('group_from_initiator');
+        expect(screen.getByTestId('node-config-sync-round-input').textContent).toBe('6');
+        expect(screen.getByTestId('node-config-ready-timeout-input').textContent).toBe('1600');
+        expect(screen.getByTestId('node-config-commit-lead-input').textContent).toBe('120');
 
         fireEvent.change(screen.getByTestId('node-config-json-input'), {
             target: {value: '{\n  "volume": 0.8,\n  "channel": "L"\n}'},
@@ -149,6 +150,60 @@ describe('NodeConfigPanel', () => {
             commit_lead_ms: 120,
             __sync_managed_by: 'n_init_1',
         });
+    });
+
+    it('renders schema readonly fields as plain text instead of inputs', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'mock.readonly',
+                            version: '0.1.0',
+                            mode: 'async',
+                            inputs: [],
+                            outputs: [],
+                            config_schema: {
+                                type: 'object',
+                                properties: {
+                                    build_id: {
+                                        type: 'string',
+                                        title: 'Build ID',
+                                        readOnly: true,
+                                        default: 'build-001',
+                                    },
+                                    retries: {
+                                        type: 'integer',
+                                        title: 'Retries',
+                                        default: 3,
+                                    },
+                                },
+                            },
+                            description: '',
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        useGraphStore.getState().upsertNode({
+            node_id: 'n_readonly',
+            type_name: 'mock.readonly',
+            title: 'Readonly Node',
+            config: {
+                build_id: 'build-888',
+                retries: 7,
+            },
+        });
+        useGraphStore.getState().selectNode('n_readonly');
+
+        render(<NodeConfigPanel/>);
+
+        await screen.findByText('Build ID');
+        expect(screen.getByText('build-888')).toBeTruthy();
+        expect(screen.queryByDisplayValue('build-888')).toBeNull();
+        expect(screen.getByDisplayValue('7')).toBeTruthy();
     });
 
     it('renders schema form and saves inline-created secret refs', async () => {

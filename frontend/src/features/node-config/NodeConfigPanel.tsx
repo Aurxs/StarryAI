@@ -73,6 +73,15 @@ const sectionTitleStyle: CSSProperties = {
     color: '#334155',
 };
 
+const readonlyValueStyle: CSSProperties = {
+    fontSize: 13,
+    color: '#0f172a',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    minHeight: 20,
+    marginTop: 6,
+};
+
 const advancedSectionStyle: CSSProperties = {
     display: 'grid',
     gap: 8,
@@ -88,6 +97,13 @@ const parseInteger = (value: string): number | null => {
         return null;
     }
     return Number.parseInt(trimmed, 10);
+};
+
+const formatReadonlyValue = (value: string): string => {
+    if (!value.trim()) {
+        return '-';
+    }
+    return value;
 };
 
 type SyncPanelRole = 'none' | 'initiator' | 'executor';
@@ -341,6 +357,46 @@ export function NodeConfigPanel() {
         setSuccessMessage(null);
     };
 
+    const renderSyncField = ({
+        label,
+        value,
+        testId,
+        onChange,
+        readonly,
+        helperText,
+    }: {
+        label: string;
+        value: string;
+        testId: string;
+        onChange?: (nextValue: string) => void;
+        readonly: boolean;
+        helperText?: string;
+    }) => (
+        <label style={{display: 'block', fontSize: 12}}>
+            {label}
+            {readonly ? (
+                <div style={readonlyValueStyle} data-testid={testId}>
+                    {formatReadonlyValue(value)}
+                </div>
+            ) : (
+                <input
+                    value={value}
+                    onChange={(event) => {
+                        onChange?.(event.target.value);
+                        setSuccessMessage(null);
+                    }}
+                    style={inputStyle}
+                    data-testid={testId}
+                />
+            )}
+            {helperText && (
+                <div style={{fontSize: 11, color: '#64748b', marginTop: 4}}>
+                    {helperText}
+                </div>
+            )}
+        </label>
+    );
+
     return (
         <section style={panelStyle} data-testid="node-config-panel">
             <h3 style={{margin: 0}}>{t('nodeConfig.title')}</h3>
@@ -450,66 +506,51 @@ export function NodeConfigPanel() {
                             {t('nodeConfig.sync.hints.managedBy', {nodeId: managedByNodeId})}
                         </div>
                     )}
-                    <label style={{display: 'block', fontSize: 12, marginBottom: 8}}>
-                        {t('nodeConfig.sync.fields.syncGroup')}
-                        <input
-                            value={syncFieldDraft.syncGroup}
-                            onChange={(event) => {
+                    <div style={{display: 'grid', gap: 8}}>
+                        {renderSyncField({
+                            label: t('nodeConfig.sync.fields.syncGroup'),
+                            value: syncFieldDraft.syncGroup,
+                            testId: 'node-config-sync-group-input',
+                            readonly: syncRole !== 'initiator',
+                            onChange: (nextValue) => {
                                 setSyncFieldDraft((current) => ({
                                     ...current,
-                                    syncGroup: event.target.value,
+                                    syncGroup: nextValue,
                                 }));
-                                setSuccessMessage(null);
-                            }}
-                            disabled={syncRole !== 'initiator'}
-                            style={inputStyle}
-                            data-testid="node-config-sync-group-input"
-                        />
-                    </label>
-                    <label style={{display: 'block', fontSize: 12, marginBottom: 8}}>
-                        {t('nodeConfig.sync.fields.syncRound')}
-                        <input
-                            value={syncFieldDraft.syncRound}
-                            disabled
-                            style={inputStyle}
-                            data-testid="node-config-sync-round-input"
-                        />
-                        <div style={{fontSize: 11, color: '#64748b', marginTop: 4}}>
-                            {t('nodeConfig.sync.hints.syncRoundAuto')}
-                        </div>
-                    </label>
-                    <label style={{display: 'block', fontSize: 12, marginBottom: 8}}>
-                        {t('nodeConfig.sync.fields.readyTimeoutMs')}
-                        <input
-                            value={syncFieldDraft.readyTimeoutMs}
-                            onChange={(event) => {
+                            },
+                        })}
+                        {renderSyncField({
+                            label: t('nodeConfig.sync.fields.syncRound'),
+                            value: syncFieldDraft.syncRound,
+                            testId: 'node-config-sync-round-input',
+                            readonly: true,
+                            helperText: t('nodeConfig.sync.hints.syncRoundAuto'),
+                        })}
+                        {renderSyncField({
+                            label: t('nodeConfig.sync.fields.readyTimeoutMs'),
+                            value: syncFieldDraft.readyTimeoutMs,
+                            testId: 'node-config-ready-timeout-input',
+                            readonly: syncRole !== 'initiator',
+                            onChange: (nextValue) => {
                                 setSyncFieldDraft((current) => ({
                                     ...current,
-                                    readyTimeoutMs: event.target.value,
+                                    readyTimeoutMs: nextValue,
                                 }));
-                                setSuccessMessage(null);
-                            }}
-                            disabled={syncRole !== 'initiator'}
-                            style={inputStyle}
-                            data-testid="node-config-ready-timeout-input"
-                        />
-                    </label>
-                    <label style={{display: 'block', fontSize: 12}}>
-                        {t('nodeConfig.sync.fields.commitLeadMs')}
-                        <input
-                            value={syncFieldDraft.commitLeadMs}
-                            onChange={(event) => {
+                            },
+                        })}
+                        {renderSyncField({
+                            label: t('nodeConfig.sync.fields.commitLeadMs'),
+                            value: syncFieldDraft.commitLeadMs,
+                            testId: 'node-config-commit-lead-input',
+                            readonly: syncRole !== 'initiator',
+                            onChange: (nextValue) => {
                                 setSyncFieldDraft((current) => ({
                                     ...current,
-                                    commitLeadMs: event.target.value,
+                                    commitLeadMs: nextValue,
                                 }));
-                                setSuccessMessage(null);
-                            }}
-                            disabled={syncRole !== 'initiator'}
-                            style={inputStyle}
-                            data-testid="node-config-commit-lead-input"
-                        />
-                    </label>
+                            },
+                        })}
+                    </div>
                 </section>
             )}
 

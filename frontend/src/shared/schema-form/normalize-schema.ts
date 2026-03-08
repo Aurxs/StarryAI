@@ -16,6 +16,7 @@ export interface JsonSchemaNode {
     maximum?: number;
     minLength?: number;
     maxLength?: number;
+    readOnly?: boolean;
     [key: string]: unknown;
 }
 
@@ -53,6 +54,7 @@ export const resolveSchemaNode = (
                 ...resolved,
                 title: schema.title ?? resolved.title,
                 description: schema.description ?? resolved.description,
+                readOnly: schema.readOnly ?? resolved.readOnly,
                 [SECRET_FIELD_KEY]: schema[SECRET_FIELD_KEY] ?? resolved[SECRET_FIELD_KEY],
                 [SECRET_WIDGET_KEY]: schema[SECRET_WIDGET_KEY] ?? resolved[SECRET_WIDGET_KEY],
                 [ORDER_KEY]: schema[ORDER_KEY] ?? resolved[ORDER_KEY],
@@ -72,6 +74,7 @@ export const resolveSchemaNode = (
                 title: schema.title ?? resolved.title,
                 description: schema.description ?? resolved.description,
                 default: schema.default ?? resolved.default,
+                readOnly: schema.readOnly ?? resolved.readOnly,
                 [SECRET_FIELD_KEY]: schema[SECRET_FIELD_KEY] ?? resolved[SECRET_FIELD_KEY],
                 [SECRET_WIDGET_KEY]: schema[SECRET_WIDGET_KEY] ?? resolved[SECRET_WIDGET_KEY],
                 [ORDER_KEY]: schema[ORDER_KEY] ?? resolved[ORDER_KEY],
@@ -90,6 +93,9 @@ export const isSecretSchema = (schema: ResolvedSchemaNode): boolean =>
 
 export const isTextareaSchema = (schema: ResolvedSchemaNode): boolean =>
     schema[SECRET_WIDGET_KEY] === TEXTAREA_WIDGET;
+
+export const isReadonlySchema = (schema: ResolvedSchemaNode): boolean =>
+    schema.readOnly === true;
 
 export const getOrderedObjectEntries = (
     schema: JsonSchemaNode,

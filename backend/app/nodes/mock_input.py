@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import Field
-
 from app.core.node_async import AsyncNode
 from app.core.node_base import NodeContext
-from app.core.node_config import CommonNodeConfig
+from app.core.node_config import CommonNodeConfig, NodeField
 from app.core.node_definition import NodeDefinition
 from app.core.spec import NodeMode, NodeSpec, PortSpec
 
@@ -16,7 +14,7 @@ from app.core.spec import NodeMode, NodeSpec, PortSpec
 class MockInputConfig(CommonNodeConfig):
     """Mock 输入节点配置。"""
 
-    content: str = Field(
+    content: str = NodeField(
         default="你好，这是 StarryAI 的输入消息",
         description="Static text emitted by the node.",
     )
