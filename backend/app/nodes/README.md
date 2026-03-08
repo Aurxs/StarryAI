@@ -133,6 +133,13 @@ NODE_DEFINITIONS = [
 
 业务字段写在自己的配置模型里。统一使用 `NodeField` 补充约束、描述和前端渲染元信息；它兼容 `pydantic.Field` 的常规参数，并额外支持 StarryAI 的表单元信息。
 
+`NodeField` 当前额外支持的 StarryAI 参数：
+
+1. `readonly=True`
+   作用：前端按纯文本展示该字段，不渲染输入框。
+   适用：自动生成、系统托管、运行态游标这类“不应由用户手工修改”的字段，例如 `sync_round`。
+   说明：这只影响配置面板展示，不会改变后端校验和运行时读取方式。
+
 开发约定：
 
 1. 节点业务逻辑优先读取 `self.cfg`，不要到处直接读原始 `dict`。
@@ -142,6 +149,27 @@ NODE_DEFINITIONS = [
 5. 需要把字段设为只读时，使用 `NodeField(..., readonly=True)`；前端会按纯文本展示，不渲染输入框。
 6. 需要 Secret 选择器、多行文本等控件时，参考现有 `mock_llm.py`、`llm_openai_compatible.py` 的 `json_schema_extra` 写法。
 7. 面向前端展示的 `Field.description`、`PortSpec.description`、`NodeSpec.description` 统一使用英文源文案；不同语言的展示文本由前端从 i18n JSON 映射，节点文件中不要直接维护多语言内容。
+
+只读字段示例：
+
+```python
+from app.core.node_config import CommonNodeConfig, NodeField
+
+
+class SyncLikeConfig(CommonNodeConfig):
+    sync_group: str = NodeField(
+        default="sg-demo",
+        description="Sync group name for the task.",
+    )
+    sync_round: int = NodeField(
+        default=0,
+        ge=0,
+        description="Current sync round for the task.",
+        readonly=True,
+    )
+```
+
+这个写法会让前端把 `sync_round` 渲染成只读文本，但后端仍然可以像普通配置字段一样通过 `self.cfg.sync_round` 读取。
 
 ### 5.2 定义 NodeSpec
 
@@ -218,19 +246,26 @@ from app.core.spec import NodeMode, NodeSpec, PortSpec
 class TextTransformConfig(CommonNodeConfig):
     """文本转换节点配置。"""
 
+    config_version: int = NodeField(
+        default=1,
+        ge=1,
+        description="Configuration schema version for this node.",
+        readonly=True,
+        json_schema_extra={"x-starryai-order": 5},
+    )
     prefix: str = NodeField(
         default="[Transformed]",
-        description="输出前缀",
+        description="Prefix prepended to the output text.",
         json_schema_extra={"x-starryai-order": 10},
     )
     uppercase: bool = NodeField(
         default=False,
-        description="是否转为大写",
+        description="Whether to convert the output text to uppercase.",
         json_schema_extra={"x-starryai-order": 20},
     )
     trim: bool = NodeField(
         default=True,
-        description="是否去除首尾空白",
+        description="Whether to trim leading and trailing whitespace.",
         json_schema_extra={"x-starryai-order": 30},
     )
 
@@ -259,6 +294,7 @@ class TextTransformNode(AsyncNode):
         return {
             "text": output,
             "__node_metrics": {
+                "config_version": cfg.config_version,
                 "input_chars": len(text),
                 "output_chars": len(output),
             },
@@ -274,7 +310,7 @@ TEXT_TRANSFORM_SPEC = NodeSpec(
             name="text",
             frame_schema="text.final",
             required=True,
-            description="待处理文本",
+            description="Input text to transform.",
         )
     ],
     outputs=[
@@ -282,10 +318,10 @@ TEXT_TRANSFORM_SPEC = NodeSpec(
             name="text",
             frame_schema="text.final",
             required=True,
-            description="处理后文本",
+            description="Transformed text output.",
         )
     ],
-    description="文本转换节点，支持裁剪空白、转大写与前缀拼接",
+    description="Text transform node that trims whitespace, applies casing, and prepends a prefix.",
     config_schema=TextTransformConfig.model_json_schema(),
 )
 
@@ -300,10 +336,11 @@ NODE_DEFINITION = NodeDefinition(
 ### 6.1 这个示例为什么符合当前架构
 
 1. 配置模型继承了 `CommonNodeConfig`，自动获得超时、重试等公共能力。
-2. `ConfigModel = TextTransformConfig` 让 `BaseNode` 在初始化时自动校验配置并生成 `self.cfg`。
-3. `NodeSpec` 明确声明了输入输出契约，图校验器会用它检查端口和 schema。
-4. `NODE_DEFINITION` 让注册中心和节点工厂可以同时发现这个节点。
-5. `__node_metrics` 会进入运行态指标，方便前端或日志观测。
+2. `config_version` 展示了 `NodeField(..., readonly=True)` 的典型用法：字段仍在 schema 中，但前端只做只读展示。
+3. `ConfigModel = TextTransformConfig` 让 `BaseNode` 在初始化时自动校验配置并生成 `self.cfg`。
+4. `NodeSpec` 明确声明了输入输出契约，图校验器会用它检查端口和 schema。
+5. `NODE_DEFINITION` 让注册中心和节点工厂可以同时发现这个节点。
+6. `__node_metrics` 会进入运行态指标，方便前端或日志观测。
 
 ### 6.2 这个节点如何接入一个图
 
