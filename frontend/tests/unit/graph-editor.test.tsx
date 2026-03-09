@@ -179,12 +179,58 @@ describe('GraphEditor', () => {
         addNodeFromDrawer('mock.input');
 
         const nodeCard = await screen.findByTestId('workflow-node-n1');
-        const portTag = within(nodeCard).getByText('out:text').closest('div');
+        const portTag = within(nodeCard).getByTestId('port-tag-out-text');
         expect(portTag?.getAttribute('title')).toBe('完整文本输出。');
+        expect(within(portTag).getByText('完整文本输出。')).toBeTruthy();
+        expect(within(portTag).queryByText('out:text')).toBeNull();
 
         fireEvent.contextMenu(nodeCard);
         const menu = screen.getByRole('menu', {name: 'node-context-menu'});
         expect(within(menu).getByText('模拟输入节点，产出完整文本。')).toBeTruthy();
+    });
+
+    it('renders a single-line node title and anchors port handles beside each port row', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'mock.input',
+                            version: '0.1.0',
+                            mode: 'async',
+                            inputs: [],
+                            outputs: [
+                                {
+                                    name: 'text',
+                                    frame_schema: 'text.final',
+                                    is_stream: false,
+                                    required: true,
+                                    description: 'Complete text output.',
+                                },
+                            ],
+                            sync_config: null,
+                            config_schema: {},
+                            description: 'Mock input node that emits complete text payloads.',
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        render(<GraphEditor/>);
+
+        addNodeFromDrawer('mock.input');
+        useGraphStore.getState().patchNode('n1', {title: 'Input A', config: {}});
+
+        const nodeCard = await screen.findByTestId('workflow-node-n1');
+        expect(within(nodeCard).getByText('Input A')).toBeTruthy();
+        expect(within(nodeCard).queryByText('mock.input')).toBeNull();
+
+        const outputPortRow = within(nodeCard).getByTestId('port-tag-out-text');
+        expect(within(outputPortRow).getByText('完整文本输出。')).toBeTruthy();
+        expect(within(outputPortRow).queryByText('out:text')).toBeNull();
+        expect(outputPortRow.querySelector('.react-flow__handle-right')).toBeTruthy();
     });
 
     it('supports single-node copy/paste shortcuts with full config cloning', async () => {

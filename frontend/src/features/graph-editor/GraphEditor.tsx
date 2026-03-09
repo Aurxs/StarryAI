@@ -116,12 +116,20 @@ const editorShellStyle: CSSProperties = {
 };
 
 const NODE_CARD_RADIUS = 14;
+const NODE_CARD_BORDER_WIDTH = 0;
+const NODE_CARD_HORIZONTAL_PADDING = 6;
+const PORT_HANDLE_SIZE = 9;
+const PORT_ROW_INSET = 6;
+const NODE_TITLE_INSET = PORT_ROW_INSET;
+const NODE_CARD_WIDTH = 220;
+const NODE_CARD_MIN_HEIGHT = 56;
 
 const nodeCardStyle: CSSProperties = {
-    minWidth: 180,
+    width: NODE_CARD_WIDTH,
+    minHeight: NODE_CARD_MIN_HEIGHT,
     border: '1px solid #dde4ef',
     borderRadius: NODE_CARD_RADIUS,
-    padding: '8px 10px',
+    padding: `8px ${NODE_CARD_HORIZONTAL_PADDING}px 9px`,
     background: '#ffffff',
     color: '#0f172a',
     boxShadow: '0 10px 20px rgba(15, 23, 42, 0.08)',
@@ -200,8 +208,6 @@ const isEditableElement = (target: EventTarget | null): boolean => {
     return target.isContentEditable || tag === 'input' || tag === 'textarea' || tag === 'select';
 };
 
-const getPortTop = (index: number, total: number): string => `${((index + 1) * 100) / (total + 1)}%`;
-
 const createFallbackNodeTypes = (description: string): NodeSpec[] => [
     {
         type_name: 'mock.input',
@@ -270,33 +276,101 @@ const PortTag = ({nodeTypeName, prefix, port}: { nodeTypeName: string; prefix: '
     const simpleType = simplifyFrameSchema(port.frame_schema);
     const color = getSchemaColor(port.frame_schema);
     const localizedDescription = translatePortDescription(t, nodeTypeName, port.name, port.description);
+    const isInput = prefix === 'in';
+    const handlePosition = isInput ? Position.Left : Position.Right;
+    const handleId = `${isInput ? TARGET_HANDLE_PREFIX : SOURCE_HANDLE_PREFIX}${port.name}`;
+    const edgeAnchor = -(NODE_CARD_HORIZONTAL_PADDING + NODE_CARD_BORDER_WIDTH);
+    const contentHint = localizedDescription ?? port.name;
+    const label = (
+        <span
+            style={{
+                opacity: 0.9,
+                flex: '0 1 auto',
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+            }}
+        >
+            {contentHint}
+        </span>
+    );
+    const schemaPill = (
+        <span
+            style={{
+                fontSize: 10,
+                borderRadius: 999,
+                padding: '1px 6px',
+                background: `${color}1A`,
+                color,
+                border: `1px solid ${color}66`,
+                flexShrink: 0,
+            }}
+        >
+            {simpleType}
+        </span>
+    );
     return (
         <div
             title={localizedDescription}
             style={{
+                position: 'relative',
                 display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                fontSize: 10,
-                color: '#334155',
-                marginTop: 2,
+                justifyContent: isInput ? 'flex-start' : 'flex-end',
+                paddingLeft: isInput ? PORT_ROW_INSET : 0,
+                paddingRight: isInput ? 0 : PORT_ROW_INSET,
+                marginTop: 1,
             }}
+            data-testid={`port-tag-${prefix}-${port.name}`}
         >
-            <span style={{opacity: 0.9}}>{prefix}:{port.name}</span>
-            <span
+            <Handle
+                id={handleId}
+                type={isInput ? 'target' : 'source'}
+                position={handlePosition}
                 style={{
+                    top: '50%',
+                    left: isInput ? edgeAnchor : undefined,
+                    right: isInput ? undefined : edgeAnchor,
+                    transform: isInput ? 'translate(-50%, -50%)' : 'translate(50%, -50%)',
+                    boxSizing: 'border-box',
+                    width: PORT_HANDLE_SIZE,
+                    height: PORT_HANDLE_SIZE,
+                    border: `2px solid ${color}`,
+                    background: '#fff',
+                }}
+            />
+            <div
+                style={{
+                    display: 'inline-flex',
+                    justifyContent: 'flex-start',
+                    alignItems: 'center',
                     fontSize: 10,
-                    borderRadius: 999,
-                    padding: '1px 6px',
-                    background: `${color}1A`,
-                    color,
-                    border: `1px solid ${color}66`,
+                    color: '#334155',
+                    columnGap: 3,
+                    minWidth: 0,
+                    maxWidth: '100%',
+                    textAlign: 'left',
                 }}
             >
-                {simpleType}
-            </span>
+                {isInput ? schemaPill : label}
+                {isInput ? label : schemaPill}
+            </div>
         </div>
     );
+};
+
+const nodeTitleStyle: CSSProperties = {
+    display: 'block',
+    fontSize: 13,
+    lineHeight: 1.35,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+};
+
+const nodeHeaderStyle: CSSProperties = {
+    paddingLeft: NODE_TITLE_INSET,
+    paddingRight: NODE_TITLE_INSET,
 };
 
 const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
@@ -315,47 +389,18 @@ const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
             data-testid={`workflow-node-${data.nodeId}`}
             onClick={() => data.onSelectNode(data.nodeId)}
         >
-            <div>
-                <strong>{data.title}</strong>
-                <div style={{fontSize: 11, color: '#475569'}}>{data.spec.type_name}</div>
+            <div style={nodeHeaderStyle}>
+                <strong style={nodeTitleStyle}>{data.title}</strong>
             </div>
-            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 10, marginTop: 8}}>
+            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 6, marginTop: 8}}>
                 <div>
-                    {inputs.map((port, index) => (
-                        <div key={`in-${port.name}`}>
-                            <Handle
-                                id={`${TARGET_HANDLE_PREFIX}${port.name}`}
-                                type="target"
-                                position={Position.Left}
-                                style={{
-                                    top: getPortTop(index, inputs.length),
-                                    width: 9,
-                                    height: 9,
-                                    border: `2px solid ${getSchemaColor(port.frame_schema)}`,
-                                    background: '#fff',
-                                }}
-                            />
-                            <PortTag nodeTypeName={data.spec.type_name} prefix="in" port={port}/>
-                        </div>
+                    {inputs.map((port) => (
+                        <PortTag key={`in-${port.name}`} nodeTypeName={data.spec.type_name} prefix="in" port={port}/>
                     ))}
                 </div>
                 <div>
-                    {outputs.map((port, index) => (
-                        <div key={`out-${port.name}`}>
-                            <Handle
-                                id={`${SOURCE_HANDLE_PREFIX}${port.name}`}
-                                type="source"
-                                position={Position.Right}
-                                style={{
-                                    top: getPortTop(index, outputs.length),
-                                    width: 9,
-                                    height: 9,
-                                    border: `2px solid ${getSchemaColor(port.frame_schema)}`,
-                                    background: '#fff',
-                                }}
-                            />
-                            <PortTag nodeTypeName={data.spec.type_name} prefix="out" port={port}/>
-                        </div>
+                    {outputs.map((port) => (
+                        <PortTag key={`out-${port.name}`} nodeTypeName={data.spec.type_name} prefix="out" port={port}/>
                     ))}
                 </div>
             </div>
