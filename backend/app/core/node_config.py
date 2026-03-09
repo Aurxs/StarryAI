@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -17,10 +18,24 @@ def NodeField(*args: Any, readonly: bool = False, **kwargs: Any) -> Any:
     - `readonly=True`：前端按只读文本展示，不渲染输入框。
     """
 
-    json_schema_extra = dict(kwargs.pop("json_schema_extra", {}) or {})
+    json_schema_extra = kwargs.pop("json_schema_extra", None)
     if readonly:
-        json_schema_extra["readOnly"] = True
-    if json_schema_extra:
+        if isinstance(json_schema_extra, Mapping):
+            kwargs["json_schema_extra"] = {
+                **dict(json_schema_extra),
+                "readOnly": True,
+            }
+        elif callable(json_schema_extra):
+            original_mutator = json_schema_extra
+
+            def _with_readonly(schema: dict[str, Any]) -> None:
+                original_mutator(schema)
+                schema["readOnly"] = True
+
+            kwargs["json_schema_extra"] = _with_readonly
+        else:
+            kwargs["json_schema_extra"] = {"readOnly": True} if json_schema_extra is None else json_schema_extra
+    elif json_schema_extra is not None:
         kwargs["json_schema_extra"] = json_schema_extra
     return Field(*args, **kwargs)
 

@@ -317,6 +317,18 @@ function SchemaFields({nodeTypeName, schema, rootSchema, value, path, secrets, o
                 const resolvedType = fieldSchema.type;
                 const readonlyValue = fieldValue ?? fieldSchema.default;
 
+                if (isReadonlySchema(fieldSchema)) {
+                    return (
+                        <div key={fieldPath.join('.')} style={labelStyle} data-field-path={fieldPath.join('.')}>
+                            <span>{label}{required ? ' *' : ''}</span>
+                            {description && <span style={helpTextStyle}>{description}</span>}
+                            <div style={readonlyValueStyle}>
+                                {formatReadonlyValue(readonlyValue, t('nodeConfig.form.emptyValue'))}
+                            </div>
+                        </div>
+                    );
+                }
+
                 if (isSecretSchema(fieldSchema)) {
                     return (
                         <SecretField
@@ -330,18 +342,6 @@ function SchemaFields({nodeTypeName, schema, rootSchema, value, path, secrets, o
                             onCreateSecret={onCreateSecret}
                             onChange={(nextFieldValue) => onChange(setValueAtPath(value, fieldPath, nextFieldValue))}
                         />
-                    );
-                }
-
-                if (isReadonlySchema(fieldSchema)) {
-                    return (
-                        <div key={fieldPath.join('.')} style={labelStyle} data-field-path={fieldPath.join('.')}>
-                            <span>{label}{required ? ' *' : ''}</span>
-                            {description && <span style={helpTextStyle}>{description}</span>}
-                            <div style={readonlyValueStyle}>
-                                {formatReadonlyValue(readonlyValue, t('nodeConfig.form.emptyValue'))}
-                            </div>
-                        </div>
                     );
                 }
 

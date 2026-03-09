@@ -206,6 +206,81 @@ describe('NodeConfigPanel', () => {
         expect(screen.getByDisplayValue('7')).toBeTruthy();
     });
 
+    it('renders readonly secret-backed fields as plain text instead of secret controls', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'mock.readonly.secret',
+                            version: '0.1.0',
+                            mode: 'async',
+                            inputs: [],
+                            outputs: [],
+                            config_schema: {
+                                type: 'object',
+                                properties: {
+                                    api_key: {
+                                        title: 'API Key',
+                                        description: 'Bind a secret',
+                                        anyOf: [{type: 'string'}, {type: 'null'}],
+                                        default: null,
+                                        readOnly: true,
+                                        'x-starryai-secret': true,
+                                        'x-starryai-widget': 'secret',
+                                    },
+                                },
+                            },
+                            description: '',
+                        },
+                    ],
+                }),
+            ),
+            http.get('*/api/v1/secrets', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            secret_id: 'llm-readonly',
+                            label: 'Readonly Secret',
+                            kind: 'generic',
+                            description: '',
+                            provider: 'memory',
+                            created_at: 1_700_000_100,
+                            updated_at: 1_700_000_100,
+                            usage_count: 0,
+                            in_use: false,
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        useGraphStore.getState().upsertNode({
+            node_id: 'n_readonly_secret',
+            type_name: 'mock.readonly.secret',
+            title: 'Readonly Secret Node',
+            config: {
+                api_key: {
+                    $kind: 'secret_ref',
+                    secret_id: 'llm-readonly',
+                },
+            },
+        });
+        useGraphStore.getState().selectNode('n_readonly_secret');
+
+        render(<NodeConfigPanel/>);
+
+        const secretHeading = await screen.findByText('API 密钥');
+        const secretSection = secretHeading.closest('[data-field-path="api_key"]');
+        expect(secretSection).toBeTruthy();
+        expect(within(secretSection as HTMLElement).getByText(/\$kind/)).toBeTruthy();
+        expect(within(secretSection as HTMLElement).getByText(/llm-readonly/)).toBeTruthy();
+        expect(within(secretSection as HTMLElement).queryByRole('combobox')).toBeNull();
+        expect(within(secretSection as HTMLElement).queryByRole('button', {name: '新建密钥'})).toBeNull();
+    });
+
     it('renders schema form and saves inline-created secret refs', async () => {
         server.use(
             http.get('*/api/v1/node-types', () =>

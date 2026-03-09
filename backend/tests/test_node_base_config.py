@@ -79,3 +79,20 @@ def test_node_field_emits_readonly_schema_metadata() -> None:
     sync_round_schema = schema["properties"]["sync_round"]
     assert sync_round_schema["readOnly"] is True
     assert sync_round_schema["x-starryai-order"] == 10
+
+
+def test_node_field_preserves_callable_json_schema_extra() -> None:
+    calls: list[str] = []
+
+    def mutate_schema(schema: dict[str, Any]) -> None:
+        calls.append("called")
+        schema["x-starryai-order"] = 30
+
+    class CallableReadonlyConfig(BaseModel):
+        api_key: str | None = NodeField(default=None, readonly=True, json_schema_extra=mutate_schema)
+
+    schema = CallableReadonlyConfig.model_json_schema()
+    api_key_schema = schema["properties"]["api_key"]
+    assert calls == ["called"]
+    assert api_key_schema["readOnly"] is True
+    assert api_key_schema["x-starryai-order"] == 30
