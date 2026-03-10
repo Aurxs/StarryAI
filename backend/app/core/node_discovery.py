@@ -15,6 +15,7 @@ from types import ModuleType
 from .node_definition import NodeDefinition
 
 NODE_SEARCH_DIRS_ENV = "STARRYAI_NODE_DIRS"
+_dynamic_node_module_names: set[str] = set()
 
 
 class NodeDiscoveryError(RuntimeError):
@@ -42,9 +43,19 @@ def _module_name_from_path(path: Path) -> str:
     return f"app.dynamic_nodes.{path.stem}_{digest}"
 
 
+def reset_dynamic_node_modules() -> None:
+    """清理 search_dirs 动态加载的节点模块缓存。"""
+
+    for module_name in list(_dynamic_node_module_names):
+        sys.modules.pop(module_name, None)
+    _dynamic_node_module_names.clear()
+    importlib.invalidate_caches()
+
+
 def _load_module_from_path(path: Path) -> ModuleType:
     module_name = _module_name_from_path(path)
     if module_name in sys.modules:
+        _dynamic_node_module_names.add(module_name)
         return sys.modules[module_name]
     spec = importlib.util.spec_from_file_location(module_name, str(path))
     if spec is None or spec.loader is None:
@@ -55,7 +66,9 @@ def _load_module_from_path(path: Path) -> ModuleType:
         spec.loader.exec_module(module)
     except Exception as exc:  # noqa: BLE001 - 导入错误需聚合为发现错误
         sys.modules.pop(module_name, None)
+        _dynamic_node_module_names.discard(module_name)
         raise NodeDiscoveryError(f"导入节点文件失败: {path}: {exc}") from exc
+    _dynamic_node_module_names.add(module_name)
     return module
 
 
@@ -166,4 +179,3 @@ def discover_node_definitions(
         seen_type_names.add(type_name)
 
     return sorted(definitions, key=lambda item: item.spec.type_name)
-

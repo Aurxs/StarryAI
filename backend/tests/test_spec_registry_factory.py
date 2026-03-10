@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 import app.core.node_catalog as node_catalog_module
-from app.core.node_catalog import reset_node_catalog_cache
+from app.core.node_catalog import get_node_definitions, reset_node_catalog_cache
 from app.core.node_discovery import NODE_SEARCH_DIRS_ENV, NodeDiscoveryError
 from app.core.node_factory import (
     NodeFactory,
@@ -386,6 +386,71 @@ NODE_DEFINITION = NodeDefinition(
     reset_node_catalog_cache()
     second_registry = create_default_registry(package_name=None, strict=True)
     assert {spec.type_name for spec in second_registry.list_specs()} == {"custom.env.b"}
+
+
+def test_node_catalog_reloads_edited_custom_node_module_after_cache_reset(
+    tmp_path: Path,
+) -> None:
+    custom_root = tmp_path / "edited_nodes"
+    node_file = custom_root / "demo_node.py"
+    _write(
+        node_file,
+        """
+from typing import Any
+from app.core.node_async import AsyncNode
+from app.core.node_definition import NodeDefinition
+from app.core.spec import NodeMode, NodeSpec
+
+class DemoNodeV1(AsyncNode):
+    async def process(self, inputs: dict[str, Any], context: Any) -> dict[str, Any]:
+        return {"version": "v1"}
+
+NODE_DEFINITION = NodeDefinition(
+    spec=NodeSpec(type_name="custom.reload.same_path", mode=NodeMode.ASYNC, inputs=[], outputs=[]),
+    impl_cls=DemoNodeV1,
+)
+""",
+    )
+
+    first_definitions = get_node_definitions(
+        package_name=None,
+        search_dirs=[custom_root],
+        strict=True,
+    )
+    assert [definition.spec.type_name for definition in first_definitions] == [
+        "custom.reload.same_path"
+    ]
+    assert first_definitions[0].impl_cls.__name__ == "DemoNodeV1"
+
+    _write(
+        node_file,
+        """
+from typing import Any
+from app.core.node_async import AsyncNode
+from app.core.node_definition import NodeDefinition
+from app.core.spec import NodeMode, NodeSpec
+
+class DemoNodeVersionTwo(AsyncNode):
+    async def process(self, inputs: dict[str, Any], context: Any) -> dict[str, Any]:
+        return {"version": "version-two-loaded-after-reset"}
+
+NODE_DEFINITION = NodeDefinition(
+    spec=NodeSpec(type_name="custom.reload.same_path", mode=NodeMode.ASYNC, inputs=[], outputs=[]),
+    impl_cls=DemoNodeVersionTwo,
+)
+""",
+    )
+
+    reset_node_catalog_cache()
+    second_definitions = get_node_definitions(
+        package_name=None,
+        search_dirs=[custom_root],
+        strict=True,
+    )
+    assert [definition.spec.type_name for definition in second_definitions] == [
+        "custom.reload.same_path"
+    ]
+    assert second_definitions[0].impl_cls.__name__ == "DemoNodeVersionTwo"
 
 
 def test_registry_forwards_discovery_kwargs(

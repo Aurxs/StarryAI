@@ -6,7 +6,11 @@ from pathlib import Path
 from typing import TypeAlias
 
 from app.core.node_definition import NodeDefinition
-from app.core.node_discovery import NODE_SEARCH_DIRS_ENV, discover_node_definitions
+from app.core.node_discovery import (
+    NODE_SEARCH_DIRS_ENV,
+    discover_node_definitions,
+    reset_dynamic_node_modules,
+)
 
 _SearchDirKey: TypeAlias = tuple[str, ...]
 _PackageNamesKey: TypeAlias = tuple[str, ...] | None
@@ -46,6 +50,7 @@ def get_node_definitions(
 
 def reset_node_catalog_cache() -> None:
     _node_definitions_cache.clear()
+    reset_dynamic_node_modules()
 
 
 def _build_cache_key(
