@@ -106,6 +106,13 @@ def iter_secret_refs(config_schema: dict[str, Any], payload: Any, path: str = ''
                     continue
                 child_path = f'{path}.{key}' if path else str(key)
                 items.extend(iter_secret_refs(child_schema, payload[key], child_path))
+        return items
+    if schema_type == 'array' and isinstance(payload, list):
+        item_schema = normalized_schema.get('items')
+        if isinstance(item_schema, dict):
+            for index, value in enumerate(payload):
+                child_path = f'{path}[{index}]' if path else f'[{index}]'
+                items.extend(iter_secret_refs(item_schema, value, child_path))
     return items
 
 
@@ -144,6 +151,10 @@ def _transform_schema(schema: dict[str, Any]) -> dict[str, Any]:
                 key: _transform_schema(deepcopy(child_schema))
                 for key, child_schema in properties.items()
             }
+    if schema_type == 'array':
+        item_schema = resolved.get('items')
+        if isinstance(item_schema, dict):
+            resolved['items'] = _transform_schema(deepcopy(item_schema))
     return resolved
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -171,13 +172,12 @@ def _iter_plaintext_secret_values(
     return items
 
 
-def _build_migrated_secret_id(*, graph_id: str, node_id: str, field_path: str) -> str | None:
-    field_parts = [
-        str(part)
-        for part in parse_field_path(field_path)
-    ]
-    raw_secret_id = "-".join([graph_id, node_id, *field_parts])
-    return normalize_secret_id(raw_secret_id) or None
+def _build_migrated_secret_id(*, graph_id: str, node_id: str, field_path: str) -> str:
+    prefix = normalize_secret_id(f'migrated-{graph_id}-{node_id}') or 'migrated'
+    digest = hashlib.sha1(
+        f'{graph_id}\0{node_id}\0{field_path}'.encode('utf-8')
+    ).hexdigest()[:12]
+    return f'{prefix}.{digest}'
 
 
 def build_default_graph_repository(storage_dir: Path | None = None) -> FileGraphRepository:

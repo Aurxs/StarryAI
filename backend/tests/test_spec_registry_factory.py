@@ -453,6 +453,138 @@ NODE_DEFINITION = NodeDefinition(
     assert second_definitions[0].impl_cls.__name__ == "DemoNodeVersionTwo"
 
 
+def test_node_catalog_reloads_edited_custom_node_module_without_cache_reset(
+    tmp_path: Path,
+) -> None:
+    custom_root = tmp_path / "edited_nodes_auto"
+    node_file = custom_root / "demo_node.py"
+    _write(
+        node_file,
+        """
+from typing import Any
+from app.core.node_async import AsyncNode
+from app.core.node_definition import NodeDefinition
+from app.core.spec import NodeMode, NodeSpec
+
+class DemoNodeV1(AsyncNode):
+    async def process(self, inputs: dict[str, Any], context: Any) -> dict[str, Any]:
+        return {"version": "v1"}
+
+NODE_DEFINITION = NodeDefinition(
+    spec=NodeSpec(type_name="custom.reload.auto", mode=NodeMode.ASYNC, inputs=[], outputs=[]),
+    impl_cls=DemoNodeV1,
+)
+""",
+    )
+
+    first_definitions = get_node_definitions(
+        package_name=None,
+        search_dirs=[custom_root],
+        strict=True,
+    )
+    assert first_definitions[0].impl_cls.__name__ == "DemoNodeV1"
+
+    _write(
+        node_file,
+        """
+from typing import Any
+from app.core.node_async import AsyncNode
+from app.core.node_definition import NodeDefinition
+from app.core.spec import NodeMode, NodeSpec
+
+class DemoNodeVersionTwo(AsyncNode):
+    async def process(self, inputs: dict[str, Any], context: Any) -> dict[str, Any]:
+        return {"version": "version-two"}
+
+NODE_DEFINITION = NodeDefinition(
+    spec=NodeSpec(type_name="custom.reload.auto", mode=NodeMode.ASYNC, inputs=[], outputs=[]),
+    impl_cls=DemoNodeVersionTwo,
+)
+""",
+    )
+
+    second_definitions = get_node_definitions(
+        package_name=None,
+        search_dirs=[custom_root],
+        strict=True,
+    )
+    assert second_definitions[0].impl_cls.__name__ == "DemoNodeVersionTwo"
+
+
+def test_node_catalog_refreshes_when_dynamic_files_are_added_or_removed_without_cache_reset(
+    tmp_path: Path,
+) -> None:
+    custom_root = tmp_path / "dynamic_nodes_auto"
+    first_node = custom_root / "node_a.py"
+    second_node = custom_root / "node_b.py"
+    _write(
+        first_node,
+        """
+from typing import Any
+from app.core.node_async import AsyncNode
+from app.core.node_definition import NodeDefinition
+from app.core.spec import NodeMode, NodeSpec
+
+class FirstNode(AsyncNode):
+    async def process(self, inputs: dict[str, Any], context: Any) -> dict[str, Any]:
+        return {}
+
+NODE_DEFINITION = NodeDefinition(
+    spec=NodeSpec(type_name="custom.auto.first", mode=NodeMode.ASYNC, inputs=[], outputs=[]),
+    impl_cls=FirstNode,
+)
+""",
+    )
+
+    first_definitions = get_node_definitions(
+        package_name=None,
+        search_dirs=[custom_root],
+        strict=True,
+    )
+    assert [definition.spec.type_name for definition in first_definitions] == [
+        "custom.auto.first"
+    ]
+
+    _write(
+        second_node,
+        """
+from typing import Any
+from app.core.node_async import AsyncNode
+from app.core.node_definition import NodeDefinition
+from app.core.spec import NodeMode, NodeSpec
+
+class SecondNode(AsyncNode):
+    async def process(self, inputs: dict[str, Any], context: Any) -> dict[str, Any]:
+        return {}
+
+NODE_DEFINITION = NodeDefinition(
+    spec=NodeSpec(type_name="custom.auto.second", mode=NodeMode.ASYNC, inputs=[], outputs=[]),
+    impl_cls=SecondNode,
+)
+""",
+    )
+
+    second_definitions = get_node_definitions(
+        package_name=None,
+        search_dirs=[custom_root],
+        strict=True,
+    )
+    assert [definition.spec.type_name for definition in second_definitions] == [
+        "custom.auto.first",
+        "custom.auto.second",
+    ]
+
+    first_node.unlink()
+    third_definitions = get_node_definitions(
+        package_name=None,
+        search_dirs=[custom_root],
+        strict=True,
+    )
+    assert [definition.spec.type_name for definition in third_definitions] == [
+        "custom.auto.second"
+    ]
+
+
 def test_registry_forwards_discovery_kwargs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

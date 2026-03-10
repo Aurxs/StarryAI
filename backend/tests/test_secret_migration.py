@@ -12,14 +12,18 @@ from app.secrets.store import InMemorySecretValueProvider, JsonSecretMetadataSto
 from app.services.graph_repository import FileGraphRepository
 
 
-def _graph_with_plaintext_secret(graph_id: str = 'graph_plaintext_secret') -> GraphSpec:
+def _graph_with_plaintext_secret(
+    graph_id: str = 'graph_plaintext_secret',
+    *,
+    node_id: str = 'n2',
+) -> GraphSpec:
     return GraphSpec(
         graph_id=graph_id,
         version='0.1.0',
         nodes=[
             NodeInstanceSpec(node_id='n1', type_name='mock.input', config={'content': 'hello'}),
             NodeInstanceSpec(
-                node_id='n2',
+                node_id=node_id,
                 type_name='mock.llm',
                 config={
                     'model': 'mock-llm-v1',
@@ -169,3 +173,33 @@ def test_migrate_plaintext_secrets_updates_nested_array_fields(tmp_path) -> None
     api_key_value = migrated_node.config['providers'][0]['api_key']
     assert api_key_value['$kind'] == 'secret_ref'
     assert secret_service.resolve_value(api_key_value['secret_id']) == 'sk-array-secret'
+
+
+def test_migrate_plaintext_secrets_uses_collision_safe_secret_ids(tmp_path) -> None:
+    graph_repo = FileGraphRepository(storage_dir=tmp_path / 'graphs')
+    secret_service = SecretService(
+        metadata_store=JsonSecretMetadataStore(
+            store_dir=tmp_path / 'secrets',
+            provider=InMemorySecretValueProvider(),
+        )
+    )
+    graph_repo.save_graph(_graph_with_plaintext_secret('a', node_id='b-c'))
+    graph_repo.save_graph(_graph_with_plaintext_secret('a-b', node_id='c'))
+
+    result = migrate_plaintext_secrets(
+        graph_repository=graph_repo,
+        secret_service=secret_service,
+        registry=create_default_registry(),
+        apply_changes=True,
+    )
+
+    assert result.migrated_secrets == 2
+
+    first_graph = graph_repo.get_graph('a')
+    second_graph = graph_repo.get_graph('a-b')
+    first_secret_id = first_graph.nodes[1].config['api_key']['secret_id']
+    second_secret_id = second_graph.nodes[1].config['api_key']['secret_id']
+
+    assert first_secret_id != second_secret_id
+    assert secret_service.resolve_value(first_secret_id) == 'sk-plaintext-secret'
+    assert secret_service.resolve_value(second_secret_id) == 'sk-plaintext-secret'

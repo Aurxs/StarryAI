@@ -30,6 +30,20 @@ def test_set_value_at_path_updates_nested_list_items() -> None:
     assert payload["auth"]["providers"][1]["api_key"] == "stay"
 
 
+def test_set_value_at_path_updates_mixed_object_array_paths() -> None:
+    payload = {
+        "providers": [
+            {"credentials": {"api_key": "old"}},
+            {"credentials": {"api_key": "stay"}},
+        ]
+    }
+
+    set_value_at_path(payload, ["providers", 0, "credentials", "api_key"], "new")
+
+    assert payload["providers"][0]["credentials"]["api_key"] == "new"
+    assert payload["providers"][1]["credentials"]["api_key"] == "stay"
+
+
 def test_set_value_at_path_rejects_root_replacement() -> None:
     with pytest.raises(ValueError, match="根级配置对象"):
         set_value_at_path({"api_key": "old"}, [], "new")

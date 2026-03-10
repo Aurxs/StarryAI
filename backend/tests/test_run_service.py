@@ -12,9 +12,13 @@ from app.core.errors import ErrorCode
 from app.core.frame import RuntimeEventType
 from app.core.node_async import AsyncNode
 from app.core.node_base import NodeContext
+from app.core.config_validation import SECRET_FIELD_KEY, resolve_secret_refs
 from app.core.node_factory import NodeFactory, create_default_node_factory
 from app.core.registry import create_default_registry
 from app.core.scheduler import GraphScheduler, SchedulerConfig
+from app.secrets.models import SecretCreateInput
+from app.secrets.service import get_secret_service, reset_secret_service_for_testing
+from app.secrets.store import InMemorySecretValueProvider, JsonSecretMetadataStore
 from app.core.spec import EdgeSpec, GraphSpec, NodeInstanceSpec, NodeMode, NodeSpec, PortSpec
 from app.services.run_service import RunCapacityExceededError, RunNotFoundError, RunRecord, RunService
 
@@ -35,6 +39,19 @@ class AlwaysFailNode(AsyncNode):
         _ = inputs
         _ = context
         raise RuntimeError("always fail")
+
+
+class ArraySecretGuardNode(AsyncNode):
+    """验证运行时是否已解开数组里的 secret_ref。"""
+
+    async def process(self, inputs: dict[str, Any], context: NodeContext) -> dict[str, Any]:
+        _ = inputs
+        _ = context
+        providers = self.config.get("providers", [])
+        api_key = providers[0]["api_key"]
+        if api_key != "sk-array-live":
+            raise AssertionError(f"unexpected api_key: {api_key!r}")
+        return {"text": "resolved"}
 
 
 def _basic_graph(graph_id: str = "g_service_basic") -> GraphSpec:
@@ -162,6 +179,34 @@ def _critical_fail_fast_graph(graph_id: str = "g_service_critical") -> GraphSpec
     )
 
 
+def _array_secret_graph(secret_id: str, graph_id: str = "g_service_array_secret") -> GraphSpec:
+    return GraphSpec(
+        graph_id=graph_id,
+        nodes=[
+            NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+            NodeInstanceSpec(
+                node_id="n2",
+                type_name="test.array.secret.service",
+                config={
+                    "providers": [
+                        {
+                            "api_key": {
+                                "$kind": "secret_ref",
+                                "secret_id": secret_id,
+                            }
+                        }
+                    ]
+                },
+            ),
+            NodeInstanceSpec(node_id="n3", type_name="mock.output"),
+        ],
+        edges=[
+            EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="text"),
+            EdgeSpec(source_node="n2", source_port="text", target_node="n3", target_port="in"),
+        ],
+    )
+
+
 def _build_service_with_slow_node() -> RunService:
     registry = create_default_registry()
     registry.register(
@@ -197,6 +242,49 @@ def _build_service_with_fail_node() -> RunService:
     def node_factory_builder() -> NodeFactory:
         factory = create_default_node_factory()
         factory.register("test.fail.service", AlwaysFailNode)
+        return factory
+
+    return RunService(registry=registry, node_factory_builder=node_factory_builder)
+
+
+def _build_service_with_array_secret_guard_node() -> RunService:
+    registry = create_default_registry()
+    registry.register(
+        NodeSpec(
+            type_name="test.array.secret.service",
+            mode=NodeMode.ASYNC,
+            inputs=[PortSpec(name="text", frame_schema="text.final", required=True)],
+            outputs=[PortSpec(name="text", frame_schema="text.final", required=True)],
+            description="service node that requires resolved array secret refs",
+            config_schema={
+                "type": "object",
+                "properties": {
+                    "providers": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "api_key": {
+                                    "type": "string",
+                                    SECRET_FIELD_KEY: True,
+                                }
+                            },
+                        },
+                    }
+                },
+            },
+        )
+    )
+
+    def node_factory_builder() -> NodeFactory:
+        factory = create_default_node_factory(
+            config_resolver=lambda node, spec: resolve_secret_refs(
+                spec.config_schema,
+                node.config,
+                resolve_secret=get_secret_service().resolve_value,
+            )
+        )
+        factory.register("test.array.secret.service", ArraySecretGuardNode)
         return factory
 
     return RunService(registry=registry, node_factory_builder=node_factory_builder)
@@ -360,6 +448,36 @@ def test_run_service_sync_run_exposes_sync_metrics_and_events() -> None:
         assert sync_events[0].details["stream_id"] == "stream_service_sync"
         assert sync_events[0].details["sync_group"] == "g_service_sync"
         assert sync_events[0].details["sync_round"] == 0
+
+    asyncio.run(_run())
+
+
+def test_run_service_resolves_nested_array_secret_refs_before_execution(tmp_path) -> None:
+    reset_secret_service_for_testing(
+        JsonSecretMetadataStore(
+            store_dir=tmp_path / "secrets",
+            provider=InMemorySecretValueProvider(),
+        )
+    )
+    secret = get_secret_service().create_secret(
+        SecretCreateInput(
+            label="Array Secret",
+            value="sk-array-live",
+            kind="api_key",
+        )
+    )
+
+    async def _run() -> None:
+        service = _build_service_with_array_secret_guard_node()
+        record = await service.create_run(
+            _array_secret_graph(secret.secret_id),
+            stream_id="stream_service_array_secret",
+        )
+        await record.task
+
+        snapshot = service.get_run_snapshot(record.run_id)
+        assert snapshot["status"] == "completed"
+        assert snapshot["node_states"]["n2"]["status"] == "finished"
 
     asyncio.run(_run())
 

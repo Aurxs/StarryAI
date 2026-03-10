@@ -16,6 +16,7 @@ from .node_definition import NodeDefinition
 
 NODE_SEARCH_DIRS_ENV = "STARRYAI_NODE_DIRS"
 _dynamic_node_module_names: set[str] = set()
+_dynamic_node_module_fingerprints: dict[str, str] = {}
 
 
 class NodeDiscoveryError(RuntimeError):
@@ -49,14 +50,27 @@ def reset_dynamic_node_modules() -> None:
     for module_name in list(_dynamic_node_module_names):
         sys.modules.pop(module_name, None)
     _dynamic_node_module_names.clear()
+    _dynamic_node_module_fingerprints.clear()
     importlib.invalidate_caches()
+
+
+def _dynamic_file_fingerprint(path: Path) -> str:
+    stat = path.stat()
+    return f"{path.resolve()}:{stat.st_mtime_ns}:{stat.st_size}"
 
 
 def _load_module_from_path(path: Path) -> ModuleType:
     module_name = _module_name_from_path(path)
-    if module_name in sys.modules:
+    current_fingerprint = _dynamic_file_fingerprint(path)
+    if (
+        module_name in sys.modules
+        and _dynamic_node_module_fingerprints.get(module_name) == current_fingerprint
+    ):
         _dynamic_node_module_names.add(module_name)
         return sys.modules[module_name]
+    if module_name in sys.modules:
+        sys.modules.pop(module_name, None)
+        importlib.invalidate_caches()
     spec = importlib.util.spec_from_file_location(module_name, str(path))
     if spec is None or spec.loader is None:
         raise NodeDiscoveryError(f"无法加载节点文件: {path}")
@@ -67,8 +81,10 @@ def _load_module_from_path(path: Path) -> ModuleType:
     except Exception as exc:  # noqa: BLE001 - 导入错误需聚合为发现错误
         sys.modules.pop(module_name, None)
         _dynamic_node_module_names.discard(module_name)
+        _dynamic_node_module_fingerprints.pop(module_name, None)
         raise NodeDiscoveryError(f"导入节点文件失败: {path}: {exc}") from exc
     _dynamic_node_module_names.add(module_name)
+    _dynamic_node_module_fingerprints[module_name] = current_fingerprint
     return module
 
 
@@ -115,7 +131,7 @@ def _extract_module_definitions(module: ModuleType, *, strict: bool) -> list[Nod
     return []
 
 
-def _resolve_search_dirs(search_dirs: Sequence[str | Path] | None) -> list[Path]:
+def resolve_search_dirs(search_dirs: Sequence[str | Path] | None) -> list[Path]:
     env_dirs: list[Path] = []
     raw_env = os.getenv(NODE_SEARCH_DIRS_ENV, "").strip()
     if raw_env:
@@ -134,6 +150,22 @@ def _resolve_search_dirs(search_dirs: Sequence[str | Path] | None) -> list[Path]
         seen.add(item)
         unique.append(item)
     return unique
+
+
+def build_search_dirs_fingerprint(search_dirs: Sequence[Path]) -> str:
+    digest = hashlib.sha1()
+    for root in search_dirs:
+        digest.update(f"dir:{root}:".encode("utf-8"))
+        if not root.exists() or not root.is_dir():
+            digest.update(b"missing\n")
+            continue
+        digest.update(b"present\n")
+        for file_path in _iter_python_files(root):
+            stat = file_path.stat()
+            digest.update(
+                f"file:{file_path.resolve()}:{stat.st_mtime_ns}:{stat.st_size}\n".encode("utf-8")
+            )
+    return digest.hexdigest()
 
 
 def discover_node_definitions(
@@ -166,7 +198,7 @@ def discover_node_definitions(
                 raise NodeDiscoveryError(f"导入节点模块失败: {module_name}: {exc}") from exc
             definitions.extend(_extract_module_definitions(module, strict=strict))
 
-    for root in _resolve_search_dirs(search_dirs):
+    for root in resolve_search_dirs(search_dirs):
         for file_path in _iter_python_files(root):
             module = _load_module_from_path(file_path)
             definitions.extend(_extract_module_definitions(module, strict=strict))

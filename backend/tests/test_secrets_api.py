@@ -11,6 +11,10 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
+import app.api.routes_graphs as routes_graphs_module
+from app.core.config_validation import SECRET_FIELD_KEY
+from app.core.registry import NodeTypeRegistry
+from app.core.spec import NodeMode, NodeSpec
 from app.main import app
 from app.secrets.service import reset_secret_service_for_testing
 from app.secrets.store import InMemorySecretValueProvider, JsonSecretMetadataStore
@@ -80,6 +84,29 @@ def _graph_payload_with_secret(secret_value: object) -> dict[str, object]:
                 "target_port": "in",
             },
         ],
+        "metadata": {},
+    }
+
+
+def _graph_payload_with_nested_array_secret(secret_value: object) -> dict[str, object]:
+    return {
+        "graph_id": "graph_array_secret_ref",
+        "version": "0.1.0",
+        "nodes": [
+            {
+                "node_id": "n_array",
+                "type_name": "test.array.secret.api",
+                "title": "Array Secret",
+                "config": {
+                    "providers": [
+                        {
+                            "api_key": secret_value,
+                        }
+                    ],
+                },
+            }
+        ],
+        "edges": [],
         "metadata": {},
     }
 
@@ -170,3 +197,61 @@ def test_save_graph_rejects_plaintext_secret_values() -> None:
             issue["code"] == "node.config_invalid"
             for issue in detail["report"]["issues"]
         )
+
+
+def test_graph_validate_and_save_accept_nested_array_secret_refs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = NodeTypeRegistry()
+    registry.register(
+        NodeSpec(
+            type_name="test.array.secret.api",
+            mode=NodeMode.ASYNC,
+            inputs=[],
+            outputs=[],
+            config_schema={
+                "type": "object",
+                "properties": {
+                    "providers": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "api_key": {
+                                    "type": "string",
+                                    SECRET_FIELD_KEY: True,
+                                }
+                            },
+                        },
+                    }
+                },
+            },
+        )
+    )
+    monkeypatch.setattr(routes_graphs_module, "create_default_registry", lambda: registry)
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/v1/secrets",
+            json={
+                "label": "Array Secret",
+                "value": "sk-array-secret",
+                "kind": "api_key",
+            },
+        )
+        assert created.status_code == 201
+        secret_id = created.json()["secret_id"]
+
+        graph_payload = _graph_payload_with_nested_array_secret(
+            {
+                "$kind": "secret_ref",
+                "secret_id": secret_id,
+            }
+        )
+
+        validated = client.post("/api/v1/graphs/validate", json=graph_payload)
+        assert validated.status_code == 200
+        assert validated.json()["valid"] is True
+
+        saved = client.put("/api/v1/graphs/graph_array_secret_ref", json=graph_payload)
+        assert saved.status_code == 200

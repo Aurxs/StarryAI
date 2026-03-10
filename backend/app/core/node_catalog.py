@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TypeAlias
 
 from app.core.node_definition import NodeDefinition
 from app.core.node_discovery import (
-    NODE_SEARCH_DIRS_ENV,
+    build_search_dirs_fingerprint,
     discover_node_definitions,
     reset_dynamic_node_modules,
+    resolve_search_dirs,
 )
 
 _SearchDirKey: TypeAlias = tuple[str, ...]
@@ -66,12 +66,10 @@ def _build_cache_key(
     else:
         package_names_key = tuple(str(name) for name in package_names)
 
-    search_dirs_key = tuple(
-        str(Path(item).expanduser().resolve())
-        for item in (search_dirs or [])
-    )
-    env_value = os.getenv(NODE_SEARCH_DIRS_ENV, "").strip()
-    return package_name, package_names_key, search_dirs_key, bool(strict), env_value
+    resolved_search_dirs = resolve_search_dirs(search_dirs)
+    search_dirs_key = tuple(str(item) for item in resolved_search_dirs)
+    fingerprint = build_search_dirs_fingerprint(resolved_search_dirs)
+    return package_name, package_names_key, search_dirs_key, bool(strict), fingerprint
 
 
 __all__ = ["get_node_definitions", "reset_node_catalog_cache"]
