@@ -179,14 +179,18 @@ describe('GraphEditor', () => {
         addNodeFromDrawer('mock.input');
 
         const nodeCard = await screen.findByTestId('workflow-node-n1');
-        const portTag = within(nodeCard).getByTestId('port-tag-out-text');
-        expect(portTag?.getAttribute('title')).toBe('完整文本输出。');
-        expect(within(portTag).getByText('完整文本输出。')).toBeTruthy();
-        expect(within(portTag).queryByText('out:text')).toBeNull();
+        await waitFor(() => {
+            const portTag = within(screen.getByTestId('workflow-node-n1')).getByTestId('port-tag-out-text');
+            expect(portTag.getAttribute('title')).toBe('完整文本输出。');
+            expect(within(portTag).getByText('完整文本输出。')).toBeTruthy();
+            expect(within(portTag).queryByText('out:text')).toBeNull();
+        });
 
         fireEvent.contextMenu(nodeCard);
         const menu = screen.getByRole('menu', {name: 'node-context-menu'});
-        expect(within(menu).getByText('模拟输入节点，产出完整文本。')).toBeTruthy();
+        await waitFor(() => {
+            expect(within(menu).getByText('模拟输入节点，产出完整文本。')).toBeTruthy();
+        });
     });
 
     it('renders a single-line node title and anchors port handles beside each port row', async () => {
@@ -223,14 +227,17 @@ describe('GraphEditor', () => {
         addNodeFromDrawer('mock.input');
         useGraphStore.getState().patchNode('n1', {title: 'Input A', config: {}});
 
-        const nodeCard = await screen.findByTestId('workflow-node-n1');
-        expect(within(nodeCard).getByText('Input A')).toBeTruthy();
-        expect(within(nodeCard).queryByText('mock.input')).toBeNull();
+        await screen.findByTestId('workflow-node-n1');
+        await waitFor(() => {
+            const nodeCard = screen.getByTestId('workflow-node-n1');
+            expect(within(nodeCard).getByText('Input A')).toBeTruthy();
+            expect(within(nodeCard).queryByText('mock.input')).toBeNull();
 
-        const outputPortRow = within(nodeCard).getByTestId('port-tag-out-text');
-        expect(within(outputPortRow).getByText('完整文本输出。')).toBeTruthy();
-        expect(within(outputPortRow).queryByText('out:text')).toBeNull();
-        expect(outputPortRow.querySelector('.react-flow__handle-right')).toBeTruthy();
+            const outputPortRow = within(nodeCard).getByTestId('port-tag-out-text');
+            expect(within(outputPortRow).getByText('完整文本输出。')).toBeTruthy();
+            expect(within(outputPortRow).queryByText('out:text')).toBeNull();
+            expect(outputPortRow.querySelector('.react-flow__handle-right')).toBeTruthy();
+        });
     });
 
     it('supports single-node copy/paste shortcuts with full config cloning', async () => {
@@ -546,11 +553,12 @@ describe('GraphEditor', () => {
 
         render(<GraphEditor/>);
 
-        const initiator = await screen.findByTestId('workflow-node-n2');
-        expect(initiator.textContent).toContain('audio.sync');
-        expect(initiator.textContent).toContain('any.sync');
-
-        const syncAudio = await screen.findByTestId('workflow-node-n3');
-        expect(syncAudio.textContent).toContain('audio.sync');
+        await screen.findByTestId('workflow-node-n2');
+        await screen.findByTestId('workflow-node-n3');
+        await waitFor(() => {
+            expect(screen.getByTestId('workflow-node-n2').textContent).toContain('audio.sync');
+            expect(screen.getByTestId('workflow-node-n2').textContent).toContain('any.sync');
+            expect(screen.getByTestId('workflow-node-n3').textContent).toContain('audio.sync');
+        });
     });
 });

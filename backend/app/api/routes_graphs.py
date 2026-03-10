@@ -9,7 +9,6 @@ from app.core.graph_compatibility import (
     enrich_graph_compat_metadata,
     get_primary_incompatibility,
 )
-from app.core.graph_builder import GraphBuildError
 from app.core.graph_builder import GraphBuilder
 from app.core.registry import create_default_registry
 from app.core.spec import GraphSpec

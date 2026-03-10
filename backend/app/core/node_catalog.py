@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TypeAlias
 
@@ -17,8 +18,8 @@ _node_definitions_cache: dict[_NodeCatalogKey, tuple[NodeDefinition, ...]] = {}
 def get_node_definitions(
     package_name: str | None = "app.nodes",
     *,
-    package_names: tuple[str, ...] | list[str] | None = None,
-    search_dirs: tuple[str | Path, ...] | list[str | Path] | None = None,
+    package_names: Sequence[str] | None = None,
+    search_dirs: Sequence[str | Path] | None = None,
     strict: bool = False,
 ) -> tuple[NodeDefinition, ...]:
     key = _build_cache_key(
@@ -50,8 +51,8 @@ def reset_node_catalog_cache() -> None:
 def _build_cache_key(
     *,
     package_name: str | None,
-    package_names: tuple[str, ...] | list[str] | None,
-    search_dirs: tuple[str | Path, ...] | list[str | Path] | None,
+    package_names: Sequence[str] | None,
+    search_dirs: Sequence[str | Path] | None,
     strict: bool,
 ) -> _NodeCatalogKey:
     package_names_key: _PackageNamesKey
