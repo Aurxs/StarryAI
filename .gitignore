@@ -3,6 +3,7 @@
 .vscode/
 *.swp
 *.swo
+/StarryAI.code-workspace
 
 # Python
 __pycache__/
