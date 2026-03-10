@@ -1,0 +1,71 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import TypeAlias
+
+from app.core.node_definition import NodeDefinition
+from app.core.node_discovery import NODE_SEARCH_DIRS_ENV, discover_node_definitions
+
+_SearchDirKey: TypeAlias = tuple[str, ...]
+_PackageNamesKey: TypeAlias = tuple[str, ...] | None
+_NodeCatalogKey: TypeAlias = tuple[str | None, _PackageNamesKey, _SearchDirKey, bool, str]
+
+_node_definitions_cache: dict[_NodeCatalogKey, tuple[NodeDefinition, ...]] = {}
+
+
+def get_node_definitions(
+    package_name: str | None = "app.nodes",
+    *,
+    package_names: tuple[str, ...] | list[str] | None = None,
+    search_dirs: tuple[str | Path, ...] | list[str | Path] | None = None,
+    strict: bool = False,
+) -> tuple[NodeDefinition, ...]:
+    key = _build_cache_key(
+        package_name=package_name,
+        package_names=package_names,
+        search_dirs=search_dirs,
+        strict=strict,
+    )
+    cached = _node_definitions_cache.get(key)
+    if cached is not None:
+        return cached
+
+    definitions = tuple(
+        discover_node_definitions(
+            package_name=package_name,
+            package_names=package_names,
+            search_dirs=search_dirs,
+            strict=strict,
+        )
+    )
+    _node_definitions_cache[key] = definitions
+    return definitions
+
+
+def reset_node_catalog_cache() -> None:
+    _node_definitions_cache.clear()
+
+
+def _build_cache_key(
+    *,
+    package_name: str | None,
+    package_names: tuple[str, ...] | list[str] | None,
+    search_dirs: tuple[str | Path, ...] | list[str | Path] | None,
+    strict: bool,
+) -> _NodeCatalogKey:
+    package_names_key: _PackageNamesKey
+    if package_names is None:
+        package_names_key = None
+    else:
+        package_names_key = tuple(str(name) for name in package_names)
+
+    search_dirs_key = tuple(
+        str(Path(item).expanduser().resolve())
+        for item in (search_dirs or [])
+    )
+    env_value = os.getenv(NODE_SEARCH_DIRS_ENV, "").strip()
+    return package_name, package_names_key, search_dirs_key, bool(strict), env_value
+
+
+__all__ = ["get_node_definitions", "reset_node_catalog_cache"]

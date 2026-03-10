@@ -12,7 +12,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.core.node_discovery import NodeDiscoveryError, discover_node_definitions
+from app.core.node_catalog import get_node_definitions
+from app.core.node_discovery import NodeDiscoveryError
 
 from .spec import NodeSpec
 
@@ -95,10 +96,10 @@ def _build_discovered_specs(
     search_dirs: Sequence[str | Path] | None = None,
     strict: bool = True,
 ) -> list[NodeSpec]:
-    definitions = discover_node_definitions(
+    definitions = get_node_definitions(
         package_name=package_name,
         package_names=package_names,
         search_dirs=search_dirs,
         strict=strict,
     )
-    return [definition.spec_with_config_schema() for definition in definitions]
+    return [definition.spec_with_config_schema().model_copy(deep=True) for definition in definitions]

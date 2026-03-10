@@ -5,9 +5,10 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config_validation import is_secret_schema, resolve_nullable_schema
+from app.core.payload_path import parse_field_path, set_value_at_path
 from app.core.registry import NodeTypeRegistry, create_default_registry
 from app.core.spec import GraphSpec
-from app.secrets.models import SecretCreateInput, build_secret_ref, is_secret_ref
+from app.secrets.models import SecretCreateInput, build_secret_ref, is_secret_ref, normalize_secret_id
 from app.secrets.service import SecretService
 from app.services.graph_repository import FileGraphRepository
 
@@ -111,9 +112,18 @@ def migrate_plaintext_secrets(
                         value=str(secret_value),
                         kind=secret_kind,
                         description=f'Migrated from graph={graph_id}, node={node_id}, field={field_path}',
+                        secret_id=_build_migrated_secret_id(
+                            graph_id=graph_id,
+                            node_id=node_id,
+                            field_path=field_path,
+                        ),
                     )
                 )
-                _set_value_at_path(config, _parse_field_path(field_path), build_secret_ref(metadata.secret_id))
+                set_value_at_path(
+                    config,
+                    parse_field_path(field_path),
+                    build_secret_ref(metadata.secret_id),
+                )
                 migrated_secrets += 1
 
         graph_repository.save_graph(GraphSpec.model_validate(graph_payload))
@@ -161,60 +171,13 @@ def _iter_plaintext_secret_values(
     return items
 
 
-def _parse_field_path(path: str) -> list[str | int]:
-    if not path or path == '<root>':
-        return []
-
-    parts: list[str | int] = []
-    buffer = ''
-    index = 0
-    while index < len(path):
-        char = path[index]
-        if char == '.':
-            if buffer:
-                parts.append(buffer)
-                buffer = ''
-            index += 1
-            continue
-        if char == '[':
-            if buffer:
-                parts.append(buffer)
-                buffer = ''
-            end = path.index(']', index)
-            parts.append(int(path[index + 1:end]))
-            index = end + 1
-            continue
-        buffer += char
-        index += 1
-    if buffer:
-        parts.append(buffer)
-    return parts
-
-
-def _set_value_at_path(payload: dict[str, Any], path_parts: list[str | int], value: Any) -> None:
-    if not path_parts:
-        raise ValueError('不支持替换根级配置对象')
-
-    current: Any = payload
-    for part in path_parts[:-1]:
-        if isinstance(part, int):
-            if not isinstance(current, list):
-                raise ValueError(f'路径段不是数组: {path_parts!r}')
-            current = current[part]
-            continue
-        if not isinstance(current, dict):
-            raise ValueError(f'路径段不是对象: {path_parts!r}')
-        current = current[part]
-
-    final = path_parts[-1]
-    if isinstance(final, int):
-        if not isinstance(current, list):
-            raise ValueError(f'路径终点父节点不是数组: {path_parts!r}')
-        current[final] = value
-        return
-    if not isinstance(current, dict):
-        raise ValueError(f'路径终点父节点不是对象: {path_parts!r}')
-    current[final] = value
+def _build_migrated_secret_id(*, graph_id: str, node_id: str, field_path: str) -> str | None:
+    field_parts = [
+        str(part)
+        for part in parse_field_path(field_path)
+    ]
+    raw_secret_id = "-".join([graph_id, node_id, *field_parts])
+    return normalize_secret_id(raw_secret_id) or None
 
 
 def build_default_graph_repository(storage_dir: Path | None = None) -> FileGraphRepository:

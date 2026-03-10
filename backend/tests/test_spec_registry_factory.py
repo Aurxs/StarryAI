@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-import app.core.node_factory as node_factory_module
-import app.core.registry as registry_module
+import app.core.node_catalog as node_catalog_module
+from app.core.node_catalog import reset_node_catalog_cache
 from app.core.node_discovery import NODE_SEARCH_DIRS_ENV, NodeDiscoveryError
 from app.core.node_factory import (
     NodeFactory,
@@ -34,6 +34,13 @@ from app.nodes.mock_input import MockInputNode
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+@pytest.fixture(autouse=True)
+def _reset_node_catalog() -> None:
+    reset_node_catalog_cache()
+    yield
+    reset_node_catalog_cache()
 
 
 def test_nodespec_rejects_duplicate_input_port_names() -> None:
@@ -177,7 +184,7 @@ def test_registry_raises_when_discovery_fails(
     def _raise_discovery_error(*_args: object, **_kwargs: object) -> list[object]:
         raise NodeDiscoveryError("boom")
 
-    monkeypatch.setattr(registry_module, "discover_node_definitions", _raise_discovery_error)
+    monkeypatch.setattr(node_catalog_module, "discover_node_definitions", _raise_discovery_error)
     with pytest.raises(RegistryError, match="节点发现失败"):
         create_default_registry()
 
@@ -188,7 +195,7 @@ def test_factory_raises_when_discovery_fails(
     def _raise_discovery_error(*_args: object, **_kwargs: object) -> list[object]:
         raise NodeDiscoveryError("boom")
 
-    monkeypatch.setattr(node_factory_module, "discover_node_definitions", _raise_discovery_error)
+    monkeypatch.setattr(node_catalog_module, "discover_node_definitions", _raise_discovery_error)
     with pytest.raises(NodeFactoryError, match="节点发现失败"):
         create_default_node_factory()
 
@@ -200,7 +207,7 @@ def test_registry_uses_strict_discovery_mode(monkeypatch: pytest.MonkeyPatch) ->
         called.append(bool(kwargs.get("strict")))
         return []
 
-    monkeypatch.setattr(registry_module, "discover_node_definitions", _fake_discovery)
+    monkeypatch.setattr(node_catalog_module, "discover_node_definitions", _fake_discovery)
     registry = create_default_registry()
     assert called == [True]
     assert registry.list_specs() == []
@@ -213,7 +220,7 @@ def test_factory_uses_strict_discovery_mode(monkeypatch: pytest.MonkeyPatch) -> 
         called.append(bool(kwargs.get("strict")))
         return []
 
-    monkeypatch.setattr(node_factory_module, "discover_node_definitions", _fake_discovery)
+    monkeypatch.setattr(node_catalog_module, "discover_node_definitions", _fake_discovery)
     factory = create_default_node_factory()
     assert called == [True]
     with pytest.raises(NodeFactoryError):
@@ -293,6 +300,94 @@ NODE_DEFINITION = NodeDefinition(
     assert node.__class__.__name__ == "CustomEnvNode"
 
 
+def test_registry_and_factory_share_discovery_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def _fake_discovery(*_args: object, **kwargs: object) -> list[object]:
+        calls.append(dict(kwargs))
+        return []
+
+    monkeypatch.setattr(node_catalog_module, "discover_node_definitions", _fake_discovery)
+
+    registry = create_default_registry()
+    factory = create_default_node_factory()
+
+    assert registry.list_specs() == []
+    with pytest.raises(NodeFactoryError):
+        factory.create(
+            node=NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+            spec=NodeSpec(type_name="mock.input", mode=NodeMode.ASYNC, inputs=[], outputs=[]),
+        )
+    assert len(calls) == 1
+
+
+def test_registry_returns_deep_copied_specs_across_calls() -> None:
+    first_registry = create_default_registry()
+    second_registry = create_default_registry()
+
+    first_spec = first_registry.get("mock.llm")
+    second_spec = second_registry.get("mock.llm")
+
+    assert first_spec is not second_spec
+    first_spec.config_schema["title"] = "changed"
+    assert second_spec.config_schema.get("title") != "changed"
+
+
+def test_node_catalog_refreshes_after_env_change_when_cache_is_reset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first_root = tmp_path / "env_nodes_first"
+    second_root = tmp_path / "env_nodes_second"
+    _write(
+        first_root / "node_a.py",
+        """
+from typing import Any
+from app.core.node_async import AsyncNode
+from app.core.node_definition import NodeDefinition
+from app.core.spec import NodeMode, NodeSpec
+
+class EnvNodeA(AsyncNode):
+    async def process(self, inputs: dict[str, Any], context: Any) -> dict[str, Any]:
+        return {}
+
+NODE_DEFINITION = NodeDefinition(
+    spec=NodeSpec(type_name="custom.env.a", mode=NodeMode.ASYNC, inputs=[], outputs=[]),
+    impl_cls=EnvNodeA,
+)
+""",
+    )
+    _write(
+        second_root / "node_b.py",
+        """
+from typing import Any
+from app.core.node_async import AsyncNode
+from app.core.node_definition import NodeDefinition
+from app.core.spec import NodeMode, NodeSpec
+
+class EnvNodeB(AsyncNode):
+    async def process(self, inputs: dict[str, Any], context: Any) -> dict[str, Any]:
+        return {}
+
+NODE_DEFINITION = NodeDefinition(
+    spec=NodeSpec(type_name="custom.env.b", mode=NodeMode.ASYNC, inputs=[], outputs=[]),
+    impl_cls=EnvNodeB,
+)
+""",
+    )
+
+    monkeypatch.setenv(NODE_SEARCH_DIRS_ENV, str(first_root))
+    reset_node_catalog_cache()
+    first_registry = create_default_registry(package_name=None, strict=True)
+    assert {spec.type_name for spec in first_registry.list_specs()} == {"custom.env.a"}
+
+    monkeypatch.setenv(NODE_SEARCH_DIRS_ENV, str(second_root))
+    reset_node_catalog_cache()
+    second_registry = create_default_registry(package_name=None, strict=True)
+    assert {spec.type_name for spec in second_registry.list_specs()} == {"custom.env.b"}
+
+
 def test_registry_forwards_discovery_kwargs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -302,7 +397,7 @@ def test_registry_forwards_discovery_kwargs(
         captured.update(kwargs)
         return []
 
-    monkeypatch.setattr(registry_module, "discover_node_definitions", _fake_discovery)
+    monkeypatch.setattr(node_catalog_module, "discover_node_definitions", _fake_discovery)
     create_default_registry(
         package_name=None,
         package_names=["pkg.a", "pkg.b"],
@@ -326,7 +421,7 @@ def test_factory_forwards_discovery_kwargs(
         captured.update(kwargs)
         return []
 
-    monkeypatch.setattr(node_factory_module, "discover_node_definitions", _fake_discovery)
+    monkeypatch.setattr(node_catalog_module, "discover_node_definitions", _fake_discovery)
     create_default_node_factory(
         package_name=None,
         package_names=["pkg.a", "pkg.b"],

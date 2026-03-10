@@ -12,8 +12,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.core.node_catalog import get_node_definitions
 from app.core.node_base import BaseNode
-from app.core.node_discovery import NodeDiscoveryError, discover_node_definitions
+from app.core.node_discovery import NodeDiscoveryError
 from app.core.spec import NodeInstanceSpec, NodeSpec
 
 
@@ -84,7 +85,7 @@ def _build_discovered_mappings(
     strict: bool = True,
 ) -> dict[str, type[BaseNode]]:
     mappings: dict[str, type[BaseNode]] = {}
-    definitions = discover_node_definitions(
+    definitions = get_node_definitions(
         package_name=package_name,
         package_names=package_names,
         search_dirs=search_dirs,

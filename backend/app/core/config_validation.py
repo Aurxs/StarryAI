@@ -6,8 +6,9 @@ from typing import Any
 
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
-from app.secrets.models import build_secret_ref, is_secret_ref, normalize_secret_id
+from app.secrets.models import is_secret_ref, normalize_secret_id
 
+from .payload_path import parse_field_path, set_value_at_path
 from .spec import ValidationIssue
 
 SECRET_WIDGET_KEY = 'x-starryai-widget'
@@ -161,25 +162,6 @@ def format_json_path(path_items: Iterable[Any]) -> str:
         else:
             path += f'.{item}'
     return path
-
-
-def parse_field_path(path: str) -> list[str]:
-    if not path or path == '<root>':
-        return []
-    return [part for part in path.split('.') if part]
-
-
-def set_value_at_path(payload: dict[str, Any], path_parts: list[str], value: Any) -> None:
-    if not path_parts:
-        raise ValueError('不支持替换根级配置对象')
-    current: Any = payload
-    for part in path_parts[:-1]:
-        if not isinstance(current, dict):
-            raise ValueError(f'路径中间节点不是对象: {path_parts!r}')
-        current = current.setdefault(part, {})
-    if not isinstance(current, dict):
-        raise ValueError(f'路径目标父节点不是对象: {path_parts!r}')
-    current[path_parts[-1]] = value
 
 
 __all__ = [
