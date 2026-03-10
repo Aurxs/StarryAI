@@ -19,6 +19,7 @@ from app.core.node_factory import NodeFactory, create_default_node_factory
 from app.core.registry import create_default_registry
 from app.core.spec import NodeMode, NodeSpec, PortSpec
 from app.main import app
+from app.nodes.llm_chat import LLMChatNode, TransportResponse
 from app.nodes.llm_openai_compatible import OpenAICompatibleLLMNode
 from app.secrets.service import reset_secret_service_for_testing
 from app.secrets.store import InMemorySecretValueProvider, JsonSecretMetadataStore
@@ -200,6 +201,47 @@ def _real_llm_graph_payload(secret_id: str) -> dict[str, Any]:
     }
 
 
+def _llm_chat_graph_payload(secret_id: str) -> dict[str, Any]:
+    return {
+        "graph": {
+            "graph_id": "g_api_llm_chat",
+            "nodes": [
+                {"node_id": "n1", "type_name": "mock.input"},
+                {
+                    "node_id": "n2",
+                    "type_name": "llm.chat",
+                    "config": {
+                        "preset_id": "openai",
+                        "model": "gpt-4o-mini",
+                        "api_key": {
+                            "$kind": "secret_ref",
+                            "secret_id": secret_id,
+                        },
+                        "system_prompt": "Answer briefly.",
+                        "temperature": 0.1,
+                    },
+                },
+                {"node_id": "n3", "type_name": "mock.output"},
+            ],
+            "edges": [
+                {
+                    "source_node": "n1",
+                    "source_port": "text",
+                    "target_node": "n2",
+                    "target_port": "prompt",
+                },
+                {
+                    "source_node": "n2",
+                    "source_port": "answer",
+                    "target_node": "n3",
+                    "target_port": "in",
+                },
+            ],
+        },
+        "stream_id": "stream_api_llm_chat",
+    }
+
+
 def _build_slow_run_service() -> RunService:
     registry = create_default_registry()
     registry.register(
@@ -358,6 +400,88 @@ def test_create_run_with_real_llm_and_secret_ref(
 
     assert captured["url"] == "https://api.openai.com/v1/chat/completions"
     assert captured["headers"]["Authorization"] == "Bearer sk-live-test"
+    assert captured["body"]["model"] == "gpt-4o-mini"
+    assert captured["body"]["messages"][1]["role"] == "user"
+
+
+def test_create_run_with_llm_chat_and_secret_ref(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def _fake_send_request(
+        self: LLMChatNode,
+        *,
+        url: str,
+        headers: dict[str, str],
+        body: dict[str, Any],
+        timeout_s: float | None,
+    ) -> TransportResponse:
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["body"] = body
+        captured["timeout_s"] = timeout_s
+        return TransportResponse(
+            payload={
+                "id": "chatcmpl-llm-chat-1",
+                "model": "gpt-4o-mini",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "hello from llm.chat provider",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 6,
+                    "total_tokens": 16,
+                },
+            },
+            headers={"x-request-id": "req-llm-chat-1"},
+        )
+
+    monkeypatch.setattr(LLMChatNode, "send_request", _fake_send_request)
+
+    with TestClient(app) as client:
+        created_secret = client.post(
+            "/api/v1/secrets",
+            json={
+                "label": "OpenAI Chat Main",
+                "value": "sk-chat-test",
+                "kind": "api_key",
+            },
+        )
+        assert created_secret.status_code == 201
+        secret_id = created_secret.json()["secret_id"]
+
+        response = client.post("/api/v1/runs", json=_llm_chat_graph_payload(secret_id))
+        assert response.status_code == 200
+        run_id = response.json()["run_id"]
+
+        final_status = "running"
+        for _ in range(40):
+            status_resp = client.get(f"/api/v1/runs/{run_id}")
+            assert status_resp.status_code == 200
+            final_status = status_resp.json()["status"]
+            if final_status in {"completed", "failed", "stopped"}:
+                break
+            time.sleep(0.05)
+
+        assert final_status == "completed"
+
+        snapshot = client.get(f"/api/v1/runs/{run_id}")
+        assert snapshot.status_code == 200
+        node_metrics = snapshot.json()["node_states"]["n2"]["metrics"]
+        assert node_metrics["llm_provider"] == "openai"
+        assert node_metrics["llm_model"] == "gpt-4o-mini"
+        assert node_metrics["llm_total_tokens"] == 16
+        assert node_metrics["llm_finish_reason"] == "stop"
+
+    assert captured["url"] == "https://api.openai.com/v1/chat/completions"
+    assert captured["headers"]["Authorization"] == "Bearer sk-chat-test"
     assert captured["body"]["model"] == "gpt-4o-mini"
     assert captured["body"]["messages"][1]["role"] == "user"
 

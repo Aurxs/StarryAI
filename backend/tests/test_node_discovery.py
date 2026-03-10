@@ -154,6 +154,7 @@ def test_discovery_scans_real_nodes_package_in_non_strict_mode() -> None:
     definitions = discover_node_definitions(package_name="app.nodes", strict=False)
     type_names = [definition.spec.type_name for definition in definitions]
     assert {
+        "llm.chat",
         "llm.openai_compatible",
         "mock.input",
         "mock.llm",

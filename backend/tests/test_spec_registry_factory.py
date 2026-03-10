@@ -129,6 +129,7 @@ def test_registry_default_types_and_duplicate_registration() -> None:
     registry = create_default_registry()
     type_names = {spec.type_name for spec in registry.list_specs()}
     assert {
+        "llm.chat",
         "llm.openai_compatible",
         "mock.input",
         "mock.llm",
