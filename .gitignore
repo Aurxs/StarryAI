@@ -66,6 +66,8 @@ test.md
 # Graph persistence
 /saved_graphs/*
 !/saved_graphs/.gitkeep
+!/saved_graphs/graph_data_variable_math.json
+!/saved_graphs/graph_data_staging_motion.json
 
 # Phase F perf artifacts
 /artifacts/

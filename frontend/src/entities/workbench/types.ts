@@ -1,4 +1,6 @@
-export type NodeMode = 'async' | 'sync';
+export type NodeMode = 'async' | 'sync' | 'passive';
+
+export type InputBehavior = 'payload' | 'reference' | 'trigger';
 
 export type SyncStrategy = 'barrier' | 'window_join' | 'clock_lock';
 
@@ -12,6 +14,7 @@ export interface PortSpec {
     is_stream: boolean;
     required: boolean;
     description: string;
+    input_behavior?: InputBehavior;
     derived_from_input?: string | null;
 }
 
@@ -35,6 +38,7 @@ export interface NodeSpec {
     sync_config: SyncConfig | null;
     config_schema: Record<string, unknown>;
     description: string;
+    tags?: string[];
 }
 
 export interface NodeInstanceSpec {

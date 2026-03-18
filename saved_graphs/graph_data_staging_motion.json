@@ -1,0 +1,129 @@
+{
+  "graph_id": "graph_data_staging_motion",
+  "version": "0.1.0",
+  "metadata": {
+    "compat": {
+      "graph_format_version": "0.1.0",
+      "node_type_versions": {
+        "mock.input": "0.1.0",
+        "mock.motion": "0.1.0",
+        "data.staging": "0.1.0",
+        "data.writer": "0.1.0",
+        "data.requester": "0.1.0",
+        "mock.output": "0.1.0"
+      }
+    },
+    "ui_layout": {
+      "node_positions": {
+        "n1": {
+          "x": 72,
+          "y": 146
+        },
+        "n2": {
+          "x": 322,
+          "y": 146
+        },
+        "n3": {
+          "x": 338,
+          "y": 16
+        },
+        "n4": {
+          "x": 612,
+          "y": 212
+        },
+        "n5": {
+          "x": 886,
+          "y": 120
+        },
+        "n6": {
+          "x": 1176,
+          "y": 120
+        }
+      }
+    }
+  },
+  "nodes": [
+    {
+      "node_id": "n1",
+      "type_name": "mock.input",
+      "title": "mock.input",
+      "config": {
+        "content": "wave to audience"
+      }
+    },
+    {
+      "node_id": "n2",
+      "type_name": "mock.motion",
+      "title": "mock.motion",
+      "config": {}
+    },
+    {
+      "node_id": "n3",
+      "type_name": "data.staging",
+      "title": "data.staging",
+      "config": {
+        "initial_value": null
+      }
+    },
+    {
+      "node_id": "n4",
+      "type_name": "data.writer",
+      "title": "data.writer",
+      "config": {
+        "target_node_id": "n3",
+        "operation": "set_from_input",
+        "operand_mode": "literal",
+        "literal_value": 0
+      }
+    },
+    {
+      "node_id": "n5",
+      "type_name": "data.requester",
+      "title": "data.requester",
+      "config": {}
+    },
+    {
+      "node_id": "n6",
+      "type_name": "mock.output",
+      "title": "mock.output",
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "source_node": "n1",
+      "source_port": "text",
+      "target_node": "n2",
+      "target_port": "text",
+      "queue_maxsize": 0
+    },
+    {
+      "source_node": "n2",
+      "source_port": "motion",
+      "target_node": "n4",
+      "target_port": "in",
+      "queue_maxsize": 0
+    },
+    {
+      "source_node": "n2",
+      "source_port": "motion",
+      "target_node": "n5",
+      "target_port": "trigger",
+      "queue_maxsize": 0
+    },
+    {
+      "source_node": "n3",
+      "source_port": "value",
+      "target_node": "n5",
+      "target_port": "source",
+      "queue_maxsize": 0
+    },
+    {
+      "source_node": "n5",
+      "source_port": "value",
+      "target_node": "n6",
+      "target_port": "in",
+      "queue_maxsize": 0
+    }
+  ]
+}

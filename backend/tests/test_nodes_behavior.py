@@ -6,9 +6,11 @@ import asyncio
 
 from app.core.node_base import NodeContext
 from app.core.registry import create_default_registry
+from app.core.runtime_data import RuntimeDataEntry, RuntimeDataStore
 from app.core.sync_coordinator import SyncCoordinator
 from app.nodes.audio_play_base import AudioPlayBaseNode
 from app.nodes.audio_play_sync import AudioPlaySyncNode
+from app.nodes.data_nodes import DataRequesterNode, DataWriterNode
 from app.nodes.mock_input import MockInputNode
 from app.nodes.mock_llm import MockLLMNode
 from app.nodes.mock_motion import MockMotionNode
@@ -31,6 +33,8 @@ def _context(
         metadata["sync_coordinator"] = coordinator
     if participants is not None:
         metadata["sync_group_participants"] = participants
+    metadata.setdefault("reference_bindings", {})
+    metadata.setdefault("writer_targets", {})
     return NodeContext(run_id="run_test", node_id=node_id, metadata=metadata)
 
 
@@ -263,6 +267,72 @@ def test_sync_executor_uses_sync_round_only_for_compat() -> None:
         )
         assert out_audio["__node_metrics"]["sync_committed"] == 1
         assert out_motion["__node_metrics"]["sync_committed"] == 1
+
+    asyncio.run(_run())
+
+
+def test_data_requester_reads_current_value_from_runtime_store() -> None:
+    async def _run() -> None:
+        registry = create_default_registry()
+        node = DataRequesterNode("n_req", registry.get("data.requester"))
+        store = RuntimeDataStore(
+            entries={
+                "v1": RuntimeDataEntry(node_id="v1", type_name="data.variable", value=7),
+            },
+        )
+        output = await node.process(
+            inputs={"trigger": "go"},
+            context=NodeContext(
+                run_id="run_test",
+                node_id="n_req",
+                metadata={
+                    "data_store": store,
+                    "reference_bindings": {"n_req": {"source": "v1"}},
+                    "trigger_token": "tt-1",
+                    "await_container_writes": _noop_wait,
+                },
+            ),
+        )
+        assert output == {"value": 7}
+
+    asyncio.run(_run())
+
+
+async def _noop_wait(_container_id: str, _trigger_token: str) -> None:
+    return None
+
+
+def test_data_writer_applies_literal_add_operation() -> None:
+    async def _run() -> None:
+        registry = create_default_registry()
+        node = DataWriterNode(
+            "n_writer",
+            registry.get("data.writer"),
+            config={
+                "target_node_id": "v1",
+                "operation": "add",
+                "operand_mode": "literal",
+                "literal_value": 2,
+            },
+        )
+        store = RuntimeDataStore(
+            entries={
+                "v1": RuntimeDataEntry(node_id="v1", type_name="data.variable", value=5),
+            },
+        )
+        output = await node.process(
+            inputs={"in": "trigger"},
+            context=NodeContext(
+                run_id="run_test",
+                node_id="n_writer",
+                metadata={
+                    "data_store": store,
+                    "writer_targets": {"n_writer": "v1"},
+                },
+            ),
+        )
+        assert output["__node_metrics"]["data_writes"] == 1
+        assert store.read("v1") == 7
 
     asyncio.run(_run())
 

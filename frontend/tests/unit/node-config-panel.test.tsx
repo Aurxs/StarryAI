@@ -623,4 +623,76 @@ describe('NodeConfigPanel', () => {
         expect(screen.getByText('Base URL of the LLM service.')).toBeTruthy();
         expect(screen.getByText('Target model name.')).toBeTruthy();
     });
+
+    it('renders custom data writer controls and saves specialized config', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 2,
+                    items: [
+                        {
+                            type_name: 'data.variable',
+                            version: '0.1.0',
+                            mode: 'passive',
+                            inputs: [],
+                            outputs: [{name: 'value', frame_schema: 'any', is_stream: false, required: true, description: ''}],
+                            sync_config: null,
+                            config_schema: {},
+                            description: '',
+                            tags: ['data_container'],
+                        },
+                        {
+                            type_name: 'data.writer',
+                            version: '0.1.0',
+                            mode: 'async',
+                            inputs: [{name: 'in', frame_schema: 'any', is_stream: false, required: true, description: ''}],
+                            outputs: [],
+                            sync_config: null,
+                            config_schema: {},
+                            description: '',
+                            tags: ['data_writer'],
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        useGraphStore.getState().upsertNode({
+            node_id: 'v1',
+            type_name: 'data.variable',
+            title: 'Variable',
+            config: {
+                value_type: 'integer',
+                initial_value: 1,
+            },
+        });
+        useGraphStore.getState().upsertNode({
+            node_id: 'w1',
+            type_name: 'data.writer',
+            title: 'Writer',
+            config: {
+                target_node_id: 'v1',
+                operation: 'add',
+                operand_mode: 'literal',
+                literal_value: 2,
+            },
+        });
+        useGraphStore.getState().selectNode('w1');
+
+        render(<NodeConfigPanel/>);
+
+        const panel = await screen.findByTestId('node-config-data-writer');
+        fireEvent.change(within(panel).getByDisplayValue('add'), {
+            target: {value: 'multiply'},
+        });
+        fireEvent.change(within(panel).getByDisplayValue('2'), {
+            target: {value: '4'},
+        });
+        fireEvent.click(screen.getByRole('button', {name: '保存'}));
+
+        const node = useGraphStore.getState().graph.nodes.find((item) => item.node_id === 'w1');
+        expect(node?.config.target_node_id).toBe('v1');
+        expect(node?.config.operation).toBe('multiply');
+        expect(node?.config.literal_value).toBe(4);
+    });
 });

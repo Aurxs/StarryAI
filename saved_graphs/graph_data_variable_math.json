@@ -1,0 +1,112 @@
+{
+  "graph_id": "graph_data_variable_math",
+  "version": "0.1.0",
+  "metadata": {
+    "compat": {
+      "graph_format_version": "0.1.0",
+      "node_type_versions": {
+        "mock.input": "0.1.0",
+        "data.variable": "0.1.0",
+        "data.writer": "0.1.0",
+        "data.requester": "0.1.0",
+        "mock.output": "0.1.0"
+      }
+    },
+    "ui_layout": {
+      "node_positions": {
+        "n1": {
+          "x": 72,
+          "y": 164
+        },
+        "n2": {
+          "x": 354,
+          "y": 44
+        },
+        "n3": {
+          "x": 376,
+          "y": 208
+        },
+        "n4": {
+          "x": 672,
+          "y": 120
+        },
+        "n5": {
+          "x": 964,
+          "y": 120
+        }
+      }
+    }
+  },
+  "nodes": [
+    {
+      "node_id": "n1",
+      "type_name": "mock.input",
+      "title": "mock.input",
+      "config": {
+        "content": "tick"
+      }
+    },
+    {
+      "node_id": "n2",
+      "type_name": "data.variable",
+      "title": "data.variable",
+      "config": {
+        "value_type": "integer",
+        "initial_value": 1
+      }
+    },
+    {
+      "node_id": "n3",
+      "type_name": "data.writer",
+      "title": "data.writer",
+      "config": {
+        "target_node_id": "n2",
+        "operation": "add",
+        "operand_mode": "literal",
+        "literal_value": 2
+      }
+    },
+    {
+      "node_id": "n4",
+      "type_name": "data.requester",
+      "title": "data.requester",
+      "config": {}
+    },
+    {
+      "node_id": "n5",
+      "type_name": "mock.output",
+      "title": "mock.output",
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "source_node": "n1",
+      "source_port": "text",
+      "target_node": "n3",
+      "target_port": "in",
+      "queue_maxsize": 0
+    },
+    {
+      "source_node": "n1",
+      "source_port": "text",
+      "target_node": "n4",
+      "target_port": "trigger",
+      "queue_maxsize": 0
+    },
+    {
+      "source_node": "n2",
+      "source_port": "value",
+      "target_node": "n4",
+      "target_port": "source",
+      "queue_maxsize": 0
+    },
+    {
+      "source_node": "n4",
+      "source_port": "value",
+      "target_node": "n5",
+      "target_port": "in",
+      "queue_maxsize": 0
+    }
+  ]
+}

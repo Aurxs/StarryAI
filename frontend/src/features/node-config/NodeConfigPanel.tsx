@@ -52,6 +52,13 @@ const textareaStyle: CSSProperties = {
     lineHeight: 1.4,
 };
 
+const labelStyle: CSSProperties = {
+    display: 'grid',
+    gap: 4,
+    fontSize: 12,
+    color: '#334155',
+};
+
 const buttonStyle: CSSProperties = {
     display: 'inline-flex',
     alignItems: 'center',
@@ -90,6 +97,7 @@ const advancedSectionStyle: CSSProperties = {
 };
 
 const formatJson = (value: Record<string, unknown>): string => JSON.stringify(value, null, 2);
+const formatJsonValue = (value: unknown): string => JSON.stringify(value ?? null, null, 2);
 
 const parseInteger = (value: string): number | null => {
     const trimmed = value.trim();
@@ -105,6 +113,19 @@ const formatReadonlyValue = (value: string): string => {
     }
     return value;
 };
+
+const isScalarContainerType = (typeName: string): boolean =>
+    typeName === 'data.constant' || typeName === 'data.variable';
+
+const isJsonContainerType = (typeName: string): boolean =>
+    typeName === 'data.list' || typeName === 'data.dict' || typeName === 'data.staging';
+
+const isDataWriterType = (typeName: string): boolean => typeName === 'data.writer';
+
+const isDataNodeType = (typeName: string): boolean =>
+    isScalarContainerType(typeName) || isJsonContainerType(typeName) || isDataWriterType(typeName);
+
+const parseJsonValue = (text: string): unknown => JSON.parse(text) as unknown;
 
 type SyncPanelRole = 'none' | 'initiator' | 'executor';
 
@@ -181,6 +202,9 @@ export function NodeConfigPanel() {
     const [runtimeConfigDraft, setRuntimeConfigDraft] = useState<Record<string, unknown>>({});
     const [configDraftText, setConfigDraftText] = useState('{}');
     const [syncFieldDraft, setSyncFieldDraft] = useState<SyncFieldDraft>(createDefaultSyncFieldDraft());
+    const [dataScalarValueDraft, setDataScalarValueDraft] = useState('0');
+    const [dataJsonValueDraft, setDataJsonValueDraft] = useState('null');
+    const [dataWriterLiteralDraft, setDataWriterLiteralDraft] = useState('0');
     const [showAdvancedJson, setShowAdvancedJson] = useState(false);
     const [jsonDraftError, setJsonDraftError] = useState<string | null>(null);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -219,6 +243,19 @@ export function NodeConfigPanel() {
         [selectedNode, syncRole],
     );
     const runtimeSchema = selectedSpec?.config_schema ?? {type: 'object', properties: {}};
+    const isDataNode = selectedNode ? isDataNodeType(selectedNode.type_name) : false;
+    const isScalarContainer = selectedNode ? isScalarContainerType(selectedNode.type_name) : false;
+    const isJsonContainer = selectedNode ? isJsonContainerType(selectedNode.type_name) : false;
+    const isDataWriter = selectedNode ? isDataWriterType(selectedNode.type_name) : false;
+    const dataContainerNodes = useMemo(
+        () =>
+            nodes.filter(
+                (node) =>
+                    isScalarContainerType(node.type_name)
+                    || isJsonContainerType(node.type_name),
+            ),
+        [nodes],
+    );
 
     useEffect(() => {
         let cancelled = false;
@@ -254,6 +291,9 @@ export function NodeConfigPanel() {
             setRuntimeConfigDraft({});
             setConfigDraftText('{}');
             setSyncFieldDraft(createDefaultSyncFieldDraft());
+            setDataScalarValueDraft('0');
+            setDataJsonValueDraft('null');
+            setDataWriterLiteralDraft('0');
             setShowAdvancedJson(false);
             setJsonDraftError(null);
             setErrorMessage(null);
@@ -265,6 +305,15 @@ export function NodeConfigPanel() {
         setRuntimeConfigDraft(runtimeConfig);
         setConfigDraftText(formatJson(runtimeConfig));
         setSyncFieldDraft(buildSyncFieldDraft(selectedNode.config));
+        const scalarInitial = runtimeConfig.initial_value;
+        setDataScalarValueDraft(
+            scalarInitial === undefined || scalarInitial === null ? '' : String(scalarInitial),
+        );
+        setDataJsonValueDraft(formatJsonValue(runtimeConfig.initial_value));
+        const literalValue = runtimeConfig.literal_value;
+        setDataWriterLiteralDraft(
+            literalValue === undefined || literalValue === null ? '' : String(literalValue),
+        );
         setJsonDraftError(null);
         setErrorMessage(null);
         setSuccessMessage(null);
@@ -283,9 +332,30 @@ export function NodeConfigPanel() {
 
     const onSave = (): void => {
         const nextTitle = titleDraft.trim() || selectedNode.type_name;
+        if (isJsonContainer) {
+            try {
+                const parsed = parseJsonValue(dataJsonValueDraft);
+                updateRuntimeConfigDraft({
+                    ...runtimeConfigDraft,
+                    initial_value: parsed,
+                });
+            } catch (error) {
+                setErrorMessage(error instanceof Error ? error.message : String(error));
+                setSuccessMessage(null);
+                return;
+            }
+        }
         let parsedRuntimeConfig: Record<string, unknown>;
         try {
-            parsedRuntimeConfig = parseRuntimeConfigText(configDraftText, t);
+            parsedRuntimeConfig = parseRuntimeConfigText(
+                isJsonContainer
+                    ? formatJson({
+                        ...runtimeConfigDraft,
+                        initial_value: parseJsonValue(dataJsonValueDraft),
+                    })
+                    : configDraftText,
+                t,
+            );
             assertNoPlaintextSecrets(parsedRuntimeConfig, runtimeSchema, t);
         } catch (error) {
             setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -352,6 +422,17 @@ export function NodeConfigPanel() {
         setRuntimeConfigDraft(nextRuntimeConfig);
         setConfigDraftText(formatJson(nextRuntimeConfig));
         setSyncFieldDraft(buildSyncFieldDraft(selectedNode.config));
+        setDataScalarValueDraft(
+            nextRuntimeConfig.initial_value === undefined || nextRuntimeConfig.initial_value === null
+                ? ''
+                : String(nextRuntimeConfig.initial_value),
+        );
+        setDataJsonValueDraft(formatJsonValue(nextRuntimeConfig.initial_value));
+        setDataWriterLiteralDraft(
+            nextRuntimeConfig.literal_value === undefined || nextRuntimeConfig.literal_value === null
+                ? ''
+                : String(nextRuntimeConfig.literal_value),
+        );
         setJsonDraftError(null);
         setErrorMessage(null);
         setSuccessMessage(null);
@@ -397,6 +478,247 @@ export function NodeConfigPanel() {
         </label>
     );
 
+    const updateRuntimeConfigDraft = (nextConfig: Record<string, unknown>): void => {
+        setRuntimeConfigDraft(nextConfig);
+        setConfigDraftText(formatJson(nextConfig));
+        setJsonDraftError(null);
+        setErrorMessage(null);
+        setSuccessMessage(null);
+    };
+
+    const selectedWriterTarget = isDataWriter
+        ? dataContainerNodes.find((node) => node.node_id === runtimeConfigDraft.target_node_id)
+        : null;
+    const selectedWriterTargetType = typeof selectedWriterTarget?.type_name === 'string'
+        ? selectedWriterTarget.type_name
+        : null;
+    const selectedWriterScalarType = isScalarContainerType(selectedWriterTargetType ?? '')
+        ? String(selectedWriterTarget?.config.value_type ?? 'integer')
+        : null;
+
+    const renderDataControls = (): JSX.Element | null => {
+        if (!selectedNode) {
+            return null;
+        }
+        if (isScalarContainer) {
+            const valueType = typeof runtimeConfigDraft.value_type === 'string'
+                ? runtimeConfigDraft.value_type
+                : 'integer';
+            return (
+                <section style={{display: 'grid', gap: 10}} data-testid="node-config-data-scalar">
+                    <label style={labelStyle}>
+                        {t('nodeConfig.data.scalarType', {defaultValue: '数值类型'})}
+                        <select
+                            value={valueType}
+                            style={inputStyle}
+                            onChange={(event) => {
+                                const nextType = event.target.value;
+                                const nextValue = nextType === 'string' ? '' : 0;
+                                setDataScalarValueDraft(String(nextValue));
+                                updateRuntimeConfigDraft({
+                                    ...runtimeConfigDraft,
+                                    value_type: nextType,
+                                    initial_value: nextValue,
+                                });
+                            }}
+                        >
+                            <option value="integer">integer</option>
+                            <option value="float">float</option>
+                            <option value="string">string</option>
+                        </select>
+                    </label>
+                    <label style={labelStyle}>
+                        {t('nodeConfig.data.initialValue', {defaultValue: '初始值'})}
+                        <input
+                            value={dataScalarValueDraft}
+                            style={inputStyle}
+                            onChange={(event) => {
+                                const nextDraft = event.target.value;
+                                setDataScalarValueDraft(nextDraft);
+                                let parsedValue: unknown = nextDraft;
+                                if (valueType === 'integer') {
+                                    const parsed = Number.parseInt(nextDraft, 10);
+                                    parsedValue = Number.isFinite(parsed) ? parsed : nextDraft;
+                                } else if (valueType === 'float') {
+                                    const parsed = Number.parseFloat(nextDraft);
+                                    parsedValue = Number.isFinite(parsed) ? parsed : nextDraft;
+                                }
+                                updateRuntimeConfigDraft({
+                                    ...runtimeConfigDraft,
+                                    value_type: valueType,
+                                    initial_value: parsedValue,
+                                });
+                            }}
+                        />
+                    </label>
+                </section>
+            );
+        }
+        if (isJsonContainer) {
+            return (
+                <section style={{display: 'grid', gap: 10}} data-testid="node-config-data-json">
+                    <label style={labelStyle}>
+                        {t('nodeConfig.data.initialValue', {defaultValue: '初始值 JSON'})}
+                        <textarea
+                            value={dataJsonValueDraft}
+                            style={textareaStyle}
+                            onChange={(event) => {
+                                const nextDraft = event.target.value;
+                                setDataJsonValueDraft(nextDraft);
+                                try {
+                                    const parsed = parseJsonValue(nextDraft);
+                                    updateRuntimeConfigDraft({
+                                        ...runtimeConfigDraft,
+                                        initial_value: parsed,
+                                    });
+                                } catch (error) {
+                                    setJsonDraftError(error instanceof Error ? error.message : String(error));
+                                    setErrorMessage(null);
+                                    setSuccessMessage(null);
+                                }
+                            }}
+                        />
+                    </label>
+                </section>
+            );
+        }
+        if (isDataWriter) {
+            const operation = typeof runtimeConfigDraft.operation === 'string'
+                ? runtimeConfigDraft.operation
+                : 'set_from_input';
+            const operandMode = typeof runtimeConfigDraft.operand_mode === 'string'
+                ? runtimeConfigDraft.operand_mode
+                : 'literal';
+            const isArithmetic = ['add', 'subtract', 'multiply', 'divide'].includes(operation);
+            const usesFieldPath = operation === 'set_path_from_input';
+            return (
+                <section style={{display: 'grid', gap: 10}} data-testid="node-config-data-writer">
+                    <label style={labelStyle}>
+                        {t('nodeConfig.data.writer.target', {defaultValue: '目标容器'})}
+                        <select
+                            value={typeof runtimeConfigDraft.target_node_id === 'string' ? runtimeConfigDraft.target_node_id : ''}
+                            style={inputStyle}
+                            onChange={(event) => {
+                                updateRuntimeConfigDraft({
+                                    ...runtimeConfigDraft,
+                                    target_node_id: event.target.value,
+                                });
+                            }}
+                        >
+                            <option value="">{t('nodeConfig.form.emptyValue')}</option>
+                            {dataContainerNodes.map((node) => (
+                                <option key={node.node_id} value={node.node_id}>
+                                    {node.node_id} ({node.type_name})
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <label style={labelStyle}>
+                        {t('nodeConfig.data.writer.operation', {defaultValue: '操作'})}
+                        <select
+                            value={operation}
+                            style={inputStyle}
+                            onChange={(event) => {
+                                updateRuntimeConfigDraft({
+                                    ...runtimeConfigDraft,
+                                    operation: event.target.value,
+                                });
+                            }}
+                        >
+                            {['add', 'subtract', 'multiply', 'divide', 'set_from_input', 'append_from_input', 'extend_from_input', 'merge_from_input', 'set_path_from_input'].map((item) => (
+                                <option key={item} value={item}>{item}</option>
+                            ))}
+                        </select>
+                    </label>
+                    {isArithmetic && (
+                        <>
+                            <label style={labelStyle}>
+                                {t('nodeConfig.data.writer.operandMode', {defaultValue: '操作数来源'})}
+                                <select
+                                    value={operandMode}
+                                    style={inputStyle}
+                                    onChange={(event) => {
+                                        updateRuntimeConfigDraft({
+                                            ...runtimeConfigDraft,
+                                            operand_mode: event.target.value,
+                                        });
+                                    }}
+                                >
+                                    <option value="literal">literal</option>
+                                    <option value="container">container</option>
+                                </select>
+                            </label>
+                            {operandMode === 'container' ? (
+                                <label style={labelStyle}>
+                                    {t('nodeConfig.data.writer.operandContainer', {defaultValue: '操作数容器'})}
+                                    <select
+                                        value={typeof runtimeConfigDraft.operand_node_id === 'string' ? runtimeConfigDraft.operand_node_id : ''}
+                                        style={inputStyle}
+                                        onChange={(event) => {
+                                            updateRuntimeConfigDraft({
+                                                ...runtimeConfigDraft,
+                                                operand_node_id: event.target.value,
+                                            });
+                                        }}
+                                    >
+                                        <option value="">{t('nodeConfig.form.emptyValue')}</option>
+                                        {dataContainerNodes
+                                            .filter((node) => isScalarContainerType(node.type_name))
+                                            .map((node) => (
+                                                <option key={node.node_id} value={node.node_id}>
+                                                    {node.node_id} ({node.type_name})
+                                                </option>
+                                            ))}
+                                    </select>
+                                </label>
+                            ) : (
+                                <label style={labelStyle}>
+                                    {t('nodeConfig.data.writer.literalValue', {defaultValue: '字面量操作数'})}
+                                    <input
+                                        value={dataWriterLiteralDraft}
+                                        style={inputStyle}
+                                        onChange={(event) => {
+                                            const nextDraft = event.target.value;
+                                            setDataWriterLiteralDraft(nextDraft);
+                                            let nextValue: unknown = nextDraft;
+                                            if (selectedWriterScalarType === 'integer') {
+                                                const parsed = Number.parseInt(nextDraft, 10);
+                                                nextValue = Number.isFinite(parsed) ? parsed : nextDraft;
+                                            } else if (selectedWriterScalarType === 'float') {
+                                                const parsed = Number.parseFloat(nextDraft);
+                                                nextValue = Number.isFinite(parsed) ? parsed : nextDraft;
+                                            }
+                                            updateRuntimeConfigDraft({
+                                                ...runtimeConfigDraft,
+                                                literal_value: nextValue,
+                                            });
+                                        }}
+                                    />
+                                </label>
+                            )}
+                        </>
+                    )}
+                    {usesFieldPath && (
+                        <label style={labelStyle}>
+                            {t('nodeConfig.data.writer.fieldPath', {defaultValue: '字段路径'})}
+                            <input
+                                value={typeof runtimeConfigDraft.field_path === 'string' ? runtimeConfigDraft.field_path : ''}
+                                style={inputStyle}
+                                onChange={(event) => {
+                                    updateRuntimeConfigDraft({
+                                        ...runtimeConfigDraft,
+                                        field_path: event.target.value,
+                                    });
+                                }}
+                            />
+                        </label>
+                    )}
+                </section>
+            );
+        }
+        return null;
+    };
+
     return (
         <section style={panelStyle} data-testid="node-config-panel">
             <h3 style={{margin: 0}}>{t('nodeConfig.title')}</h3>
@@ -418,32 +740,32 @@ export function NodeConfigPanel() {
                 />
             </label>
 
-            <SchemaForm
-                nodeTypeName={selectedNode.type_name}
-                schema={runtimeSchema}
-                value={runtimeConfigDraft}
-                secrets={secrets}
-                onCreateSecret={async (request) => {
-                    try {
-                        const created = await createSecret(request);
-                        return created;
-                    } catch (error) {
-                        throw new ApiClientError(
-                            error instanceof Error ? error.message : String(error),
-                            'validation',
-                            null,
-                            null,
-                        );
-                    }
-                }}
-                onChange={(nextConfig) => {
-                    setRuntimeConfigDraft(nextConfig);
-                    setConfigDraftText(formatJson(nextConfig));
-                    setJsonDraftError(null);
-                    setErrorMessage(null);
-                    setSuccessMessage(null);
-                }}
-            />
+            {isDataNode ? (
+                renderDataControls()
+            ) : (
+                <SchemaForm
+                    nodeTypeName={selectedNode.type_name}
+                    schema={runtimeSchema}
+                    value={runtimeConfigDraft}
+                    secrets={secrets}
+                    onCreateSecret={async (request) => {
+                        try {
+                            const created = await createSecret(request);
+                            return created;
+                        } catch (error) {
+                            throw new ApiClientError(
+                                error instanceof Error ? error.message : String(error),
+                                'validation',
+                                null,
+                                null,
+                            );
+                        }
+                    }}
+                    onChange={(nextConfig) => {
+                        updateRuntimeConfigDraft(nextConfig);
+                    }}
+                />
+            )}
 
             <section style={advancedSectionStyle} data-testid="node-config-advanced-json">
                 <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8}}>

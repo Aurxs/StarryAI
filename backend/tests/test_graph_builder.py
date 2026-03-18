@@ -304,3 +304,56 @@ def test_graph_validation_rejects_sync_group_mismatch_between_initiator_and_exec
     report = GraphBuilder(create_default_registry()).validate(graph)
     assert report.valid is False
     assert any(issue.code == "sync.group_mismatch" for issue in report.issues)
+
+
+def test_graph_validation_allows_passive_data_container_without_connections() -> None:
+    graph = GraphSpec(
+        graph_id="g_passive_data_container",
+        nodes=[
+            NodeInstanceSpec(
+                node_id="v1",
+                type_name="data.variable",
+                config={"value_type": "integer", "initial_value": 1},
+            ),
+        ],
+        edges=[],
+    )
+
+    report = GraphBuilder(create_default_registry()).validate(graph)
+    assert report.valid is True
+    assert report.issues == []
+
+
+def test_graph_validation_rejects_requester_source_bound_to_non_container() -> None:
+    graph = GraphSpec(
+        graph_id="g_data_requester_invalid_source",
+        nodes=[
+            NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+            NodeInstanceSpec(node_id="n2", type_name="data.requester"),
+        ],
+        edges=[
+            EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="source"),
+            EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="trigger"),
+        ],
+    )
+
+    report = GraphBuilder(create_default_registry()).validate(graph)
+    assert report.valid is False
+    assert any(issue.code == "data.requester_source_not_container" for issue in report.issues)
+
+
+def test_graph_validation_rejects_writer_missing_target_container() -> None:
+    graph = GraphSpec(
+        graph_id="g_data_writer_missing_target",
+        nodes=[
+            NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+            NodeInstanceSpec(node_id="n2", type_name="data.writer", config={"operation": "set_from_input"}),
+        ],
+        edges=[
+            EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="in"),
+        ],
+    )
+
+    report = GraphBuilder(create_default_registry()).validate(graph)
+    assert report.valid is False
+    assert any(issue.code == "data.writer_target_missing" for issue in report.issues)

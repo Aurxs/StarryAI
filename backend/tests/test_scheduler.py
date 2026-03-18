@@ -43,6 +43,16 @@ class SlowSyncConsumerNode(AsyncNode):
         return {}
 
 
+CAPTURED_VALUES: list[Any] = []
+
+
+class CaptureNode(AsyncNode):
+    async def process(self, inputs: dict[str, Any], context: NodeContext) -> dict[str, Any]:
+        _ = context
+        CAPTURED_VALUES.append(inputs.get("in"))
+        return {}
+
+
 def _build_registry_with_custom_nodes() -> GraphBuilder:
     registry = create_default_registry()
     registry.register(
@@ -79,6 +89,15 @@ def _build_registry_with_custom_nodes() -> GraphBuilder:
             description="sync consumer that never calls coordinator.ready",
         )
     )
+    registry.register(
+        NodeSpec(
+            type_name="test.capture",
+            mode=NodeMode.ASYNC,
+            inputs=[PortSpec(name="in", frame_schema="any", required=True)],
+            outputs=[],
+            description="capture sink",
+        )
+    )
     return GraphBuilder(registry)
 
 
@@ -87,6 +106,7 @@ def _build_factory_with_custom_nodes() -> NodeFactory:
     factory.register("test.incomplete_output", IncompleteOutputNode)
     factory.register("test.bad_sync_envelope", BadSyncEnvelopeNode)
     factory.register("test.slow_sync_consumer", SlowSyncConsumerNode)
+    factory.register("test.capture", CaptureNode)
     return factory
 
 
@@ -106,7 +126,7 @@ def test_scheduler_runs_basic_chain() -> None:
                 EdgeSpec(source_node="n2", source_port="answer", target_node="n3", target_port="in"),
             ],
         )
-        compiled = GraphBuilder(create_default_registry()).build(graph)
+        compiled = _build_registry_with_custom_nodes().build(graph)
         scheduler = GraphScheduler()
         state = await scheduler.run(compiled, run_id="run_scheduler_basic", stream_id="s_basic")
 
@@ -185,7 +205,7 @@ def test_scheduler_emits_sync_events_for_initiator_outputs() -> None:
                 EdgeSpec(source_node="n4", source_port="out_b", target_node="n6", target_port="in"),
             ],
         )
-        compiled = GraphBuilder(create_default_registry()).build(graph)
+        compiled = _build_registry_with_custom_nodes().build(graph)
         scheduler = GraphScheduler()
         state = await scheduler.run(compiled, run_id="run_scheduler_sync_events", stream_id="s_sync")
         assert state.status == "completed"
@@ -254,6 +274,48 @@ def test_scheduler_sync_executor_aborts_when_peer_not_ready() -> None:
     asyncio.run(_run())
 
 
+def test_scheduler_data_writer_completes_before_requester_reads_same_container() -> None:
+    async def _run() -> None:
+        CAPTURED_VALUES.clear()
+        graph = GraphSpec(
+            graph_id="g_scheduler_data_writer_requester",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+                NodeInstanceSpec(
+                    node_id="v1",
+                    type_name="data.variable",
+                    config={"value_type": "integer", "initial_value": 1},
+                ),
+                NodeInstanceSpec(
+                    node_id="n2",
+                    type_name="data.writer",
+                    config={
+                        "target_node_id": "v1",
+                        "operation": "add",
+                        "operand_mode": "literal",
+                        "literal_value": 2,
+                    },
+                ),
+                NodeInstanceSpec(node_id="n3", type_name="data.requester"),
+                NodeInstanceSpec(node_id="n4", type_name="test.capture"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="in"),
+                EdgeSpec(source_node="n1", source_port="text", target_node="n3", target_port="trigger"),
+                EdgeSpec(source_node="v1", source_port="value", target_node="n3", target_port="source"),
+                EdgeSpec(source_node="n3", source_port="value", target_node="n4", target_port="in"),
+            ],
+        )
+        compiled = _build_registry_with_custom_nodes().build(graph)
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+
+        state = await scheduler.run(compiled, run_id="run_scheduler_data_writer_requester")
+        assert state.status == "completed"
+        assert CAPTURED_VALUES == [3]
+
+    asyncio.run(_run())
+
+
 def test_scheduler_fails_on_malformed_sync_envelope_output() -> None:
     """当上游声明 *.sync 输出但未提供 data/sync envelope 时应失败。"""
 
@@ -281,4 +343,3 @@ def test_scheduler_fails_on_malformed_sync_envelope_output() -> None:
         assert "sync" in (state.node_states["n1"].last_error or "")
 
     asyncio.run(_run())
-

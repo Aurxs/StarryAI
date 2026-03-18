@@ -35,7 +35,8 @@ from .graph_builder import CompiledGraph
 from .graph_runtime import GraphRuntimeState, RuntimeEdgeState, RuntimeNodeState
 from .node_base import BaseNode, NodeContext
 from .node_factory import NodeFactory, create_default_node_factory
-from .spec import EdgeSpec, is_sync_schema
+from .runtime_data import RuntimeDataStore
+from .spec import EdgeSpec, NodeMode, is_sync_schema
 from .sync_coordinator import SyncCoordinator
 
 # 边唯一键：(source_node, source_port, target_node, target_port)
@@ -119,12 +120,20 @@ class GraphScheduler:
 
         # _node_inputs: 节点 -> 当前输入端口缓存（target_port -> value）。
         self._node_inputs: dict[str, dict[str, Any]] = {}
+        # _node_input_metadata: 节点 -> 输入端口附带元信息（trigger_token/source 等）。
+        self._node_input_metadata: dict[str, dict[str, dict[str, Any]]] = {}
         # _node_input_events: 节点 -> 输入到达事件，用于唤醒等待输入的节点任务。
         self._node_input_events: dict[str, asyncio.Event] = {}
         # _node_policies: 节点 -> 执行策略（超时、重试、错误传播）。
         self._node_policies: dict[str, NodeExecutionPolicy] = {}
         # _sync_coordinator: 同步组协调器（当前 run 内共享）。
         self._sync_coordinator = SyncCoordinator()
+        # _data_store: 当前 run 的被动容器值存储。
+        self._data_store: RuntimeDataStore | None = None
+        # _pending_container_writes: (container_id, trigger_token) -> 未完成写入数量。
+        self._pending_container_writes: dict[tuple[str, str], int] = {}
+        # _pending_container_events: (container_id, trigger_token) -> 写入完成事件。
+        self._pending_container_events: dict[tuple[str, str], asyncio.Event] = {}
 
         # _failed: 运行是否已经进入失败路径（用于最终态决策）。
         self._failed = False
@@ -243,9 +252,13 @@ class GraphScheduler:
         self._edge_queues.clear()
         self._edge_state_map.clear()
         self._node_inputs.clear()
+        self._node_input_metadata.clear()
         self._node_input_events.clear()
         self._node_policies.clear()
         self._sync_coordinator = SyncCoordinator()
+        self._data_store = RuntimeDataStore.from_graph(compiled_graph.graph, compiled_graph.node_specs)
+        self._pending_container_writes.clear()
+        self._pending_container_events.clear()
 
         self.runtime_state = GraphRuntimeState(
             run_id=self._run_id,
@@ -254,7 +267,11 @@ class GraphScheduler:
             started_at=time.time(),
             metrics=self._initial_runtime_metrics(),
             node_states={
-                node_id: RuntimeNodeState(node_id=node_id) for node_id in compiled_graph.node_specs
+                node_id: RuntimeNodeState(
+                    node_id=node_id,
+                    status="passive" if compiled_graph.node_specs[node_id].mode == NodeMode.PASSIVE else "idle",
+                )
+                for node_id in compiled_graph.node_specs
             },
             edge_states=[],
         )
@@ -330,6 +347,8 @@ class GraphScheduler:
         # nodes: 本次运行真实执行对象（node_id -> BaseNode）。
         nodes: dict[str, BaseNode] = {}
         for node_id, spec in compiled_graph.node_specs.items():
+            if spec.mode == NodeMode.PASSIVE:
+                continue
             # node_def: 当前 node_id 对应的实例配置（含 config/title 等）。
             node_def = node_instances[node_id]
             nodes[node_id] = self.node_factory.create(node=node_def, spec=spec)
@@ -338,9 +357,12 @@ class GraphScheduler:
 
     def _setup_input_buffers(self, compiled_graph: CompiledGraph) -> None:
         """初始化节点输入缓存。"""
-        for node_id in compiled_graph.node_specs:
+        for node_id, spec in compiled_graph.node_specs.items():
+            if spec.mode == NodeMode.PASSIVE:
+                continue
             # 每个节点先给一个空输入缓存。
             self._node_inputs[node_id] = {}
+            self._node_input_metadata[node_id] = {}
             # 每个节点一个输入事件；边任务写入输入后会 set 它。
             self._node_input_events[node_id] = asyncio.Event()
 
@@ -349,7 +371,7 @@ class GraphScheduler:
         assert self.runtime_state is not None
         self.runtime_state.edge_states.clear()
 
-        for edge in compiled_graph.graph.edges:
+        for edge in compiled_graph.runtime_edges:
             # edge_key: 当前边在内部字典中的唯一索引键。
             edge_key = self._edge_key(edge)
             # queue_maxsize: 优先使用边自身配置，否则回退到调度器默认值。
@@ -390,7 +412,11 @@ class GraphScheduler:
         spec = self._compiled_graph.node_specs[node_id]
         policy = self._node_policies.get(node_id, NodeExecutionPolicy())
         # required_ports: 当前节点必须满足的输入端口集合。
-        required_ports = {port.name for port in spec.inputs if port.required}
+        required_ports = {
+            port.name
+            for port in spec.inputs
+            if port.required and port.input_behavior.value != "reference"
+        }
 
         try:
             while not self._stop_event.is_set():
@@ -419,12 +445,14 @@ class GraphScheduler:
                     )
                     if policy.continue_on_error and not policy.critical:
                         node_state.metrics["continued_on_error"] = True
+                        self._complete_writer_barrier(node_id)
                         self._notify_downstream_waiters(node_id)
                         return
                     await self._sync_coordinator.abort_by_node(
                         node_id=node_id,
                         reason="input_unavailable",
                     )
+                    self._complete_writer_barrier(node_id)
                     self._fail_run(message)
                     self.stop()
                     return
@@ -458,6 +486,12 @@ class GraphScheduler:
                     "node_mode": spec.mode.value,
                     "sync_coordinator": self._sync_coordinator,
                     "sync_group_participants": self._compiled_graph.sync_group_participants,
+                    "data_store": self._data_store,
+                    "reference_bindings": self._compiled_graph.reference_bindings,
+                    "writer_targets": self._compiled_graph.writer_targets,
+                    "input_metadata": deepcopy(self._node_input_metadata.get(node_id, {})),
+                    "trigger_token": self._resolve_trigger_token(node_id),
+                    "await_container_writes": self._await_container_writes,
                 },
             )
             # inputs: 传入节点 process 的输入副本，避免节点修改共享缓存。
@@ -482,6 +516,7 @@ class GraphScheduler:
 
             if self._stop_event.is_set():
                 node_state.status = "stopped"
+                self._complete_writer_barrier(node_id)
                 return
 
             await self._route_outputs(node_id=node_id, outputs=outputs)
@@ -511,9 +546,11 @@ class GraphScheduler:
                 self.runtime_state.metrics["node_finished"] = (
                         int(self.runtime_state.metrics.get("node_finished", 0)) + 1
                 )
+            self._complete_writer_barrier(node_id)
         except asyncio.CancelledError:
             node_state.status = "stopped"
             node_state.finished_at = time.time()
+            self._complete_writer_barrier(node_id)
             raise
         except Exception as exc:  # noqa: BLE001 - 调度器需要兜底捕获节点错误
             error_code, retryable = classify_exception(exc)
@@ -538,12 +575,14 @@ class GraphScheduler:
                 )
             if policy.continue_on_error and not policy.critical:
                 node_state.metrics["continued_on_error"] = True
+                self._complete_writer_barrier(node_id)
                 self._notify_downstream_waiters(node_id)
                 return
             await self._sync_coordinator.abort_by_node(
                 node_id=node_id,
                 reason="node_failed",
             )
+            self._complete_writer_barrier(node_id)
             self._fail_run(f"节点 {node_id} 执行失败: {exc}")
             self.stop()
 
@@ -552,7 +591,15 @@ class GraphScheduler:
         assert self._compiled_graph is not None
         assert self._run_id is not None
 
-        for edge in self._compiled_graph.outgoing_edges.get(node_id, []):
+        edges = self._compiled_graph.outgoing_edges.get(node_id, [])
+        trigger_tokens_by_port: dict[str, str] = {
+            edge.source_port: uuid.uuid4().hex for edge in edges
+        }
+        for edge in edges:
+            trigger_token = trigger_tokens_by_port[edge.source_port]
+            self._register_pending_container_write(edge.target_node, trigger_token)
+
+        for edge in edges:
             if edge.source_port not in outputs:
                 raise RuntimeError(f"节点 {node_id} 未输出已连接端口 {edge.source_port} 的数据")
 
@@ -574,8 +621,13 @@ class GraphScheduler:
             frame_seq = 0
             frame_sync_key: str | None = None
             frame_play_at: float | None = None
+            trigger_token = trigger_tokens_by_port[edge.source_port]
             event_edge_key = self._format_edge_key(edge)
-            event_details: dict[str, Any] = {"edge": event_edge_key, "schema": resolved_schema}
+            event_details: dict[str, Any] = {
+                "edge": event_edge_key,
+                "schema": resolved_schema,
+                "trigger_token": trigger_token,
+            }
 
             if frame_type == FrameType.SYNC:
                 if not isinstance(payload_value, dict):
@@ -637,6 +689,7 @@ class GraphScheduler:
                 payload={"value": payload_value},
                 sync_key=frame_sync_key,
                 play_at=frame_play_at,
+                metadata={"trigger_token": trigger_token},
             )
 
             await queue.put(frame)
@@ -691,6 +744,13 @@ class GraphScheduler:
                     continue
 
                 self._node_inputs[edge.target_node][edge.target_port] = frame.payload.get("value")
+                self._node_input_metadata[edge.target_node][edge.target_port] = {
+                    "trigger_token": frame.metadata.get("trigger_token"),
+                    "source_node": frame.source_node,
+                    "source_port": frame.source_port,
+                    "stream_id": frame.stream_id,
+                    "seq": frame.seq,
+                }
                 self._node_input_events[edge.target_node].set()
 
                 queue.task_done()
@@ -718,6 +778,56 @@ class GraphScheduler:
             return
         self.runtime_state.status = "failed"
         self.runtime_state.last_error = message
+
+    def _resolve_trigger_token(self, node_id: str) -> str | None:
+        metadata_by_port = self._node_input_metadata.get(node_id, {})
+        for port_name in sorted(metadata_by_port):
+            metadata = metadata_by_port.get(port_name, {})
+            trigger_token = metadata.get("trigger_token")
+            if isinstance(trigger_token, str) and trigger_token:
+                return trigger_token
+        return None
+
+    def _register_pending_container_write(self, target_node_id: str, trigger_token: str) -> None:
+        assert self._compiled_graph is not None
+        if target_node_id not in self._compiled_graph.writer_targets:
+            return
+        container_id = self._compiled_graph.writer_targets[target_node_id]
+        key = (container_id, trigger_token)
+        self._pending_container_writes[key] = self._pending_container_writes.get(key, 0) + 1
+        event = self._pending_container_events.get(key)
+        if event is None:
+            event = asyncio.Event()
+            self._pending_container_events[key] = event
+        event.clear()
+
+    def _complete_writer_barrier(self, node_id: str) -> None:
+        assert self._compiled_graph is not None
+        container_id = self._compiled_graph.writer_targets.get(node_id)
+        if not isinstance(container_id, str):
+            return
+        trigger_token = self._resolve_trigger_token(node_id)
+        if not isinstance(trigger_token, str) or not trigger_token:
+            return
+        key = (container_id, trigger_token)
+        pending = self._pending_container_writes.get(key)
+        if pending is None:
+            return
+        if pending <= 1:
+            self._pending_container_writes.pop(key, None)
+            event = self._pending_container_events.pop(key, None)
+            if event is not None:
+                event.set()
+            return
+        self._pending_container_writes[key] = pending - 1
+
+    async def _await_container_writes(self, container_id: str, trigger_token: str) -> None:
+        key = (container_id, trigger_token)
+        event = self._pending_container_events.get(key)
+        pending = self._pending_container_writes.get(key, 0)
+        if event is None or pending <= 0:
+            return
+        await event.wait()
 
     def _emit_event(
             self,

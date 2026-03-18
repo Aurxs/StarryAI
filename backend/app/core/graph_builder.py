@@ -18,6 +18,7 @@ from .spec import (
     EdgeSpec,
     GraphSpec,
     GraphValidationReport,
+    InputBehavior,
     NodeMode,
     NodeSpec,
     PortSpec,
@@ -55,6 +56,9 @@ class CompiledGraph:
     - resolved_input_schemas: 节点输入端口解析后的 schema。
     - resolved_output_schemas: 节点输出端口解析后的 schema。
     - sync_group_participants: 同步组参与者（仅 executor）。
+    - runtime_edges: 参与真实运行转发的边（不含 reference 输入边）。
+    - reference_bindings: 节点引用输入绑定到的上游节点。
+    - writer_targets: 写入节点 -> 目标容器节点。
     """
 
     graph: GraphSpec
@@ -65,6 +69,9 @@ class CompiledGraph:
     resolved_input_schemas: dict[str, dict[str, str]]
     resolved_output_schemas: dict[str, dict[str, str]]
     sync_group_participants: dict[str, list[str]]
+    runtime_edges: list[EdgeSpec]
+    reference_bindings: dict[str, dict[str, str]]
+    writer_targets: dict[str, str]
 
 
 class GraphBuilder:
@@ -111,6 +118,7 @@ class GraphBuilder:
             self._validate_node_configs(graph, node_specs, issues)
             self._validate_required_inputs(node_specs, incoming, attempted_targets, issues)
             self._validate_sync_nodes(graph, node_specs, incoming, issues)
+            self._validate_data_nodes(graph, node_specs, incoming, outgoing, issues)
             self._validate_acyclic(node_specs, outgoing, issues)
             if not any(issue.code == "graph.cycle_detected" for issue in issues):
                 resolved_inputs, resolved_outputs = self._resolve_port_schemas(
@@ -144,7 +152,12 @@ class GraphBuilder:
         issues: list[ValidationIssue] = []
         node_specs = self._collect_node_specs(graph, issues)
         outgoing, incoming, _attempted = self._collect_edges(graph, node_specs, issues)
-        topo_order = self._topological_sort(list(node_specs.keys()), outgoing)
+        runtime_edges = self._filter_runtime_edges(graph=graph, node_specs=node_specs)
+        runtime_outgoing, runtime_incoming = self._index_edges(runtime_edges)
+        topo_order = self._topological_sort(
+            self._runtime_node_ids(node_specs),
+            runtime_outgoing,
+        )
         resolved_inputs, resolved_outputs = self._resolve_port_schemas(
             graph=graph,
             node_specs=node_specs,
@@ -155,16 +168,21 @@ class GraphBuilder:
             graph=graph,
             node_specs=node_specs,
         )
+        reference_bindings = self._build_reference_bindings(graph=graph, node_specs=node_specs)
+        writer_targets = self._build_writer_targets(graph=graph, node_specs=node_specs)
 
         return CompiledGraph(
             graph=graph,
             node_specs=node_specs,
-            outgoing_edges=outgoing,
-            incoming_edges=incoming,
+            outgoing_edges=runtime_outgoing,
+            incoming_edges=runtime_incoming,
             topo_order=topo_order,
             resolved_input_schemas=resolved_inputs,
             resolved_output_schemas=resolved_outputs,
             sync_group_participants=sync_group_participants,
+            runtime_edges=runtime_edges,
+            reference_bindings=reference_bindings,
+            writer_targets=writer_targets,
         )
 
     def _collect_node_specs(
@@ -358,6 +376,10 @@ class GraphBuilder:
         for node_id, spec in node_specs.items():
             incoming_ports = {edge.target_port for edge in incoming.get(node_id, [])}
             for port in spec.inputs:
+                if spec.mode == NodeMode.PASSIVE:
+                    continue
+                if port.input_behavior == InputBehavior.REFERENCE:
+                    continue
                 if port.required and port.name not in incoming_ports:
                     if (node_id, port.name) in attempted_targets:
                         continue
@@ -493,6 +515,124 @@ class GraphBuilder:
             issues=issues,
         )
 
+    def _validate_data_nodes(
+        self,
+        graph: GraphSpec,
+        node_specs: dict[str, NodeSpec],
+        incoming: dict[str, list[EdgeSpec]],
+        outgoing: dict[str, list[EdgeSpec]],
+        issues: list[ValidationIssue],
+    ) -> None:
+        node_instances = {node.node_id: node for node in graph.nodes}
+
+        for node_id, spec in node_specs.items():
+            if self._has_tag(spec, "data_container"):
+                for edge in outgoing.get(node_id, []):
+                    target_spec = node_specs.get(edge.target_node)
+                    target_port = self._find_input_port(target_spec, edge.target_port) if target_spec else None
+                    if target_port is None or target_port.input_behavior != InputBehavior.REFERENCE:
+                        issues.append(
+                            ValidationIssue(
+                                level="error",
+                                code="data.container_invalid_consumer",
+                                message=(
+                                    f"数据容器 {node_id} 仅允许连接到引用输入端口，"
+                                    f"当前连接到 {edge.target_node}.{edge.target_port}"
+                                ),
+                            )
+                        )
+
+            if self._has_tag(spec, "data_requester"):
+                source_edges = [
+                    edge for edge in incoming.get(node_id, [])
+                    if edge.target_port == "source"
+                ]
+                trigger_edges = [
+                    edge for edge in incoming.get(node_id, [])
+                    if edge.target_port == "trigger"
+                ]
+                if len(source_edges) != 1:
+                    issues.append(
+                        ValidationIssue(
+                            level="error",
+                            code="data.requester_source_missing",
+                            message=f"数据请求器 {node_id} 必须绑定一个 source 容器",
+                        )
+                    )
+                else:
+                    source_spec = node_specs.get(source_edges[0].source_node)
+                    if source_spec is None or not self._has_tag(source_spec, "data_container"):
+                        issues.append(
+                            ValidationIssue(
+                                level="error",
+                                code="data.requester_source_not_container",
+                                message=(
+                                    f"数据请求器 {node_id} 的 source 必须连接数据容器，"
+                                    f"当前为 {source_edges[0].source_node}"
+                                ),
+                            )
+                        )
+                if len(trigger_edges) != 1:
+                    issues.append(
+                        ValidationIssue(
+                            level="error",
+                            code="data.requester_trigger_missing",
+                            message=f"数据请求器 {node_id} 必须连接一个 trigger 输入",
+                        )
+                    )
+
+            if self._has_tag(spec, "data_writer"):
+                writer_instance = node_instances.get(node_id)
+                target_node_id = writer_instance.config.get("target_node_id") if writer_instance else None
+                if not isinstance(target_node_id, str) or not target_node_id.strip():
+                    issues.append(
+                        ValidationIssue(
+                            level="error",
+                            code="data.writer_target_missing",
+                            message=f"数据写入器 {node_id} 缺少 target_node_id 配置",
+                        )
+                    )
+                else:
+                    target_spec = node_specs.get(target_node_id.strip())
+                    if target_spec is None or not self._has_tag(target_spec, "data_container"):
+                        issues.append(
+                            ValidationIssue(
+                                level="error",
+                                code="data.writer_target_not_container",
+                                message=(
+                                    f"数据写入器 {node_id} 的 target_node_id 必须指向数据容器，"
+                                    f"当前为 {target_node_id}"
+                                ),
+                            )
+                        )
+                    else:
+                        self._validate_writer_operation(
+                            writer_node_id=node_id,
+                            writer_config=writer_instance.config if writer_instance else {},
+                            target_node_id=target_node_id.strip(),
+                            target_spec=target_spec,
+                            node_specs=node_specs,
+                            issues=issues,
+                        )
+
+                trigger_edges = incoming.get(node_id, [])
+                if len(trigger_edges) != 1:
+                    issues.append(
+                        ValidationIssue(
+                            level="error",
+                            code="data.writer_input_missing",
+                            message=f"数据写入器 {node_id} 必须且只能有一个输入",
+                        )
+                    )
+                if outgoing.get(node_id):
+                    issues.append(
+                        ValidationIssue(
+                            level="error",
+                            code="data.writer_output_forbidden",
+                            message=f"数据写入器 {node_id} 不允许有输出连线",
+                        )
+                    )
+
     def _validate_sync_group_alignment(
         self,
         *,
@@ -544,8 +684,16 @@ class GraphBuilder:
         issues: list[ValidationIssue],
     ) -> None:
         """检查图是否存在环。"""
-        order = self._topological_sort(list(node_specs.keys()), outgoing)
-        if len(order) != len(node_specs):
+        runtime_node_ids = self._runtime_node_ids(node_specs)
+        runtime_outgoing = {
+            node_id: [
+                edge for edge in edges
+                if not self._is_reference_edge(edge=edge, node_specs=node_specs)
+            ]
+            for node_id, edges in outgoing.items()
+        }
+        order = self._topological_sort(runtime_node_ids, runtime_outgoing)
+        if len(order) != len(runtime_node_ids):
             issues.append(
                 ValidationIssue(
                     level="error",
@@ -564,6 +712,7 @@ class GraphBuilder:
     ) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]]]:
         """解析节点输入/输出端口在当前图中的真实 schema。"""
         topo_order = self._topological_sort(list(node_specs.keys()), outgoing)
+        node_instances = {node.node_id: node for node in graph.nodes}
 
         resolved_inputs: dict[str, dict[str, str]] = {}
         resolved_outputs: dict[str, dict[str, str]] = {}
@@ -598,10 +747,18 @@ class GraphBuilder:
             # 再解析输出 schema：动态输出由绑定输入口推导。
             for output_port in spec.outputs:
                 if output_port.derived_from_input is None:
-                    node_output_schemas[output_port.name] = normalize_schema(output_port.frame_schema)
+                    node_output_schemas[output_port.name] = self._resolve_declared_output_schema(
+                        spec=spec,
+                        node_config=node_instances.get(node_id).config if node_id in node_instances else {},
+                        output_port=output_port,
+                    )
                     continue
                 source_input = dynamic_input_schemas.get(output_port.derived_from_input, "any")
-                node_output_schemas[output_port.name] = to_sync_schema(base_schema(source_input))
+                resolved_schema = base_schema(source_input)
+                if is_sync_schema(output_port.frame_schema):
+                    node_output_schemas[output_port.name] = to_sync_schema(resolved_schema)
+                else:
+                    node_output_schemas[output_port.name] = normalize_schema(resolved_schema)
 
         # 处理“无出边的独立节点”或拓扑排序未覆盖场景。
         for node_id, spec in node_specs.items():
@@ -611,7 +768,12 @@ class GraphBuilder:
                 port.name: normalize_schema(port.frame_schema) for port in spec.inputs
             }
             resolved_outputs[node_id] = {
-                port.name: normalize_schema(port.frame_schema) for port in spec.outputs
+                port.name: self._resolve_declared_output_schema(
+                    spec=spec,
+                    node_config=node_instances.get(node_id).config if node_id in node_instances else {},
+                    output_port=port,
+                )
+                for port in spec.outputs
             }
 
         return resolved_inputs, resolved_outputs
@@ -747,6 +909,194 @@ class GraphBuilder:
     def _effective_output_schema(port: PortSpec) -> str:
         """返回用于首轮边校验的输出 schema。"""
         if port.derived_from_input is not None:
-            # 动态输出在编译后再做精确解析；首轮按 any.sync 保守放行。
-            return "any.sync"
+            # 动态输出在编译后再做精确解析；首轮按声明类型的宽松版本保守放行。
+            if is_sync_schema(port.frame_schema):
+                return "any.sync"
+            return "any"
         return port.frame_schema
+
+    def _resolve_declared_output_schema(
+        self,
+        *,
+        spec: NodeSpec,
+        node_config: dict[str, object],
+        output_port: PortSpec,
+    ) -> str:
+        if self._has_tag(spec, "data_container") and output_port.name == "value":
+            if spec.type_name in {"data.constant", "data.variable"}:
+                value_type = node_config.get("value_type")
+                if value_type == "float":
+                    return "scalar.float"
+                if value_type == "string":
+                    return "scalar.string"
+                return "scalar.int"
+        return normalize_schema(output_port.frame_schema)
+
+    @staticmethod
+    def _runtime_node_ids(node_specs: dict[str, NodeSpec]) -> list[str]:
+        return [
+            node_id for node_id, spec in node_specs.items()
+            if spec.mode != NodeMode.PASSIVE
+        ]
+
+    @staticmethod
+    def _index_edges(edges: list[EdgeSpec]) -> tuple[dict[str, list[EdgeSpec]], dict[str, list[EdgeSpec]]]:
+        outgoing: dict[str, list[EdgeSpec]] = defaultdict(list)
+        incoming: dict[str, list[EdgeSpec]] = defaultdict(list)
+        for edge in edges:
+            outgoing[edge.source_node].append(edge)
+            incoming[edge.target_node].append(edge)
+        return dict(outgoing), dict(incoming)
+
+    def _filter_runtime_edges(
+        self,
+        *,
+        graph: GraphSpec,
+        node_specs: dict[str, NodeSpec],
+    ) -> list[EdgeSpec]:
+        return [
+            edge for edge in graph.edges
+            if not self._is_reference_edge(edge=edge, node_specs=node_specs)
+        ]
+
+    def _build_reference_bindings(
+        self,
+        *,
+        graph: GraphSpec,
+        node_specs: dict[str, NodeSpec],
+    ) -> dict[str, dict[str, str]]:
+        bindings: dict[str, dict[str, str]] = defaultdict(dict)
+        for edge in graph.edges:
+            if not self._is_reference_edge(edge=edge, node_specs=node_specs):
+                continue
+            bindings[edge.target_node][edge.target_port] = edge.source_node
+        return {node_id: dict(port_map) for node_id, port_map in bindings.items()}
+
+    def _build_writer_targets(
+        self,
+        *,
+        graph: GraphSpec,
+        node_specs: dict[str, NodeSpec],
+    ) -> dict[str, str]:
+        targets: dict[str, str] = {}
+        for node in graph.nodes:
+            spec = node_specs.get(node.node_id)
+            if spec is None or not self._has_tag(spec, "data_writer"):
+                continue
+            raw_target = node.config.get("target_node_id")
+            if isinstance(raw_target, str) and raw_target.strip():
+                targets[node.node_id] = raw_target.strip()
+        return targets
+
+    def _is_reference_edge(self, *, edge: EdgeSpec, node_specs: dict[str, NodeSpec]) -> bool:
+        target_spec = node_specs.get(edge.target_node)
+        if target_spec is None:
+            return False
+        target_port = self._find_input_port(target_spec, edge.target_port)
+        if target_port is None:
+            return False
+        return target_port.input_behavior == InputBehavior.REFERENCE
+
+    @staticmethod
+    def _has_tag(spec: NodeSpec, tag: str) -> bool:
+        return tag in spec.tags
+
+    def _validate_writer_operation(
+        self,
+        *,
+        writer_node_id: str,
+        writer_config: dict[str, object],
+        target_node_id: str,
+        target_spec: NodeSpec,
+        node_specs: dict[str, NodeSpec],
+        issues: list[ValidationIssue],
+    ) -> None:
+        operation = writer_config.get("operation")
+        if not isinstance(operation, str) or not operation.strip():
+            issues.append(
+                ValidationIssue(
+                    level="error",
+                    code="data.writer_operation_missing",
+                    message=f"数据写入器 {writer_node_id} 缺少 operation 配置",
+                )
+            )
+            return
+        operation = operation.strip()
+        scalar_targets = {"data.constant", "data.variable"}
+        list_targets = {"data.list", "data.staging"}
+        dict_targets = {"data.dict", "data.staging"}
+        path_targets = {"data.list", "data.dict", "data.staging"}
+
+        if operation in {"add", "subtract", "multiply", "divide"} and target_spec.type_name not in scalar_targets:
+            issues.append(
+                ValidationIssue(
+                    level="error",
+                    code="data.writer_scalar_target_invalid",
+                    message=(
+                        f"数据写入器 {writer_node_id} 的算术操作仅允许标量容器，"
+                        f"当前目标 {target_node_id} 为 {target_spec.type_name}"
+                    ),
+                )
+            )
+
+        if operation in {"append_from_input", "extend_from_input"} and target_spec.type_name not in list_targets:
+            issues.append(
+                ValidationIssue(
+                    level="error",
+                    code="data.writer_list_target_invalid",
+                    message=(
+                        f"数据写入器 {writer_node_id} 的 {operation} 仅允许列表/暂存容器，"
+                        f"当前目标 {target_node_id} 为 {target_spec.type_name}"
+                    ),
+                )
+            )
+
+        if operation == "merge_from_input" and target_spec.type_name not in dict_targets:
+            issues.append(
+                ValidationIssue(
+                    level="error",
+                    code="data.writer_dict_target_invalid",
+                    message=(
+                        f"数据写入器 {writer_node_id} 的 merge_from_input 仅允许字典/暂存容器，"
+                        f"当前目标 {target_node_id} 为 {target_spec.type_name}"
+                    ),
+                )
+            )
+
+        if operation == "set_path_from_input" and target_spec.type_name not in path_targets:
+            issues.append(
+                ValidationIssue(
+                    level="error",
+                    code="data.writer_path_target_invalid",
+                    message=(
+                        f"数据写入器 {writer_node_id} 的 set_path_from_input 仅允许列表/字典/暂存容器，"
+                        f"当前目标 {target_node_id} 为 {target_spec.type_name}"
+                    ),
+                )
+            )
+
+        if operation in {"add", "subtract", "multiply", "divide"}:
+            operand_mode = writer_config.get("operand_mode")
+            if operand_mode == "container":
+                operand_node_id = writer_config.get("operand_node_id")
+                if not isinstance(operand_node_id, str) or not operand_node_id.strip():
+                    issues.append(
+                        ValidationIssue(
+                            level="error",
+                            code="data.writer_operand_container_missing",
+                            message=f"数据写入器 {writer_node_id} 缺少 operand_node_id 配置",
+                        )
+                    )
+                else:
+                    operand_spec = node_specs.get(operand_node_id.strip())
+                    if operand_spec is None or operand_spec.type_name not in scalar_targets:
+                        issues.append(
+                            ValidationIssue(
+                                level="error",
+                                code="data.writer_operand_container_invalid",
+                                message=(
+                                    f"数据写入器 {writer_node_id} 的 operand_node_id 必须指向标量容器，"
+                                    f"当前为 {operand_node_id}"
+                                ),
+                            )
+                        )

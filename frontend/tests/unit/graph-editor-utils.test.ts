@@ -359,6 +359,86 @@ describe('graph-editor utils', () => {
         expect(resolved.inputs.n3?.in).toBe('audio.full.sync');
     });
 
+    it('resolves passive data container schema and requester passthrough output schema', () => {
+        const graph = {
+            graph_id: 'g_data_request',
+            version: '0.1.0',
+            nodes: [
+                {
+                    node_id: 'v1',
+                    type_name: 'data.variable',
+                    title: 'var',
+                    config: {value_type: 'float', initial_value: 1.5},
+                },
+                {
+                    node_id: 'r1',
+                    type_name: 'data.requester',
+                    title: 'request',
+                    config: {},
+                },
+            ],
+            edges: [
+                {
+                    source_node: 'v1',
+                    source_port: 'value',
+                    target_node: 'r1',
+                    target_port: 'source',
+                    queue_maxsize: 0,
+                },
+            ],
+            metadata: {},
+        };
+        const catalogByType = new Map([
+            [
+                'data.variable',
+                {
+                    type_name: 'data.variable',
+                    version: '0.1.0',
+                    mode: 'passive',
+                    inputs: [],
+                    outputs: [{name: 'value', frame_schema: 'any', is_stream: false, required: true, description: ''}],
+                    sync_config: null,
+                    config_schema: {},
+                    description: '',
+                    tags: ['data_container'],
+                },
+            ],
+            [
+                'data.requester',
+                {
+                    type_name: 'data.requester',
+                    version: '0.1.0',
+                    mode: 'async',
+                    inputs: [
+                        {name: 'source', frame_schema: 'any', is_stream: false, required: true, description: '', input_behavior: 'reference'},
+                        {name: 'trigger', frame_schema: 'any', is_stream: false, required: true, description: '', input_behavior: 'trigger'},
+                    ],
+                    outputs: [
+                        {
+                            name: 'value',
+                            frame_schema: 'any',
+                            is_stream: false,
+                            required: true,
+                            description: '',
+                            derived_from_input: 'source',
+                        },
+                    ],
+                    sync_config: null,
+                    config_schema: {},
+                    description: '',
+                    tags: ['data_requester'],
+                },
+            ],
+        ]);
+
+        const resolved = resolveGraphPortSchemas(graph, catalogByType);
+        expect(resolved.outputs.v1?.value).toBe('scalar.float');
+        expect(resolved.inputs.r1?.source).toBe('scalar.float');
+        expect(resolved.outputs.r1?.value).toBe('scalar.float');
+        expect(simplifyFrameSchema('scalar.float')).toBe('float');
+        expect(getSchemaColor('json.dict')).toBe('#c2410c');
+    });
+
     it('builds and applies clipboard snapshot for multi-node copy with preserved edge/relative positions', () => {
         const graph = {
             graph_id: 'g',

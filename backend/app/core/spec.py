@@ -79,6 +79,19 @@ class NodeMode(str, Enum):
     ASYNC = "async"
     # 同步节点：需要多输入聚合并执行同步策略。
     SYNC = "sync"
+    # 被动节点：仅声明可引用状态，不参与调度执行。
+    PASSIVE = "passive"
+
+
+class InputBehavior(str, Enum):
+    """输入端口行为。"""
+
+    # 正常接收并传递 payload。
+    PAYLOAD = "payload"
+    # 仅建立引用绑定，不等待上游 payload。
+    REFERENCE = "reference"
+    # 需要上游触发，但业务逻辑不消费其 payload。
+    TRIGGER = "trigger"
 
 
 class SyncStrategy(str, Enum):
@@ -126,6 +139,10 @@ class PortSpec(BaseModel):
     is_stream: bool = Field(default=False, description="是否流式端口")
     required: bool = Field(default=True, description="是否必填/必连")
     description: str = Field(default="", description="端口说明")
+    input_behavior: InputBehavior = Field(
+        default=InputBehavior.PAYLOAD,
+        description="输入端口行为",
+    )
     # 仅用于输出端口：声明“此输出 schema 由某输入口动态推导”。
     derived_from_input: str | None = Field(default=None, description="动态 schema 来源输入口")
 
@@ -170,6 +187,7 @@ class NodeSpec(BaseModel):
     sync_config: SyncConfig | None = Field(default=None, description="同步配置")
     config_schema: dict[str, Any] = Field(default_factory=dict, description="配置模式")
     description: str = Field(default="", description="节点说明")
+    tags: list[str] = Field(default_factory=list, description="节点标签")
 
     @model_validator(mode="after")
     def validate_ports_and_mode(self) -> "NodeSpec":
@@ -209,10 +227,10 @@ class NodeSpec(BaseModel):
                     f"NodeSpec[{self.type_name}] 输出口 {output_port.name} 的 derived_from_input "
                     f"不存在: {output_port.derived_from_input}"
                 )
-            if not is_sync_schema(output_port.frame_schema):
+            if not output_port.frame_schema.strip():
                 raise ValueError(
                     f"NodeSpec[{self.type_name}] 输出口 {output_port.name} 声明了 derived_from_input，"
-                    "其 frame_schema 必须为 *.sync"
+                    "其 frame_schema 不能为空"
                 )
 
         if self.mode == NodeMode.SYNC and self.sync_config is None:
@@ -220,6 +238,9 @@ class NodeSpec(BaseModel):
 
         if self.mode == NodeMode.ASYNC and self.sync_config is not None:
             raise ValueError(f"NodeSpec[{self.type_name}] 为 async 模式，不应声明 sync_config")
+
+        if self.mode == NodeMode.PASSIVE and self.sync_config is not None:
+            raise ValueError(f"NodeSpec[{self.type_name}] 为 passive 模式，不应声明 sync_config")
 
         if self.sync_config:
             missing_ports = [

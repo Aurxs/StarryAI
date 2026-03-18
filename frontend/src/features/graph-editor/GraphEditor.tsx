@@ -159,6 +159,23 @@ const buildNodeCardStyle = (isEditing: boolean, isValidationError: boolean): CSS
     };
 };
 
+const passiveNodeCardStyle: CSSProperties = {
+    ...nodeCardStyle,
+    background: 'linear-gradient(180deg, #fff7ed 0%, #fffbeb 100%)',
+    border: '1px dashed #f59e0b',
+    boxShadow: '0 8px 18px rgba(245, 158, 11, 0.12)',
+};
+
+const buildPassiveNodeCardStyle = (isEditing: boolean, isValidationError: boolean): CSSProperties => {
+    const base = buildNodeCardStyle(isEditing, isValidationError);
+    return {
+        ...base,
+        background: passiveNodeCardStyle.background,
+        border: passiveNodeCardStyle.border,
+        boxShadow: passiveNodeCardStyle.boxShadow,
+    };
+};
+
 const quickToolButtonStyle: CSSProperties = {
     width: 30,
     height: 30,
@@ -515,12 +532,19 @@ const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
 
     return (
         <div
-            style={buildNodeCardStyle(data.isEditing, data.isValidationError)}
+            style={
+                data.spec.mode === 'passive'
+                    ? buildPassiveNodeCardStyle(data.isEditing, data.isValidationError)
+                    : buildNodeCardStyle(data.isEditing, data.isValidationError)
+            }
             data-testid={`workflow-node-${data.nodeId}`}
             onClick={() => data.onSelectNode(data.nodeId)}
         >
             <div style={nodeHeaderStyle}>
                 <strong style={nodeTitleStyle}>{data.title}</strong>
+                {data.spec.mode === 'passive' && (
+                    <div style={{fontSize: 10, color: '#b45309', marginTop: 3}}>container</div>
+                )}
             </div>
             <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 6, marginTop: 8}}>
                 <div>
@@ -959,9 +983,31 @@ const GraphEditorInner = () => {
                 return;
             }
             const nodeId = nextNodeId(graph.nodes);
-            const nodeConfig = isSyncInitiatorNodeType(spec.type_name)
-                ? buildInitiatorDefaultConfig(graph.nodes)
-                : {};
+            const nodeConfig = (() => {
+                if (isSyncInitiatorNodeType(spec.type_name)) {
+                    return buildInitiatorDefaultConfig(graph.nodes);
+                }
+                switch (spec.type_name) {
+                    case 'data.constant':
+                    case 'data.variable':
+                        return {value_type: 'integer', initial_value: 0};
+                    case 'data.list':
+                        return {initial_value: []};
+                    case 'data.dict':
+                        return {initial_value: {}};
+                    case 'data.staging':
+                        return {initial_value: null};
+                    case 'data.writer':
+                        return {
+                            target_node_id: '',
+                            operation: 'set_from_input',
+                            operand_mode: 'literal',
+                            literal_value: 0,
+                        };
+                    default:
+                        return {};
+                }
+            })();
             upsertNode({
                 node_id: nodeId,
                 type_name: spec.type_name,
@@ -1148,6 +1194,22 @@ const GraphEditorInner = () => {
         }
         return t('graphEditor.contextMenu.aboutFallback');
     }, [contextMenuNodeSpec, t]);
+
+    const nodeLibraryGroups = useMemo(() => {
+        const isDataNode = (nodeType: NodeSpec): boolean => {
+            const tags = Array.isArray(nodeType.tags) ? nodeType.tags : [];
+            return tags.includes('data_container')
+                || tags.includes('data_requester')
+                || tags.includes('data_writer')
+                || nodeType.type_name.startsWith('data.');
+        };
+        const dataNodes = catalog.filter(isDataNode);
+        const otherNodes = catalog.filter((nodeType) => !isDataNode(nodeType));
+        return [
+            {key: 'data', title: 'Data', items: dataNodes},
+            {key: 'general', title: 'General', items: otherNodes},
+        ].filter((group) => group.items.length > 0);
+    }, [catalog]);
 
     const buildContextActionStyle = useCallback(
         (action: ContextMenuActionKey): CSSProperties => {
@@ -1694,40 +1756,47 @@ const GraphEditorInner = () => {
                     <div style={{fontSize: 12, opacity: 0.75, marginTop: 6}}>
                         {t('graphEditor.drawer.tip')}
                     </div>
-                    <div style={{marginTop: 10, display: 'grid', gap: 8}}>
-                        {catalog.map((nodeType) => (
-                            <article
-                                key={nodeType.type_name}
-                                draggable
-                                onClick={() => {
-                                    addNodeAt(nodeType.type_name);
-                                    setNodeLibraryOpen(false);
-                                }}
-                                onDragStart={(event) => {
-                                    event.dataTransfer.setData('application/x-starry-node-type', nodeType.type_name);
-                                }}
-                                style={{
-                                    border: '1px solid #dce3ee',
-                                    borderRadius: 12,
-                                    padding: 8,
-                                    background: '#fff',
-                                    cursor: 'pointer',
-                                }}
-                            >
-                                <div style={{fontWeight: 700, fontSize: 13}}>{nodeType.type_name}</div>
-                                <div style={{display: 'grid', gap: 10, marginTop: 8, minWidth: 0}}>
-                                    <DrawerPortSection
-                                        nodeTypeName={nodeType.type_name}
-                                        prefix="in"
-                                        ports={nodeType.inputs ?? EMPTY_PORTS}
-                                    />
-                                    <DrawerPortSection
-                                        nodeTypeName={nodeType.type_name}
-                                        prefix="out"
-                                        ports={nodeType.outputs ?? EMPTY_PORTS}
-                                    />
+                    <div style={{marginTop: 10, display: 'grid', gap: 10}}>
+                        {nodeLibraryGroups.map((group) => (
+                            <section key={group.key} style={{display: 'grid', gap: 8}}>
+                                <div style={{fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase'}}>
+                                    {group.title}
                                 </div>
-                            </article>
+                                {group.items.map((nodeType) => (
+                                    <article
+                                        key={nodeType.type_name}
+                                        draggable
+                                        onClick={() => {
+                                            addNodeAt(nodeType.type_name);
+                                            setNodeLibraryOpen(false);
+                                        }}
+                                        onDragStart={(event) => {
+                                            event.dataTransfer.setData('application/x-starry-node-type', nodeType.type_name);
+                                        }}
+                                        style={{
+                                            border: nodeType.mode === 'passive' ? '1px dashed #f59e0b' : '1px solid #dce3ee',
+                                            borderRadius: 12,
+                                            padding: 8,
+                                            background: nodeType.mode === 'passive' ? '#fffbeb' : '#fff',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        <div style={{fontWeight: 700, fontSize: 13}}>{nodeType.type_name}</div>
+                                        <div style={{display: 'grid', gap: 10, marginTop: 8, minWidth: 0}}>
+                                            <DrawerPortSection
+                                                nodeTypeName={nodeType.type_name}
+                                                prefix="in"
+                                                ports={nodeType.inputs ?? EMPTY_PORTS}
+                                            />
+                                            <DrawerPortSection
+                                                nodeTypeName={nodeType.type_name}
+                                                prefix="out"
+                                                ports={nodeType.outputs ?? EMPTY_PORTS}
+                                            />
+                                        </div>
+                                    </article>
+                                ))}
+                            </section>
                         ))}
                     </div>
                 </aside>

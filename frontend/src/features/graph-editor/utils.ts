@@ -86,6 +86,26 @@ const toSyncSchema = (schema: string): string => {
     return `${normalized}.sync`;
 };
 
+const resolveDataContainerOutputSchema = (
+    node: NodeInstanceSpec,
+    outputPort: PortSpec,
+): string => {
+    if (outputPort.name !== 'value') {
+        return normalizeSchema(outputPort.frame_schema);
+    }
+    if (node.type_name === 'data.constant' || node.type_name === 'data.variable') {
+        const valueType = typeof node.config.value_type === 'string' ? node.config.value_type.trim().toLowerCase() : '';
+        if (valueType === 'float') {
+            return 'scalar.float';
+        }
+        if (valueType === 'string') {
+            return 'scalar.string';
+        }
+        return 'scalar.int';
+    }
+    return normalizeSchema(outputPort.frame_schema);
+};
+
 export const simplifyFrameSchema = (schema: string): string => {
     const normalized = schema.trim().toLowerCase();
     if (!normalized) {
@@ -96,6 +116,24 @@ export const simplifyFrameSchema = (schema: string): string => {
     }
     if (normalized === 'none') {
         return 'none';
+    }
+    if (normalized === 'scalar.int') {
+        return 'int';
+    }
+    if (normalized === 'scalar.float') {
+        return 'float';
+    }
+    if (normalized === 'scalar.string') {
+        return 'string';
+    }
+    if (normalized === 'json.list') {
+        return 'list';
+    }
+    if (normalized === 'json.dict') {
+        return 'dict';
+    }
+    if (normalized === 'json.any') {
+        return 'json';
     }
     if (isSyncSchema(normalized)) {
         const syncBase = baseSchema(normalized);
@@ -127,6 +165,10 @@ export const getSchemaColor = (schema: string): string => {
             return '#16a34a';
         case 'motion':
             return '#f97316';
+        case 'scalar':
+            return '#0f766e';
+        case 'json':
+            return '#c2410c';
         case 'sync':
             return '#0891b2';
         case 'any':
@@ -203,14 +245,18 @@ const buildTopologicalOrder = (graph: GraphSpec, outgoing: Record<string, EdgeSp
 };
 
 const resolveDynamicOutputSchema = (
+    node: NodeInstanceSpec,
     outputPort: PortSpec,
     dynamicInputSchemas: Record<string, string>,
 ): string => {
     if (!outputPort.derived_from_input) {
-        return normalizeSchema(outputPort.frame_schema);
+        return resolveDataContainerOutputSchema(node, outputPort);
     }
     const sourceInputSchema = dynamicInputSchemas[outputPort.derived_from_input] ?? 'any';
-    return toSyncSchema(baseSchema(sourceInputSchema));
+    if (isSyncSchema(outputPort.frame_schema)) {
+        return toSyncSchema(baseSchema(sourceInputSchema));
+    }
+    return normalizeSchema(baseSchema(sourceInputSchema));
 };
 
 export const resolveGraphPortSchemas = (
@@ -254,7 +300,7 @@ export const resolveGraphPortSchemas = (
 
         const outputSchemas: Record<string, string> = {};
         for (const outputPort of outputPorts) {
-            outputSchemas[outputPort.name] = resolveDynamicOutputSchema(outputPort, dynamicInputSchemas);
+            outputSchemas[outputPort.name] = resolveDynamicOutputSchema(node, outputPort, dynamicInputSchemas);
         }
         outputs[nodeId] = outputSchemas;
     }
@@ -275,7 +321,7 @@ export const resolveGraphPortSchemas = (
             inputPorts.map((port) => [port.name, normalizeSchema(port.frame_schema)]),
         );
         outputs[node.node_id] = Object.fromEntries(
-            outputPorts.map((port) => [port.name, normalizeSchema(port.frame_schema)]),
+            outputPorts.map((port) => [port.name, resolveDataContainerOutputSchema(node, port)]),
         );
     }
 

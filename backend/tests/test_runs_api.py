@@ -36,6 +36,18 @@ class SlowEchoNode(AsyncNode):
         return {"text": str(inputs.get("text", ""))}
 
 
+def _wait_for_terminal_status(client: TestClient, run_id: str) -> dict[str, Any]:
+    snapshot: dict[str, Any] = {}
+    for _ in range(40):
+        status_resp = client.get(f"/api/v1/runs/{run_id}")
+        assert status_resp.status_code == 200
+        snapshot = status_resp.json()
+        if snapshot["status"] in {"completed", "failed", "stopped"}:
+            break
+        time.sleep(0.05)
+    return snapshot
+
+
 @pytest.fixture(autouse=True)
 def _reset_run_service() -> Generator[None, None, None]:
     reset_run_service_for_testing()
@@ -294,6 +306,149 @@ def _slow_graph_payload() -> dict[str, Any]:
     }
 
 
+def _build_capture_run_service(captured_values: list[Any]) -> RunService:
+    registry = create_default_registry()
+    registry.register(
+        NodeSpec(
+            type_name="test.capture_api",
+            mode=NodeMode.ASYNC,
+            inputs=[PortSpec(name="in", frame_schema="any", required=True)],
+            outputs=[],
+            description="API capture sink",
+        )
+    )
+
+    class CaptureAPINode(AsyncNode):
+        async def process(self, inputs: dict[str, Any], context: NodeContext) -> dict[str, Any]:
+            _ = context
+            captured_values.append(inputs.get("in"))
+            return {}
+
+    def node_factory_builder() -> NodeFactory:
+        factory = create_default_node_factory()
+        factory.register("test.capture_api", CaptureAPINode)
+        return factory
+
+    return RunService(registry=registry, node_factory_builder=node_factory_builder)
+
+
+def _data_variable_graph_payload() -> dict[str, Any]:
+    return {
+        "graph": {
+            "graph_id": "g_api_data_variable",
+            "nodes": [
+                {"node_id": "n1", "type_name": "mock.input", "config": {"content": "tick"}},
+                {
+                    "node_id": "n2",
+                    "type_name": "data.variable",
+                    "config": {"value_type": "integer", "initial_value": 1},
+                },
+                {
+                    "node_id": "n3",
+                    "type_name": "data.writer",
+                    "config": {
+                        "target_node_id": "n2",
+                        "operation": "add",
+                        "operand_mode": "literal",
+                        "literal_value": 2,
+                    },
+                },
+                {"node_id": "n4", "type_name": "data.requester"},
+                {"node_id": "n5", "type_name": "test.capture_api"},
+            ],
+            "edges": [
+                {
+                    "source_node": "n1",
+                    "source_port": "text",
+                    "target_node": "n3",
+                    "target_port": "in",
+                },
+                {
+                    "source_node": "n1",
+                    "source_port": "text",
+                    "target_node": "n4",
+                    "target_port": "trigger",
+                },
+                {
+                    "source_node": "n2",
+                    "source_port": "value",
+                    "target_node": "n4",
+                    "target_port": "source",
+                },
+                {
+                    "source_node": "n4",
+                    "source_port": "value",
+                    "target_node": "n5",
+                    "target_port": "in",
+                },
+            ],
+        },
+        "stream_id": "stream_api_data_variable",
+    }
+
+
+def _data_staging_graph_payload() -> dict[str, Any]:
+    return {
+        "graph": {
+            "graph_id": "g_api_data_staging",
+            "nodes": [
+                {"node_id": "n1", "type_name": "mock.input", "config": {"content": "wave to audience"}},
+                {"node_id": "n2", "type_name": "mock.motion"},
+                {
+                    "node_id": "n3",
+                    "type_name": "data.staging",
+                    "config": {"initial_value": None},
+                },
+                {
+                    "node_id": "n4",
+                    "type_name": "data.writer",
+                    "config": {
+                        "target_node_id": "n3",
+                        "operation": "set_from_input",
+                        "operand_mode": "literal",
+                        "literal_value": 0,
+                    },
+                },
+                {"node_id": "n5", "type_name": "data.requester"},
+                {"node_id": "n6", "type_name": "test.capture_api"},
+            ],
+            "edges": [
+                {
+                    "source_node": "n1",
+                    "source_port": "text",
+                    "target_node": "n2",
+                    "target_port": "text",
+                },
+                {
+                    "source_node": "n2",
+                    "source_port": "motion",
+                    "target_node": "n4",
+                    "target_port": "in",
+                },
+                {
+                    "source_node": "n2",
+                    "source_port": "motion",
+                    "target_node": "n5",
+                    "target_port": "trigger",
+                },
+                {
+                    "source_node": "n3",
+                    "source_port": "value",
+                    "target_node": "n5",
+                    "target_port": "source",
+                },
+                {
+                    "source_node": "n5",
+                    "source_port": "value",
+                    "target_node": "n6",
+                    "target_port": "in",
+                },
+            ],
+        },
+        "stream_id": "stream_api_data_staging",
+    }
+
+
 def test_create_run_and_query_status_and_events() -> None:
     """应能创建运行并查询状态与事件。"""
     with TestClient(app) as client:
@@ -301,17 +456,7 @@ def test_create_run_and_query_status_and_events() -> None:
         assert resp.status_code == 200
         run_id = resp.json()["run_id"]
 
-        terminal_statuses = {"completed", "failed", "stopped"}
-        final_status = "running"
-        for _ in range(40):
-            status_resp = client.get(f"/api/v1/runs/{run_id}")
-            assert status_resp.status_code == 200
-            final_status = status_resp.json()["status"]
-            if final_status in terminal_statuses:
-                break
-            time.sleep(0.05)
-
-        assert final_status == "completed"
+        assert _wait_for_terminal_status(client, run_id)["status"] == "completed"
 
         final_snapshot = client.get(f"/api/v1/runs/{run_id}")
         assert final_snapshot.status_code == 200
@@ -381,16 +526,7 @@ def test_create_run_with_real_llm_and_secret_ref(
         assert response.status_code == 200
         run_id = response.json()["run_id"]
 
-        final_status = "running"
-        for _ in range(40):
-            status_resp = client.get(f"/api/v1/runs/{run_id}")
-            assert status_resp.status_code == 200
-            final_status = status_resp.json()["status"]
-            if final_status in {"completed", "failed", "stopped"}:
-                break
-            time.sleep(0.05)
-
-        assert final_status == "completed"
+        assert _wait_for_terminal_status(client, run_id)["status"] == "completed"
 
         snapshot = client.get(f"/api/v1/runs/{run_id}")
         assert snapshot.status_code == 200
@@ -461,16 +597,7 @@ def test_create_run_with_llm_chat_and_secret_ref(
         assert response.status_code == 200
         run_id = response.json()["run_id"]
 
-        final_status = "running"
-        for _ in range(40):
-            status_resp = client.get(f"/api/v1/runs/{run_id}")
-            assert status_resp.status_code == 200
-            final_status = status_resp.json()["status"]
-            if final_status in {"completed", "failed", "stopped"}:
-                break
-            time.sleep(0.05)
-
-        assert final_status == "completed"
+        assert _wait_for_terminal_status(client, run_id)["status"] == "completed"
 
         snapshot = client.get(f"/api/v1/runs/{run_id}")
         assert snapshot.status_code == 200
@@ -503,6 +630,52 @@ def test_stop_run_endpoint_stops_running_instance(monkeypatch: pytest.MonkeyPatc
         status_resp = client.get(f"/api/v1/runs/{run_id}")
         assert status_resp.status_code == 200
         assert status_resp.json()["status"] == "stopped"
+
+
+def test_create_run_updates_variable_and_requests_new_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_values: list[Any] = []
+    monkeypatch.setattr(run_service_module, "_run_service_singleton", _build_capture_run_service(captured_values))
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/runs", json=_data_variable_graph_payload())
+        assert response.status_code == 200
+        run_id = response.json()["run_id"]
+
+        final_snapshot = _wait_for_terminal_status(client, run_id)
+        assert final_snapshot["status"] == "completed"
+
+        snapshot = client.get(f"/api/v1/runs/{run_id}")
+        assert snapshot.status_code == 200
+        snapshot_body = snapshot.json()
+        assert snapshot_body["node_states"]["n2"]["status"] == "passive"
+        assert snapshot_body["node_states"]["n3"]["metrics"]["data_writes"] == 1
+
+    assert captured_values == [3]
+
+
+def test_create_run_writes_motion_payload_into_staging_then_requests_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_values: list[Any] = []
+    monkeypatch.setattr(run_service_module, "_run_service_singleton", _build_capture_run_service(captured_values))
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/runs", json=_data_staging_graph_payload())
+        assert response.status_code == 200
+        run_id = response.json()["run_id"]
+
+        final_snapshot = _wait_for_terminal_status(client, run_id)
+        assert final_snapshot["status"] == "completed"
+
+    assert len(captured_values) == 1
+    payload = captured_values[0]
+    assert isinstance(payload, dict)
+    assert payload["source_text"] == "wave to audience"
+    assert payload["stream_id"] == "stream_api_data_staging"
+    assert payload["seq"] == 0
+    assert isinstance(payload["play_at"], float)
+    assert isinstance(payload["timeline"], list)
+    assert payload["timeline"][0]["action"] == "idle"
 
 
 def test_create_run_returns_422_for_invalid_graph() -> None:
