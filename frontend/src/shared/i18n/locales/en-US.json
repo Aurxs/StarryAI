@@ -150,7 +150,11 @@
       "tip": "Drag to canvas or click to add quickly.",
       "add": "Add to Canvas",
       "inputs": "Inputs",
-      "outputs": "Outputs"
+      "outputs": "Outputs",
+      "groups": {
+        "data": "Data",
+        "general": "General"
+      }
     },
     "zoom": {
       "decrease": "Zoom out 10%",
@@ -194,16 +198,26 @@
     "schemaFields": {
       "content": "Content",
       "model": "Model",
+      "preset_id": "Provider Preset",
       "temperature": "Temperature",
       "system_prompt": "System Prompt",
       "api_key": "API Key",
       "base_url": "Base URL",
+      "base_url_override": "Base URL Override",
       "api_path": "API Path",
       "auth_header_name": "Auth Header Name",
       "auth_scheme": "Auth Scheme",
       "max_tokens": "Max Tokens",
       "top_p": "Top-p",
       "extra_body_json": "Extra Body JSON",
+      "value_type": "Value Type",
+      "initial_value": "Initial Value",
+      "target_node_id": "Target Container",
+      "operation": "Operation",
+      "operand_mode": "Operand Source",
+      "operand_node_id": "Operand Container",
+      "literal_value": "Literal Operand",
+      "field_path": "Field Path",
       "timeout_s": "Timeout (s)",
       "max_retries": "Max Retries",
       "retry_backoff_ms": "Retry Backoff (ms)",
@@ -218,16 +232,26 @@
       "_shared": {
         "content": "Static text emitted by the node.",
         "model": "Target model name.",
+        "preset_id": "Provider preset used to resolve the endpoint and authentication behavior.",
         "temperature": "Sampling temperature.",
         "system_prompt": "System prompt sent to the model.",
         "api_key": "API key used to access the remote LLM service.",
         "base_url": "Base URL of the LLM service.",
+        "base_url_override": "Optional base URL override for compatible gateways or private deployments.",
         "api_path": "Request path. Supports either a full URL or a relative path.",
         "auth_header_name": "Authentication header name, such as Authorization or api-key.",
         "auth_scheme": "Authentication scheme. Leave empty to send the API key directly.",
         "max_tokens": "Maximum number of output tokens. Leave empty to let the service decide.",
         "top_p": "Top-p sampling parameter.",
         "extra_body_json": "Extra request body JSON object used to inject provider-specific parameters.",
+        "value_type": "Declared scalar type for this container.",
+        "initial_value": "Initial value stored in the container.",
+        "target_node_id": "Container node that receives the write operation.",
+        "operation": "Write operation executed on the target container.",
+        "operand_mode": "Source of the operand used by arithmetic operations.",
+        "operand_node_id": "Container used as the operand when operand source is set to container.",
+        "literal_value": "Literal operand used when operand source is set to literal.",
+        "field_path": "Payload path used by path-based write operations.",
         "timeout_s": "Per-execution timeout in seconds.",
         "max_retries": "Maximum number of retries after a failure.",
         "retry_backoff_ms": "Backoff interval between retries in milliseconds.",
@@ -247,6 +271,39 @@
       "cancelCreate": "Cancel create",
       "createAndBind": "Create and bind",
       "clear": "Clear binding"
+    },
+    "data": {
+      "scalarType": "Value Type",
+      "scalarTypes": {
+        "integer": "Integer",
+        "float": "Float",
+        "string": "String"
+      },
+      "initialValue": "Initial Value",
+      "initialValueJson": "Initial Value JSON",
+      "writer": {
+        "target": "Target Container",
+        "operation": "Operation",
+        "operations": {
+          "add": "Add",
+          "subtract": "Subtract",
+          "multiply": "Multiply",
+          "divide": "Divide",
+          "set_from_input": "Set from Input",
+          "append_from_input": "Append from Input",
+          "extend_from_input": "Extend from Input",
+          "merge_from_input": "Merge from Input",
+          "set_path_from_input": "Set Path from Input"
+        },
+        "operandMode": "Operand Source",
+        "operandModes": {
+          "literal": "Literal",
+          "container": "Container"
+        },
+        "operandContainer": "Operand Container",
+        "literalValue": "Literal Operand",
+        "fieldPath": "Field Path"
+      }
     },
     "sync": {
       "title": "Sync Fields",
@@ -333,6 +390,14 @@
   "nodeTypeDescriptions": {
     "audio_play_base": "Base audio executor node that runs immediately when it receives input.",
     "audio_play_sync": "Synchronous audio executor node that runs after a coordinated commit.",
+    "data_constant": "Passive scalar constant container.",
+    "data_variable": "Passive scalar variable container.",
+    "data_list": "Passive list container.",
+    "data_dict": "Passive dictionary container.",
+    "data_staging": "Passive staging container for any JSON-like value.",
+    "data_requester": "Request current data from a passive container when triggered.",
+    "data_writer": "Write to a passive data container with configured side effects.",
+    "llm_chat": "Unified chat-style LLM node with provider presets and normalized outputs.",
     "llm_openai_compatible": "Real LLM node compatible with the OpenAI Chat Completions API.",
     "mock_input": "Mock input node that emits complete text payloads.",
     "mock_llm": "Mock LLM node that consumes complete text and returns a complete reply.",
@@ -343,6 +408,14 @@
     "sync_initiator_dual": "Sync initiator that packages dual inputs into paired sync tasks."
   },
   "nodePortDescriptions": {
+    "data_requester": {
+      "source": "Reference binding to the source data container.",
+      "trigger": "Trigger input used to request container data.",
+      "value": "Current container value."
+    },
+    "data_writer": {
+      "in": "Trigger payload used by the configured write operation."
+    },
     "mock_input": {
       "text": "Complete text output."
     }

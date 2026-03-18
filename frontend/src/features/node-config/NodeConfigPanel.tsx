@@ -531,9 +531,9 @@ export function NodeConfigPanel() {
                                 });
                             }}
                         >
-                            <option value="integer">integer</option>
-                            <option value="float">float</option>
-                            <option value="string">string</option>
+                            <option value="integer">{t('nodeConfig.data.scalarTypes.integer', {defaultValue: 'integer'})}</option>
+                            <option value="float">{t('nodeConfig.data.scalarTypes.float', {defaultValue: 'float'})}</option>
+                            <option value="string">{t('nodeConfig.data.scalarTypes.string', {defaultValue: 'string'})}</option>
                         </select>
                     </label>
                     <label style={labelStyle}>
@@ -567,7 +567,7 @@ export function NodeConfigPanel() {
             return (
                 <section style={{display: 'grid', gap: 10}} data-testid="node-config-data-json">
                     <label style={labelStyle}>
-                        {t('nodeConfig.data.initialValue', {defaultValue: '初始值 JSON'})}
+                        {t('nodeConfig.data.initialValueJson', {defaultValue: '初始值 JSON'})}
                         <textarea
                             value={dataJsonValueDraft}
                             style={textareaStyle}
@@ -635,7 +635,9 @@ export function NodeConfigPanel() {
                             }}
                         >
                             {['add', 'subtract', 'multiply', 'divide', 'set_from_input', 'append_from_input', 'extend_from_input', 'merge_from_input', 'set_path_from_input'].map((item) => (
-                                <option key={item} value={item}>{item}</option>
+                                <option key={item} value={item}>
+                                    {t(`nodeConfig.data.writer.operations.${item}`, {defaultValue: item})}
+                                </option>
                             ))}
                         </select>
                     </label>
@@ -653,8 +655,12 @@ export function NodeConfigPanel() {
                                         });
                                     }}
                                 >
-                                    <option value="literal">literal</option>
-                                    <option value="container">container</option>
+                                    <option value="literal">
+                                        {t('nodeConfig.data.writer.operandModes.literal', {defaultValue: 'literal'})}
+                                    </option>
+                                    <option value="container">
+                                        {t('nodeConfig.data.writer.operandModes.container', {defaultValue: 'container'})}
+                                    </option>
                                 </select>
                             </label>
                             {operandMode === 'container' ? (

@@ -150,7 +150,11 @@
       "tip": "可拖拽到画布，也可点击快速新增。",
       "add": "添加到画布",
       "inputs": "输入",
-      "outputs": "输出"
+      "outputs": "输出",
+      "groups": {
+        "data": "数据",
+        "general": "通用"
+      }
     },
     "zoom": {
       "decrease": "缩小 10%",
@@ -194,16 +198,26 @@
     "schemaFields": {
       "content": "内容",
       "model": "模型",
+      "preset_id": "服务预设",
       "temperature": "温度",
       "system_prompt": "系统提示词",
       "api_key": "API 密钥",
       "base_url": "基础地址",
+      "base_url_override": "覆盖基础地址",
       "api_path": "请求路径",
       "auth_header_name": "鉴权请求头",
       "auth_scheme": "鉴权方案",
       "max_tokens": "最大 Token 数",
       "top_p": "Top-p",
       "extra_body_json": "额外请求体 JSON",
+      "value_type": "值类型",
+      "initial_value": "初始值",
+      "target_node_id": "目标容器",
+      "operation": "操作",
+      "operand_mode": "操作数来源",
+      "operand_node_id": "操作数容器",
+      "literal_value": "字面量操作数",
+      "field_path": "字段路径",
       "timeout_s": "超时时间（秒）",
       "max_retries": "最大重试次数",
       "retry_backoff_ms": "重试退避（毫秒）",
@@ -218,16 +232,26 @@
       "_shared": {
         "content": "节点输出的固定文本内容。",
         "model": "目标模型名称。",
+        "preset_id": "用于决定请求端点和鉴权方式的服务预设。",
         "temperature": "采样温度。",
         "system_prompt": "发送给模型的系统提示词。",
         "api_key": "用于访问远端 LLM 服务的 API 密钥。",
         "base_url": "LLM 服务基础地址。",
+        "base_url_override": "兼容网关或私有部署场景下可选的基础地址覆盖项。",
         "api_path": "请求路径；支持完整 URL 或相对路径。",
         "auth_header_name": "鉴权请求头名称，例如 Authorization 或 api-key。",
         "auth_scheme": "鉴权方案；留空则直接发送 API 密钥。",
         "max_tokens": "最大输出 token 数；留空表示由服务端决定。",
         "top_p": "Top-p 采样参数。",
         "extra_body_json": "额外请求体 JSON（对象），用于注入 provider 特有参数。",
+        "value_type": "当前容器声明的标量值类型。",
+        "initial_value": "容器中的初始存储值。",
+        "target_node_id": "接收当前写入操作的目标容器节点。",
+        "operation": "对目标容器执行的写入操作。",
+        "operand_mode": "算术操作所使用的操作数来源。",
+        "operand_node_id": "当操作数来源为容器时使用的容器节点。",
+        "literal_value": "当操作数来源为字面量时使用的值。",
+        "field_path": "路径写入操作所使用的 payload 路径。",
         "timeout_s": "单次执行超时时间（秒）。",
         "max_retries": "失败后的最大重试次数。",
         "retry_backoff_ms": "两次重试之间的退避时间（毫秒）。",
@@ -247,6 +271,39 @@
       "cancelCreate": "取消新建",
       "createAndBind": "创建并绑定",
       "clear": "清除绑定"
+    },
+    "data": {
+      "scalarType": "值类型",
+      "scalarTypes": {
+        "integer": "整数",
+        "float": "浮点数",
+        "string": "字符串"
+      },
+      "initialValue": "初始值",
+      "initialValueJson": "初始值 JSON",
+      "writer": {
+        "target": "目标容器",
+        "operation": "操作",
+        "operations": {
+          "add": "加",
+          "subtract": "减",
+          "multiply": "乘",
+          "divide": "除",
+          "set_from_input": "用输入覆盖",
+          "append_from_input": "追加输入项",
+          "extend_from_input": "扩展输入列表",
+          "merge_from_input": "合并输入对象",
+          "set_path_from_input": "按路径写入输入"
+        },
+        "operandMode": "操作数来源",
+        "operandModes": {
+          "literal": "字面量",
+          "container": "容器"
+        },
+        "operandContainer": "操作数容器",
+        "literalValue": "字面量操作数",
+        "fieldPath": "字段路径"
+      }
     },
     "sync": {
       "title": "同步字段",
@@ -333,6 +390,14 @@
   "nodeTypeDescriptions": {
     "audio_play_base": "基础音频执行节点，收到输入后立即执行。",
     "audio_play_sync": "同步音频执行节点，由协调器统一提交后执行。",
+    "data_constant": "被动标量常量容器。",
+    "data_variable": "被动标量变量容器。",
+    "data_list": "被动列表容器。",
+    "data_dict": "被动字典容器。",
+    "data_staging": "用于任意类 JSON 值的被动暂存容器。",
+    "data_requester": "在触发时从被动容器读取当前数据。",
+    "data_writer": "按配置的副作用规则写入被动数据容器。",
+    "llm_chat": "统一聊天式 LLM 节点，内置服务预设并输出归一化结果。",
     "llm_openai_compatible": "真实 LLM 节点，兼容 OpenAI Chat Completions 接口。",
     "mock_input": "模拟输入节点，产出完整文本。",
     "mock_llm": "模拟 LLM 节点，输入完整文本并输出完整回复。",
@@ -343,6 +408,14 @@
     "sync_initiator_dual": "同步发起器，将双路输入封装为双路同步任务包。"
   },
   "nodePortDescriptions": {
+    "data_requester": {
+      "source": "到源数据容器的引用绑定。",
+      "trigger": "用于请求容器数据的触发输入。",
+      "value": "容器当前值。"
+    },
+    "data_writer": {
+      "in": "按当前写入操作处理的触发载荷。"
+    },
     "mock_input": {
       "text": "完整文本输出。"
     }

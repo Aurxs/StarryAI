@@ -1202,10 +1202,10 @@ const GraphEditorInner = () => {
         const dataNodes = catalog.filter(isDataNode);
         const otherNodes = catalog.filter((nodeType) => !isDataNode(nodeType));
         return [
-            {key: 'data', title: 'Data', items: dataNodes},
-            {key: 'general', title: 'General', items: otherNodes},
+            {key: 'data', title: t('graphEditor.drawer.groups.data', {defaultValue: 'Data'}), items: dataNodes},
+            {key: 'general', title: t('graphEditor.drawer.groups.general', {defaultValue: 'General'}), items: otherNodes},
         ].filter((group) => group.items.length > 0);
-    }, [catalog]);
+    }, [catalog, t]);
 
     const buildContextActionStyle = useCallback(
         (action: ContextMenuActionKey): CSSProperties => {

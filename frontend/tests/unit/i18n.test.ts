@@ -13,6 +13,8 @@ describe('i18n core', () => {
     it('resolves nested translation keys from language pack', () => {
         expect(i18n.t('app.title', {lng: 'zh-CN'})).toBe('StarryAI 工作台');
         expect(i18n.t('runControl.actions.start', {lng: 'zh-CN'})).toBe('启动运行');
+        expect(i18n.t('nodeTypeDescriptions.data_requester', {lng: 'zh-CN'})).toBe('在触发时从被动容器读取当前数据。');
+        expect(i18n.t('nodeConfig.data.writer.operations.merge_from_input', {lng: 'zh-CN'})).toBe('合并输入对象');
     });
 
     it('normalizes supported and alias language tags', () => {

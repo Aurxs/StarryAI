@@ -732,7 +732,8 @@ describe('NodeConfigPanel', () => {
         render(<NodeConfigPanel/>);
 
         const panel = await screen.findByTestId('node-config-data-writer');
-        fireEvent.change(within(panel).getByDisplayValue('add'), {
+        const [, operationSelect] = within(panel).getAllByRole('combobox');
+        fireEvent.change(operationSelect, {
             target: {value: 'multiply'},
         });
         fireEvent.change(within(panel).getByDisplayValue('2'), {
