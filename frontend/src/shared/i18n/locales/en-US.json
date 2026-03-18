@@ -148,7 +148,9 @@
     "drawer": {
       "title": "Node Library",
       "tip": "Drag to canvas or click to add quickly.",
-      "add": "Add to Canvas"
+      "add": "Add to Canvas",
+      "inputs": "Inputs",
+      "outputs": "Outputs"
     },
     "zoom": {
       "decrease": "Zoom out 10%",

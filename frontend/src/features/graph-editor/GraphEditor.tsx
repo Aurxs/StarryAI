@@ -359,6 +359,136 @@ const PortTag = ({nodeTypeName, prefix, port}: { nodeTypeName: string; prefix: '
     );
 };
 
+const DrawerPortTag = ({nodeTypeName, prefix, port}: { nodeTypeName: string; prefix: 'in' | 'out'; port: PortSpec }) => {
+    const {t} = useTranslation();
+    const simpleType = simplifyFrameSchema(port.frame_schema);
+    const color = getSchemaColor(port.frame_schema);
+    const localizedDescription = translatePortDescription(t, nodeTypeName, port.name, port.description);
+
+    return (
+        <div
+            title={localizedDescription}
+            style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 8,
+                minWidth: 0,
+            }}
+            data-testid={`drawer-port-tag-${prefix}-${port.name}`}
+        >
+            <span
+                aria-hidden="true"
+                style={{
+                    width: 10,
+                    height: 10,
+                    marginTop: 4,
+                    borderRadius: '50%',
+                    border: `2px solid ${color}`,
+                    background: '#fff',
+                    boxSizing: 'border-box',
+                    flexShrink: 0,
+                }}
+            />
+            <div
+                style={{
+                    display: 'grid',
+                    gap: 4,
+                    minWidth: 0,
+                    flex: 1,
+                }}
+            >
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        flexWrap: 'wrap',
+                        minWidth: 0,
+                    }}
+                >
+                    <strong
+                        style={{
+                            fontSize: 12,
+                            lineHeight: 1.35,
+                            color: '#0f172a',
+                            wordBreak: 'break-word',
+                        }}
+                    >
+                        {port.name}
+                    </strong>
+                    <span
+                        style={{
+                            fontSize: 10,
+                            borderRadius: 999,
+                            padding: '1px 6px',
+                            background: `${color}1A`,
+                            color,
+                            border: `1px solid ${color}66`,
+                            flexShrink: 0,
+                        }}
+                    >
+                        {simpleType}
+                    </span>
+                </div>
+                {localizedDescription ? (
+                    <div
+                        style={{
+                            fontSize: 11,
+                            lineHeight: 1.45,
+                            color: '#64748b',
+                            wordBreak: 'break-word',
+                        }}
+                    >
+                        {localizedDescription}
+                    </div>
+                ) : null}
+            </div>
+        </div>
+    );
+};
+
+const DrawerPortSection = ({
+    nodeTypeName,
+    prefix,
+    ports,
+}: {
+    nodeTypeName: string;
+    prefix: 'in' | 'out';
+    ports: PortSpec[];
+}) => {
+    const {t} = useTranslation();
+
+    return (
+        <section style={{display: 'grid', gap: 6, minWidth: 0}}>
+            <div
+                style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: '0.08em',
+                    color: '#94a3b8',
+                    textTransform: 'uppercase',
+                }}
+            >
+                {t(prefix === 'in' ? 'graphEditor.drawer.inputs' : 'graphEditor.drawer.outputs')}
+            </div>
+            {ports.length === 0 ? (
+                <div style={{fontSize: 11, lineHeight: 1.4, color: '#94a3b8'}}>{t('common.none')}</div>
+            ) : (
+                <div style={{display: 'grid', gap: 8, minWidth: 0}}>
+                    {ports.map((port) => (
+                        <DrawerPortTag
+                            key={`drawer-${prefix}-${nodeTypeName}-${port.name}`}
+                            nodeTypeName={nodeTypeName}
+                            prefix={prefix}
+                            port={port}
+                        />
+                    ))}
+                </div>
+            )}
+        </section>
+    );
+};
+
 const nodeTitleStyle: CSSProperties = {
     display: 'block',
     fontSize: 13,
@@ -1585,33 +1715,17 @@ const GraphEditorInner = () => {
                                 }}
                             >
                                 <div style={{fontWeight: 700, fontSize: 13}}>{nodeType.type_name}</div>
-                                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 10, marginTop: 8}}>
-                                    <div>
-                                        {(nodeType.inputs ?? EMPTY_PORTS).length === 0 && (
-                                            <div style={{fontSize: 10, color: '#94a3b8'}}>{t('common.none')}</div>
-                                        )}
-                                        {(nodeType.inputs ?? EMPTY_PORTS).map((port) => (
-                                            <PortTag
-                                                key={`lib-in-${nodeType.type_name}-${port.name}`}
-                                                nodeTypeName={nodeType.type_name}
-                                                prefix="in"
-                                                port={port}
-                                            />
-                                        ))}
-                                    </div>
-                                    <div>
-                                        {(nodeType.outputs ?? EMPTY_PORTS).length === 0 && (
-                                            <div style={{fontSize: 10, color: '#94a3b8'}}>{t('common.none')}</div>
-                                        )}
-                                        {(nodeType.outputs ?? EMPTY_PORTS).map((port) => (
-                                            <PortTag
-                                                key={`lib-out-${nodeType.type_name}-${port.name}`}
-                                                nodeTypeName={nodeType.type_name}
-                                                prefix="out"
-                                                port={port}
-                                            />
-                                        ))}
-                                    </div>
+                                <div style={{display: 'grid', gap: 10, marginTop: 8, minWidth: 0}}>
+                                    <DrawerPortSection
+                                        nodeTypeName={nodeType.type_name}
+                                        prefix="in"
+                                        ports={nodeType.inputs ?? EMPTY_PORTS}
+                                    />
+                                    <DrawerPortSection
+                                        nodeTypeName={nodeType.type_name}
+                                        prefix="out"
+                                        ports={nodeType.outputs ?? EMPTY_PORTS}
+                                    />
                                 </div>
                             </article>
                         ))}
