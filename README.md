@@ -18,6 +18,32 @@ StarryAI 是一个模块化、节点式 AI 虚拟人工作流引擎（Backend + 
 - 图校验请求修复：后端新增 CORS，解决前端 `NetworkError` 且后端 `405 (OPTIONS)` 的问题。
 - 前端国际化：界面文案从组件硬编码迁移为语言包读取（`zh-CN`/`en-US`），并支持语言切换持久化。
 
+## 本周变更（2026-03-08 ~ 2026-03-13）
+
+- 工作台能力补齐：
+  - 新增 Secret 驱动配置表单与真实 LLM 流程打通；
+  - 新增统一 LLM Chat 节点，补齐节点能力拼装路径。
+- 节点配置与可维护性增强：
+  - 支持只读 schema 字段与可调用 schema 扩展字段保留；
+  - 动态节点发现缓存复用与刷新链路加固；
+  - 支持嵌套 Secret 引用解析。
+- 编辑器与稳定性改进：
+  - 图编辑器节点布局与设置交互细节优化；
+  - CI 与测试稳定性修复（图编辑器与后端检查链路）。
+- 文档与国际化：
+  - 节点开发指南扩展只读字段说明；
+  - 节点元数据支持本地化并提供英文回退。
+
+### 重要链接
+
+- 关键提交：
+  - [feat(workbench): add secret-backed config forms and real llm flow](https://github.com/Aurxs/StarryAI/commit/34e55d8b75fb1cd050d4de3b99b6966b448db8d6)
+  - [feat(nodes): add unified llm chat node](https://github.com/Aurxs/StarryAI/commit/436844ec9b4e9a6e00b3b9f93f830b7abf32eebb)
+  - [fix(backend): support nested secret refs and refresh dynamic nodes](https://github.com/Aurxs/StarryAI/commit/4054aa48e7b0ce9f2799b91f192ffed2a712adf3)
+  - [fix(ci): stabilize graph editor and backend checks](https://github.com/Aurxs/StarryAI/commit/d23fa838025854710824b37bb901cf0e44d49ae8)
+- PR 记录说明：
+  - 本周 `git log --merges` 未包含可解析的 PR 合并记录，因此以上采用仓库历史中的关键提交链接。
+
 ## 最新进展（2026-03-01）
 
 - 工作台 UI 全量重构第一批：
