@@ -288,16 +288,13 @@ const toRfEdge = (edge: EdgeSpec, strokeColor: string, highlighted = false): Edg
     },
 });
 
-const PortTag = ({nodeTypeName, prefix, port}: { nodeTypeName: string; prefix: 'in' | 'out'; port: PortSpec }) => {
-    const {t} = useTranslation();
+const PortTag = ({prefix, port}: { prefix: 'in' | 'out'; port: PortSpec }) => {
     const simpleType = simplifyFrameSchema(port.frame_schema);
     const color = getSchemaColor(port.frame_schema);
-    const localizedDescription = translatePortDescription(t, nodeTypeName, port.name, port.description);
     const isInput = prefix === 'in';
     const handlePosition = isInput ? Position.Left : Position.Right;
     const handleId = `${isInput ? TARGET_HANDLE_PREFIX : SOURCE_HANDLE_PREFIX}${port.name}`;
     const edgeAnchor = -(NODE_CARD_HORIZONTAL_PADDING + NODE_CARD_BORDER_WIDTH);
-    const contentHint = localizedDescription ?? port.name;
     const label = (
         <span
             style={{
@@ -309,7 +306,7 @@ const PortTag = ({nodeTypeName, prefix, port}: { nodeTypeName: string; prefix: '
                 whiteSpace: 'nowrap',
             }}
         >
-            {contentHint}
+            {port.name}
         </span>
     );
     const schemaPill = (
@@ -329,7 +326,6 @@ const PortTag = ({nodeTypeName, prefix, port}: { nodeTypeName: string; prefix: '
     );
     return (
         <div
-            title={localizedDescription}
             style={{
                 position: 'relative',
                 display: 'flex',
@@ -549,12 +545,12 @@ const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
             <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 6, marginTop: 8}}>
                 <div>
                     {inputs.map((port) => (
-                        <PortTag key={`in-${port.name}`} nodeTypeName={data.spec.type_name} prefix="in" port={port}/>
+                        <PortTag key={`in-${port.name}`} prefix="in" port={port}/>
                     ))}
                 </div>
                 <div>
                     {outputs.map((port) => (
-                        <PortTag key={`out-${port.name}`} nodeTypeName={data.spec.type_name} prefix="out" port={port}/>
+                        <PortTag key={`out-${port.name}`} prefix="out" port={port}/>
                     ))}
                 </div>
             </div>

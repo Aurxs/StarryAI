@@ -145,7 +145,7 @@ describe('GraphEditor', () => {
         expect(within(menu).getByText('暂无节点说明。')).toBeTruthy();
     });
 
-    it('localizes node and port descriptions from i18n mappings', async () => {
+    it('keeps port descriptions off workflow nodes while still localizing node descriptions', async () => {
         server.use(
             http.get('*/api/v1/node-types', () =>
                 HttpResponse.json({
@@ -181,8 +181,9 @@ describe('GraphEditor', () => {
         const nodeCard = await screen.findByTestId('workflow-node-n1');
         await waitFor(() => {
             const portTag = within(screen.getByTestId('workflow-node-n1')).getByTestId('port-tag-out-text');
-            expect(portTag.getAttribute('title')).toBe('完整文本输出。');
-            expect(within(portTag).getByText('完整文本输出。')).toBeTruthy();
+            expect(portTag.getAttribute('title')).toBeNull();
+            expect(portTag.textContent).toContain('text');
+            expect(within(portTag).queryByText('完整文本输出。')).toBeNull();
             expect(within(portTag).queryByText('out:text')).toBeNull();
         });
 
@@ -234,7 +235,8 @@ describe('GraphEditor', () => {
             expect(within(nodeCard).queryByText('mock.input')).toBeNull();
 
             const outputPortRow = within(nodeCard).getByTestId('port-tag-out-text');
-            expect(within(outputPortRow).getByText('完整文本输出。')).toBeTruthy();
+            expect(outputPortRow.textContent).toContain('text');
+            expect(within(outputPortRow).queryByText('完整文本输出。')).toBeNull();
             expect(within(outputPortRow).queryByText('out:text')).toBeNull();
             expect(outputPortRow.querySelector('.react-flow__handle-right')).toBeTruthy();
         });
