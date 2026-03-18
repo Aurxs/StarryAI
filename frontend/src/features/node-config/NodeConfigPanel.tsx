@@ -4,7 +4,7 @@ import {useTranslation} from 'react-i18next';
 import type {NodeSpec} from '../../entities/workbench/types';
 import {apiClient, ApiClientError} from '../../shared/api/client';
 import {SchemaForm} from '../../shared/schema-form/SchemaForm';
-import {findPlaintextSecretPaths} from '../../shared/schema-form/normalize-schema';
+import {applySchemaDefaults, findPlaintextSecretPaths} from '../../shared/schema-form/normalize-schema';
 import {useGraphStore} from '../../shared/state/graph-store';
 import {useSecretStore} from '../../shared/state/secret-store';
 import {
@@ -156,6 +156,12 @@ const buildSyncFieldDraft = (config: Record<string, unknown>): SyncFieldDraft =>
 const buildRuntimeConfig = (config: Record<string, unknown>, role: SyncPanelRole): Record<string, unknown> =>
     role === 'none' ? config : stripManagedSyncFields(config);
 
+const buildEffectiveRuntimeConfig = (
+    config: Record<string, unknown>,
+    role: SyncPanelRole,
+    schema: Record<string, unknown>,
+): Record<string, unknown> => applySchemaDefaults(schema, buildRuntimeConfig(config, role));
+
 const parseRuntimeConfigText = (
     text: string,
     t: (key: string) => string,
@@ -242,7 +248,10 @@ export function NodeConfigPanel() {
         () => (selectedNode && syncRole === 'executor' ? getManagedByNodeId(selectedNode.config) : null),
         [selectedNode, syncRole],
     );
-    const runtimeSchema = selectedSpec?.config_schema ?? {type: 'object', properties: {}};
+    const runtimeSchema = useMemo<Record<string, unknown>>(
+        () => selectedSpec?.config_schema ?? {type: 'object', properties: {}},
+        [selectedSpec],
+    );
     const isDataNode = selectedNode ? isDataNodeType(selectedNode.type_name) : false;
     const isScalarContainer = selectedNode ? isScalarContainerType(selectedNode.type_name) : false;
     const isJsonContainer = selectedNode ? isJsonContainerType(selectedNode.type_name) : false;
@@ -300,7 +309,7 @@ export function NodeConfigPanel() {
             setSuccessMessage(null);
             return;
         }
-        const runtimeConfig = buildRuntimeConfig(selectedNode.config, syncRole);
+        const runtimeConfig = buildEffectiveRuntimeConfig(selectedNode.config, syncRole, runtimeSchema);
         setTitleDraft(selectedNode.title);
         setRuntimeConfigDraft(runtimeConfig);
         setConfigDraftText(formatJson(runtimeConfig));
@@ -317,7 +326,7 @@ export function NodeConfigPanel() {
         setJsonDraftError(null);
         setErrorMessage(null);
         setSuccessMessage(null);
-    }, [selectedNode, syncRole]);
+    }, [selectedNode, syncRole, selectedSpec, runtimeSchema]);
 
     if (!selectedNode) {
         return (
@@ -418,7 +427,7 @@ export function NodeConfigPanel() {
 
     const onReset = (): void => {
         setTitleDraft(selectedNode.title);
-        const nextRuntimeConfig = buildRuntimeConfig(selectedNode.config, syncRole);
+        const nextRuntimeConfig = buildEffectiveRuntimeConfig(selectedNode.config, syncRole, runtimeSchema);
         setRuntimeConfigDraft(nextRuntimeConfig);
         setConfigDraftText(formatJson(nextRuntimeConfig));
         setSyncFieldDraft(buildSyncFieldDraft(selectedNode.config));

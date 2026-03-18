@@ -624,6 +624,56 @@ describe('NodeConfigPanel', () => {
         expect(screen.getByText('Target model name.')).toBeTruthy();
     });
 
+    it('shows schema defaults in advanced json when raw config is empty', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'llm.openai_compatible',
+                            version: '0.1.0',
+                            mode: 'async',
+                            inputs: [],
+                            outputs: [],
+                            config_schema: {
+                                type: 'object',
+                                properties: {
+                                    base_url: {
+                                        type: 'string',
+                                        title: 'Base URL',
+                                        default: 'https://api.openai.com',
+                                    },
+                                    model: {
+                                        type: 'string',
+                                        title: 'Model',
+                                        default: 'gpt-4o-mini',
+                                    },
+                                },
+                            },
+                            description: '',
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        useGraphStore.getState().upsertNode({
+            node_id: 'n_defaults',
+            type_name: 'llm.openai_compatible',
+            title: 'OpenAI LLM',
+            config: {},
+        });
+        useGraphStore.getState().selectNode('n_defaults');
+
+        render(<NodeConfigPanel/>);
+
+        await screen.findByDisplayValue('https://api.openai.com');
+        const jsonInput = screen.getByTestId('node-config-json-input') as HTMLTextAreaElement;
+        expect(jsonInput.value).toContain('"base_url": "https://api.openai.com"');
+        expect(jsonInput.value).toContain('"model": "gpt-4o-mini"');
+    });
+
     it('renders custom data writer controls and saves specialized config', async () => {
         server.use(
             http.get('*/api/v1/node-types', () =>
