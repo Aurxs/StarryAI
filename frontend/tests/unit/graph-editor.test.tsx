@@ -242,6 +242,99 @@ describe('GraphEditor', () => {
         });
     });
 
+    it('renders the actual data type subtitle for passive data nodes', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'data.variable',
+                            version: '0.1.0',
+                            mode: 'passive',
+                            inputs: [],
+                            outputs: [
+                                {
+                                    name: 'value',
+                                    frame_schema: 'int',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                },
+                            ],
+                            sync_config: null,
+                            config_schema: {},
+                            description: 'Passive scalar variable container.',
+                            tags: ['data_container'],
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        render(<GraphEditor/>);
+
+        fireEvent.click(screen.getByTitle('新增节点'));
+        const drawer = screen.getByLabelText('node-library-drawer');
+        fireEvent.click(await within(drawer).findByText('data.variable'));
+
+        const nodeCard = await screen.findByTestId('workflow-node-n1');
+        await waitFor(() => {
+            expect(within(nodeCard).getByTestId('workflow-node-subtitle').textContent).toBe('int');
+            expect(within(nodeCard).queryByText('container')).toBeNull();
+        });
+    });
+
+    it('renders node namespace subtitle for non-data nodes', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'llm.chat',
+                            version: '0.1.0',
+                            mode: 'async',
+                            inputs: [
+                                {
+                                    name: 'in',
+                                    frame_schema: 'text.final',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                },
+                            ],
+                            outputs: [
+                                {
+                                    name: 'out',
+                                    frame_schema: 'text.final',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                },
+                            ],
+                            sync_config: null,
+                            config_schema: {},
+                            description: 'Unified chat-style LLM node.',
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        render(<GraphEditor/>);
+
+        fireEvent.click(screen.getByTitle('新增节点'));
+        const drawer = screen.getByLabelText('node-library-drawer');
+        fireEvent.click(await within(drawer).findByText('llm.chat'));
+
+        const nodeCard = await screen.findByTestId('workflow-node-n1');
+        await waitFor(() => {
+            expect(within(nodeCard).getByTestId('workflow-node-subtitle').textContent).toBe('llm');
+            expect(within(nodeCard).queryByText('异步节点')).toBeNull();
+        });
+    });
+
     it('supports single-node copy/paste shortcuts with full config cloning', async () => {
         render(<GraphEditor/>);
 

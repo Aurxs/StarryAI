@@ -156,6 +156,14 @@
         "general": "General"
       }
     },
+    "nodeTypeBadges": {
+      "asyncNode": "Async node",
+      "syncNode": "Sync node",
+      "syncInitiator": "Sync initiator",
+      "syncExecutor": "Sync executor",
+      "passiveNode": "Passive node",
+      "dataType": "Data type"
+    },
     "zoom": {
       "decrease": "Zoom out 10%",
       "increase": "Zoom in 10%"

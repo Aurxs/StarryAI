@@ -70,6 +70,7 @@ import {
 interface WorkflowNodeData {
     nodeId: string;
     title: string;
+    config: Record<string, unknown>;
     spec: NodeSpec;
     isEditing: boolean;
     isValidationError: boolean;
@@ -511,12 +512,78 @@ const nodeTitleStyle: CSSProperties = {
     textOverflow: 'ellipsis',
 };
 
+const nodeSubtitleStyle: CSSProperties = {
+    display: 'block',
+    marginTop: 0,
+    fontSize: 11,
+    lineHeight: 1.25,
+    color: '#94a3b8',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+};
+
 const nodeHeaderStyle: CSSProperties = {
     paddingLeft: NODE_TITLE_INSET,
     paddingRight: NODE_TITLE_INSET,
 };
 
+const isPassiveDataTypeNode = (spec: NodeSpec): boolean => {
+    const tags = Array.isArray(spec.tags) ? spec.tags : [];
+    return spec.mode === 'passive' && (tags.includes('data_container') || spec.type_name.startsWith('data.'));
+};
+
+const resolveDataTypeNodeSubtitle = (
+    t: ReturnType<typeof useTranslation>['t'],
+    data: Pick<WorkflowNodeData, 'config' | 'spec' | 'resolvedOutputSchemas'>,
+): string => {
+    const configuredValueType = typeof data.config.value_type === 'string' ? data.config.value_type : '';
+    switch (configuredValueType) {
+        case 'integer':
+            return 'int';
+        case 'float':
+            return 'float';
+        case 'string':
+            return 'text';
+        default:
+            break;
+    }
+
+    const valuePort = data.spec.outputs?.find((port) => port.name === 'value');
+    const resolvedValueSchema = data.resolvedOutputSchemas.value ?? valuePort?.frame_schema ?? '';
+    const simpleType = simplifyFrameSchema(resolvedValueSchema);
+    return simpleType || t('graphEditor.nodeTypeBadges.dataType', {defaultValue: '数据类型'});
+};
+
+const resolveNodeNamespaceSubtitle = (
+    t: ReturnType<typeof useTranslation>['t'],
+    spec: Pick<NodeSpec, 'type_name' | 'mode'>,
+): string => {
+    const [namespace] = spec.type_name.split('.');
+    if (namespace) {
+        return namespace;
+    }
+    if (spec.mode === 'sync') {
+        return t('graphEditor.nodeTypeBadges.syncNode', {defaultValue: '同步节点'});
+    }
+    if (spec.mode === 'passive') {
+        return t('graphEditor.nodeTypeBadges.passiveNode', {defaultValue: '被动节点'});
+    }
+    return t('graphEditor.nodeTypeBadges.asyncNode', {defaultValue: '异步节点'});
+};
+
+const resolveWorkflowNodeSubtitle = (
+    t: ReturnType<typeof useTranslation>['t'],
+    data: Pick<WorkflowNodeData, 'config' | 'spec' | 'resolvedOutputSchemas'>,
+): string => {
+    if (isPassiveDataTypeNode(data.spec)) {
+        return resolveDataTypeNodeSubtitle(t, data);
+    }
+    return resolveNodeNamespaceSubtitle(t, data.spec);
+};
+
 const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
+    const {t} = useTranslation();
     const inputs = (data.spec.inputs ?? EMPTY_PORTS).map((port) => ({
         ...port,
         frame_schema: data.resolvedInputSchemas[port.name] ?? port.frame_schema,
@@ -525,6 +592,7 @@ const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
         ...port,
         frame_schema: data.resolvedOutputSchemas[port.name] ?? port.frame_schema,
     }));
+    const subtitle = resolveWorkflowNodeSubtitle(t, data);
 
     return (
         <div
@@ -538,9 +606,7 @@ const WorkflowNode = ({data}: NodeProps<WorkflowNodeData>) => {
         >
             <div style={nodeHeaderStyle}>
                 <strong style={nodeTitleStyle}>{data.title}</strong>
-                {data.spec.mode === 'passive' && (
-                    <div style={{fontSize: 10, color: '#b45309', marginTop: 3}}>container</div>
-                )}
+                <span style={nodeSubtitleStyle} data-testid="workflow-node-subtitle">{subtitle}</span>
             </div>
             <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 6, marginTop: 8}}>
                 <div>
@@ -1055,6 +1121,7 @@ const GraphEditorInner = () => {
                     data: {
                         nodeId: node.node_id,
                         title: node.title || node.type_name,
+                        config: node.config ?? {},
                         spec,
                         isEditing: node.node_id === selectedNodeId,
                         isValidationError: highlighted,

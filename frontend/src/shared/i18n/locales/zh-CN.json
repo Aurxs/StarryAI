@@ -156,6 +156,14 @@
         "general": "通用"
       }
     },
+    "nodeTypeBadges": {
+      "asyncNode": "异步节点",
+      "syncNode": "同步节点",
+      "syncInitiator": "同步发起器",
+      "syncExecutor": "同步执行节点",
+      "passiveNode": "被动节点",
+      "dataType": "数据类型"
+    },
     "zoom": {
       "decrease": "缩小 10%",
       "increase": "放大 10%"
