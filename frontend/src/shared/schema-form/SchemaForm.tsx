@@ -52,7 +52,9 @@ const inputStyle: CSSProperties = {
     boxSizing: 'border-box',
     border: '1px solid rgba(31, 41, 51, 0.24)',
     borderRadius: 8,
-    padding: '8px 10px',
+    height: 30,
+    padding: '4px 10px',
+    lineHeight: '18px',
     fontSize: 13,
     color: '#0f172a',
     background: '#ffffff',
@@ -60,6 +62,7 @@ const inputStyle: CSSProperties = {
 
 const textareaStyle: CSSProperties = {
     ...inputStyle,
+    height: 'auto',
     minHeight: 84,
     resize: 'vertical',
     fontFamily: 'ui-monospace, Menlo, Consolas, monospace',
@@ -180,6 +183,7 @@ function SecretField({
                 }}
                 disabled={disabled}
                 style={inputStyle}
+                className="node-config-control"
             >
                 <option value="">{t(required ? 'nodeConfig.secret.selectRequired' : 'nodeConfig.secret.selectOptional')}</option>
                 {secrets.map((item) => (
@@ -214,11 +218,21 @@ function SecretField({
                 <div style={{display: 'grid', gap: 8}}>
                     <label style={labelStyle}>
                         {t('secretManager.fields.label')}
-                        <input value={createLabel} onChange={(event) => setCreateLabel(event.target.value)} style={inputStyle}/>
+                        <input
+                            value={createLabel}
+                            onChange={(event) => setCreateLabel(event.target.value)}
+                            style={inputStyle}
+                            className="node-config-control"
+                        />
                     </label>
                     <label style={labelStyle}>
                         {t('secretManager.fields.value')}
-                        <textarea value={createValue} onChange={(event) => setCreateValue(event.target.value)} style={textareaStyle}/>
+                        <textarea
+                            value={createValue}
+                            onChange={(event) => setCreateValue(event.target.value)}
+                            style={textareaStyle}
+                            className="node-config-control"
+                        />
                     </label>
                     {localError && <div style={{fontSize: 12, color: '#9f1239'}}>{localError}</div>}
                     <div>
@@ -383,6 +397,7 @@ function SchemaFields({nodeTypeName, schema, rootSchema, value, path, secrets, o
                             <select
                                 value={typeof fieldValue === 'string' ? fieldValue : String(fieldValue ?? fieldSchema.default ?? '')}
                                 style={inputStyle}
+                                className="node-config-control"
                                 onChange={(event) => onChange(setValueAtPath(value, fieldPath, event.target.value || undefined))}
                             >
                                 {!required && <option value="">{t('nodeConfig.form.emptyValue')}</option>}
@@ -406,6 +421,7 @@ function SchemaFields({nodeTypeName, schema, rootSchema, value, path, secrets, o
                             <input
                                 type="checkbox"
                                 checked={Boolean(fieldValue ?? fieldSchema.default ?? false)}
+                                className="node-config-checkbox"
                                 onChange={(event) => onChange(setValueAtPath(value, fieldPath, event.target.checked))}
                             />
                         </label>
@@ -423,6 +439,7 @@ function SchemaFields({nodeTypeName, schema, rootSchema, value, path, secrets, o
                                 max={typeof fieldSchema.maximum === 'number' ? fieldSchema.maximum : undefined}
                                 value={typeof fieldValue === 'number' ? fieldValue : String(fieldValue ?? fieldSchema.default ?? '')}
                                 style={inputStyle}
+                                className="node-config-control"
                                 onChange={(event) => {
                                     const raw = event.target.value;
                                     if (!raw) {
@@ -454,12 +471,14 @@ function SchemaFields({nodeTypeName, schema, rootSchema, value, path, secrets, o
                                 <textarea
                                     value={currentText}
                                     style={textareaStyle}
+                                    className="node-config-control"
                                     onChange={(event) => onChange(setValueAtPath(value, fieldPath, event.target.value || undefined))}
                                 />
                             ) : (
                                 <input
                                     value={currentText}
                                     style={inputStyle}
+                                    className="node-config-control"
                                     onChange={(event) => onChange(setValueAtPath(value, fieldPath, event.target.value || undefined))}
                                 />
                             )}

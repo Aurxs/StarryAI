@@ -152,6 +152,8 @@ interface SyncFieldDraft {
 
 interface NodeConfigSnapshot {
     nodeId: string;
+    schemaSignature: string;
+    syncRole: SyncPanelRole;
     title: string;
     rawConfig: Record<string, unknown>;
     runtimeConfig: Record<string, unknown>;
@@ -279,6 +281,7 @@ export function NodeConfigPanel() {
         () => selectedSpec?.config_schema ?? {type: 'object', properties: {}},
         [selectedSpec],
     );
+    const runtimeSchemaSignature = useMemo(() => JSON.stringify(runtimeSchema), [runtimeSchema]);
     const isDataNode = selectedNode ? isDataNodeType(selectedNode.type_name) : false;
     const isDataRef = selectedNode ? isGenericDataNodeType(selectedNode.type_name) : false;
     const isDataWriter = selectedNode ? isDataWriterType(selectedNode.type_name) : false;
@@ -334,7 +337,11 @@ export function NodeConfigPanel() {
             setErrorMessage(null);
             return;
         }
-        if (initialSnapshot?.nodeId === selectedNode.node_id) {
+        if (
+            initialSnapshot?.nodeId === selectedNode.node_id
+            && initialSnapshot.schemaSignature === runtimeSchemaSignature
+            && initialSnapshot.syncRole === syncRole
+        ) {
             return;
         }
         const runtimeConfig = buildEffectiveRuntimeConfig(selectedNode.config, syncRole, runtimeSchema);
@@ -348,6 +355,8 @@ export function NodeConfigPanel() {
         const formattedInitial = formatVariableInitialValue(selectedVariable);
         setInitialSnapshot({
             nodeId: selectedNode.node_id,
+            schemaSignature: runtimeSchemaSignature,
+            syncRole,
             title: selectedNode.title,
             rawConfig: cloneRecord(selectedNode.config),
             runtimeConfig: cloneRecord(runtimeConfig),
@@ -369,7 +378,7 @@ export function NodeConfigPanel() {
         });
         setJsonDraftError(null);
         setErrorMessage(null);
-    }, [graphMetadata, initialSnapshot?.nodeId, runtimeSchema, selectedNode, syncRole]);
+    }, [graphMetadata, initialSnapshot, runtimeSchema, runtimeSchemaSignature, selectedNode, syncRole]);
 
     if (!selectedNode) {
         return (
