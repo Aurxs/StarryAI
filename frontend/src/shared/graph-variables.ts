@@ -7,6 +7,14 @@ export interface GraphVariableDraft {
     jsonInitialValue: string;
 }
 
+export interface GraphVariableParseMessages {
+    invalidIntegerInitialValue?: string;
+    invalidFloatInitialValue?: string;
+    invalidJsonInitialValue?: string;
+    listInitialValueMustBeArray?: string;
+    dictInitialValueMustBeObject?: string;
+}
+
 const formatJsonValue = (value: unknown): string => JSON.stringify(value ?? null, null, 2);
 
 const parseInteger = (value: string): number | null => {
@@ -26,46 +34,53 @@ const parseFloatValue = (value: string): number | null => {
     return Number.isFinite(parsed) ? parsed : null;
 };
 
-const parseJsonValue = (text: string): unknown => JSON.parse(text) as unknown;
+const parseJsonValue = (text: string, invalidMessage?: string): unknown => {
+    try {
+        return JSON.parse(text) as unknown;
+    } catch {
+        throw new Error(invalidMessage ?? 'Invalid JSON initial value');
+    }
+};
 
 export const parseVariableInitialValue = (
     valueKind: GraphVariableValueKind,
     scalarText: string,
     jsonText: string,
+    messages: GraphVariableParseMessages = {},
 ): unknown => {
     switch (valueKind) {
         case 'scalar.int': {
             const parsed = parseInteger(scalarText);
             if (parsed === null) {
-                throw new Error('integer 初始值非法');
+                throw new Error(messages.invalidIntegerInitialValue ?? 'Invalid integer initial value');
             }
             return parsed;
         }
         case 'scalar.float': {
             const parsed = parseFloatValue(scalarText);
             if (parsed === null) {
-                throw new Error('float 初始值非法');
+                throw new Error(messages.invalidFloatInitialValue ?? 'Invalid float initial value');
             }
             return parsed;
         }
         case 'scalar.string':
             return scalarText;
         case 'json.list': {
-            const parsed = parseJsonValue(jsonText);
+            const parsed = parseJsonValue(jsonText, messages.invalidJsonInitialValue);
             if (!Array.isArray(parsed)) {
-                throw new Error('json.list 初始值必须是数组');
+                throw new Error(messages.listInitialValueMustBeArray ?? 'JSON list initial value must be an array');
             }
             return parsed;
         }
         case 'json.dict': {
-            const parsed = parseJsonValue(jsonText);
+            const parsed = parseJsonValue(jsonText, messages.invalidJsonInitialValue);
             if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-                throw new Error('json.dict 初始值必须是对象');
+                throw new Error(messages.dictInitialValueMustBeObject ?? 'JSON dict initial value must be an object');
             }
             return parsed;
         }
         case 'json.any':
-            return parseJsonValue(jsonText);
+            return parseJsonValue(jsonText, messages.invalidJsonInitialValue);
     }
 };
 

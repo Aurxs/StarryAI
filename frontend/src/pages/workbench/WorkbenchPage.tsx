@@ -11,7 +11,7 @@ import {
     reconcileSyncManagedConfig,
 } from '../../features/sync-config/managed-config';
 import {apiClient, ApiClientError} from '../../shared/api/client';
-import {translateRunStatus} from '../../shared/i18n/label-mappers';
+import {translateGraphHistoryLabel, translateRunStatus} from '../../shared/i18n/label-mappers';
 import {isRunActiveStatus, isRunTerminalStatus, mapBackendRunStatus} from '../../shared/run-status';
 import {notifyUser, type GlobalInfoLevel} from '../../shared/state/global-info-store';
 import {useGraphStore} from '../../shared/state/graph-store';
@@ -79,11 +79,6 @@ const projectNameBaseStyle: CSSProperties = {
     left: 1,
 };
 
-const historyTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-});
 const INSPECTOR_TRANSITION_MS = 220;
 const INSPECTOR_DOCK_WIDTH = 354;
 const NON_LINEAR_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
@@ -135,7 +130,7 @@ const buildUniqueGraphId = (baseId: string, existingIds: Set<string>): string =>
 };
 
 export function WorkbenchPage() {
-    const {t} = useTranslation();
+    const {t, i18n} = useTranslation();
 
     const graph = useGraphStore((state) => state.graph);
     const isDirty = useGraphStore((state) => state.isDirty);
@@ -203,6 +198,14 @@ export function WorkbenchPage() {
             + nameWidth;
         return Math.min(PANEL_COLLAPSED_MAX_WIDTH, Math.max(PANEL_COLLAPSED_MIN_WIDTH, Math.ceil(calculatedWidth)));
     }, [displayProjectNameWithDirtyMark]);
+    const historyTimeFormatter = useMemo(
+        () => new Intl.DateTimeFormat(i18n.resolvedLanguage ?? i18n.language, {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+        }),
+        [i18n.language, i18n.resolvedLanguage],
+    );
 
     const issueSummary = useMemo(() => {
         const errorCount = reviewIssues.filter((issue) => issue.level === 'error').length;
@@ -1095,7 +1098,7 @@ export function WorkbenchPage() {
                             <ul style={{margin: 0, paddingLeft: 16}}>
                                 {[...historyEntries].reverse().map((entry) => (
                                     <li key={entry.id} style={{fontSize: 12, marginBottom: 4}}>
-                                        {historyTimeFormatter.format(entry.at)} - {entry.label}
+                                        {historyTimeFormatter.format(entry.at)} - {translateGraphHistoryLabel(t, entry.label)}
                                     </li>
                                 ))}
                             </ul>
@@ -1191,7 +1194,7 @@ export function WorkbenchPage() {
                         <button
                             type="button"
                             style={closeIconButtonStyle}
-                            aria-label="Close node inspector"
+                            aria-label={t('workbench.inspector.close')}
                             onClick={() => {
                                 selectNode(null);
                                 setLeftDrawer(null);

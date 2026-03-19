@@ -62,10 +62,26 @@
     "history": {
       "title": "操作历史",
       "toggle": "打开操作历史",
-      "empty": "暂无图编辑操作"
+      "empty": "暂无图编辑操作",
+      "labels": {
+        "graphMetaUpdated": "更新图元信息",
+        "nodesUpdated": "更新节点集合",
+        "edgesUpdated": "更新连线集合",
+        "variableCreated": "新增变量",
+        "variableUpdated": "更新变量",
+        "variableRenamed": "重命名变量",
+        "variableDeleted": "删除变量",
+        "nodeUpdated": "更新节点",
+        "nodeCreated": "新增节点",
+        "nodeConfigUpdated": "更新节点配置",
+        "nodeDeleted": "删除节点",
+        "undo": "撤销：{{action}}",
+        "redo": "重做：{{action}}"
+      }
     },
     "inspector": {
-      "title": "节点编辑"
+      "title": "节点编辑",
+      "close": "关闭节点检查器"
     },
     "persistence": {
       "title": "项目图仓库",
@@ -148,6 +164,7 @@
     },
     "drawer": {
       "title": "节点栏",
+      "close": "关闭节点栏",
       "tip": "可拖拽到画布，也可点击快速新增。",
       "add": "添加到画布",
       "inputs": "输入",
@@ -163,7 +180,8 @@
       "syncInitiator": "同步发起器",
       "syncExecutor": "同步执行节点",
       "passiveNode": "被动节点",
-      "dataType": "数据类型"
+      "dataType": "数据类型",
+      "dataRefUnbound": "未绑定"
     },
     "zoom": {
       "decrease": "缩小 10%",
@@ -283,6 +301,17 @@
       "clear": "清除绑定"
     },
     "data": {
+      "ref": {
+        "variable": "绑定变量",
+        "showCreate": "新建变量",
+        "hideCreate": "收起新变量",
+        "variableName": "变量名称",
+        "duplicateName": "变量名称重复，请使用唯一名称",
+        "valueKind": "变量类型",
+        "initialValue": "初始值",
+        "initialValueJson": "初始值 JSON",
+        "createAndBind": "创建并绑定"
+      },
       "scalarType": "值类型",
       "scalarTypes": {
         "integer": "整数",
@@ -292,7 +321,7 @@
       "initialValue": "初始值",
       "initialValueJson": "初始值 JSON",
       "writer": {
-        "target": "目标容器",
+        "target": "目标变量",
         "operation": "操作",
         "operations": {
           "add": "加",
@@ -308,9 +337,11 @@
         "operandMode": "操作数来源",
         "operandModes": {
           "literal": "字面量",
-          "container": "容器"
+          "container": "容器",
+          "variable": "变量"
         },
         "operandContainer": "操作数容器",
+        "operandVariable": "操作数变量",
         "literalValue": "字面量操作数",
         "fieldPath": "字段路径"
       }
@@ -517,6 +548,30 @@
       "abortCount": "中止次数: {{count}}",
       "abortReasons": "中止原因: {{reasons}}",
       "abortReasonsEmpty": "中止原因: 无"
+    }
+  },
+  "graphVariable": {
+    "valueKinds": {
+      "scalarInt": "整数",
+      "scalarFloat": "浮点",
+      "scalarString": "字符串",
+      "jsonList": "列表",
+      "jsonDict": "对象",
+      "jsonAny": "JSON"
+    },
+    "usageFields": {
+      "variableName": "绑定变量",
+      "targetVariableName": "目标变量",
+      "operandVariableName": "操作数变量"
+    },
+    "errors": {
+      "emptyName": "变量名称不能为空",
+      "duplicateName": "变量名称已存在: {{name}}",
+      "invalidIntegerInitialValue": "整数初始值不合法",
+      "invalidFloatInitialValue": "浮点初始值不合法",
+      "invalidJsonInitialValue": "初始值 JSON 格式无效",
+      "listInitialValueMustBeArray": "列表初始值必须是数组",
+      "dictInitialValueMustBeObject": "对象初始值必须是对象"
     }
   },
   "variableManager": {

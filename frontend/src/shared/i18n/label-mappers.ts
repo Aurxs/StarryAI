@@ -1,5 +1,6 @@
 import type {TFunction} from 'i18next';
 
+import {getValueKindLabel} from '../data-registry';
 import type {RunUiStatus} from '../state/run-store';
 import type {LeftPanelKey, RightPanelKey} from '../state/ui-store';
 
@@ -20,6 +21,35 @@ const leftPanelKeyMap: Record<LeftPanelKey, string> = {
 const rightPanelKeyMap: Record<RightPanelKey, string> = {
     'node-config': 'workbench.panel.nodeConfig',
     'run-inspector': 'workbench.panel.runInspector',
+};
+
+const graphHistoryActionKeyMap: Record<string, string> = {
+    graphMetaUpdated: 'workbench.history.labels.graphMetaUpdated',
+    nodesUpdated: 'workbench.history.labels.nodesUpdated',
+    edgesUpdated: 'workbench.history.labels.edgesUpdated',
+    variableCreated: 'workbench.history.labels.variableCreated',
+    variableUpdated: 'workbench.history.labels.variableUpdated',
+    variableRenamed: 'workbench.history.labels.variableRenamed',
+    variableDeleted: 'workbench.history.labels.variableDeleted',
+    nodeUpdated: 'workbench.history.labels.nodeUpdated',
+    nodeCreated: 'workbench.history.labels.nodeCreated',
+    nodeConfigUpdated: 'workbench.history.labels.nodeConfigUpdated',
+    nodeDeleted: 'workbench.history.labels.nodeDeleted',
+};
+
+const graphVariableUsageFieldKeyMap: Record<string, string> = {
+    variable_name: 'graphVariable.usageFields.variableName',
+    target_variable_name: 'graphVariable.usageFields.targetVariableName',
+    operand_variable_name: 'graphVariable.usageFields.operandVariableName',
+};
+
+const graphVariableValueKindKeyMap: Record<string, string> = {
+    'scalar.int': 'graphVariable.valueKinds.scalarInt',
+    'scalar.float': 'graphVariable.valueKinds.scalarFloat',
+    'scalar.string': 'graphVariable.valueKinds.scalarString',
+    'json.list': 'graphVariable.valueKinds.jsonList',
+    'json.dict': 'graphVariable.valueKinds.jsonDict',
+    'json.any': 'graphVariable.valueKinds.jsonAny',
 };
 
 const normalizeLookupValue = (value: string): string =>
@@ -102,4 +132,32 @@ export const translatePortDescription = (
     return t(`nodePortDescriptions.${normalizeLookupValue(typeName)}.${portName}`, {
         defaultValue: fallbackDescription,
     });
+};
+
+export const translateGraphHistoryLabel = (t: TFunction, value: string): string => {
+    if (value.startsWith('undo:')) {
+        return t('workbench.history.labels.undo', {
+            action: translateGraphHistoryLabel(t, value.slice(5)),
+            defaultValue: value,
+        });
+    }
+    if (value.startsWith('redo:')) {
+        return t('workbench.history.labels.redo', {
+            action: translateGraphHistoryLabel(t, value.slice(5)),
+            defaultValue: value,
+        });
+    }
+    const key = graphHistoryActionKeyMap[value];
+    return key ? t(key, {defaultValue: value}) : value;
+};
+
+export const translateVariableUsageField = (t: TFunction, fieldName: string): string => {
+    const key = graphVariableUsageFieldKeyMap[fieldName];
+    return key ? t(key, {defaultValue: fieldName}) : fieldName;
+};
+
+export const translateValueKind = (t: TFunction, valueKind: string): string => {
+    const key = graphVariableValueKindKeyMap[valueKind];
+    const fallbackLabel = getValueKindLabel(valueKind);
+    return key ? t(key, {defaultValue: fallbackLabel}) : fallbackLabel;
 };

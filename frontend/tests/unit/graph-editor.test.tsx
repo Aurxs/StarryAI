@@ -300,7 +300,7 @@ describe('GraphEditor', () => {
 
         const nodeCard = await screen.findByTestId('workflow-node-n1');
         await waitFor(() => {
-            expect(within(nodeCard).getByTestId('workflow-node-subtitle').textContent).toBe('counter · int');
+            expect(within(nodeCard).getByTestId('workflow-node-subtitle').textContent).toBe('counter · 整数');
             expect(within(nodeCard).queryByText('container')).toBeNull();
         });
     });
@@ -362,7 +362,7 @@ describe('GraphEditor', () => {
 
         const nodeCard = await screen.findByTestId('workflow-node-n1');
         await waitFor(() => {
-            expect(within(nodeCard).getByTestId('workflow-node-subtitle').textContent).toBe('counter · int');
+            expect(within(nodeCard).getByTestId('workflow-node-subtitle').textContent).toBe('counter · 整数');
         });
 
         const drawer = openVariableManager();
@@ -373,7 +373,7 @@ describe('GraphEditor', () => {
         fireEvent.click(within(drawer).getByTestId('variable-manager-save-button'));
 
         await waitFor(() => {
-            expect(within(nodeCard).getByTestId('workflow-node-subtitle').textContent).toBe('balance · int');
+            expect(within(nodeCard).getByTestId('workflow-node-subtitle').textContent).toBe('balance · 整数');
         });
     });
 

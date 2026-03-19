@@ -1,11 +1,10 @@
-import {useEffect, useMemo, useState, type CSSProperties} from 'react';
+import {useEffect, useMemo, useRef, useState, type CSSProperties} from 'react';
 import {X} from 'lucide-react';
 import {useTranslation} from 'react-i18next';
 
 import {type GraphVariableSpec} from '../../entities/workbench/types';
 import {
     GRAPH_VARIABLE_VALUE_KINDS,
-    getValueKindLabel,
     readDataRegistry,
 } from '../../shared/data-registry';
 import {
@@ -15,6 +14,7 @@ import {
     summarizeVariableInitialValue,
     type GraphVariableDraft,
 } from '../../shared/graph-variables';
+import {translateValueKind, translateVariableUsageField} from '../../shared/i18n/label-mappers';
 import {useGraphStore} from '../../shared/state/graph-store';
 
 const drawerStyle: CSSProperties = {
@@ -29,9 +29,9 @@ const drawerStyle: CSSProperties = {
     background: 'rgba(255, 255, 255, 0.98)',
     boxShadow: '0 18px 30px rgba(15, 23, 42, 0.1)',
     padding: 10,
-    overflow: 'auto',
-    display: 'grid',
-    alignContent: 'start',
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
     gap: 12,
 };
 
@@ -64,9 +64,41 @@ const listButtonStyle: CSSProperties = {
 
 const selectedListButtonStyle: CSSProperties = {
     ...listButtonStyle,
-    borderColor: '#93c5fd',
+    border: '1px solid #93c5fd',
     background: '#eff6ff',
+    boxShadow: '0 10px 24px rgba(147, 197, 253, 0.16)',
 };
+
+const editorPanelStyle: CSSProperties = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+    padding: '12px 12px 14px',
+    border: '1px solid #bfdbfe',
+    borderRadius: 12,
+    background: 'linear-gradient(180deg, rgba(239, 246, 255, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%)',
+    boxShadow: '0 16px 28px rgba(59, 130, 246, 0.14)',
+    height: '100%',
+    boxSizing: 'border-box',
+    overflow: 'auto',
+};
+
+const overlayStyle: CSSProperties = {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 2,
+};
+
+const overlayPanelStyle: CSSProperties = {
+    ...editorPanelStyle,
+    background: 'rgba(255, 255, 255, 0.98)',
+    boxShadow: '0 22px 40px rgba(15, 23, 42, 0.12)',
+};
+
+const DEFAULT_EXPANDED_PANEL_TOP = 92;
+const LIST_GAP = 8;
 
 const buildVariableTypeBadgeStyle = (valueKind: GraphVariableSpec['value_kind']): CSSProperties => {
     const color = valueKind.startsWith('scalar.') ? '#0f766e' : '#c2410c';
@@ -139,11 +171,6 @@ const dangerButtonStyle: CSSProperties = {
     color: '#b91c1c',
 };
 
-const sectionStyle: CSSProperties = {
-    display: 'grid',
-    gap: 10,
-};
-
 const labelStyle: CSSProperties = {
     display: 'grid',
     gap: 4,
@@ -167,19 +194,6 @@ const buildDraftFromVariable = (variable: GraphVariableSpec): GraphVariableDraft
     };
 };
 
-const getUsageFieldLabel = (fieldName: string): string => {
-    switch (fieldName) {
-        case 'variable_name':
-            return 'variable_name';
-        case 'target_variable_name':
-            return 'target_variable_name';
-        case 'operand_variable_name':
-            return 'operand_variable_name';
-        default:
-            return fieldName;
-    }
-};
-
 interface VariableManagerDrawerProps {
     open: boolean;
     onClose: () => void;
@@ -201,15 +215,28 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
     const [draft, setDraft] = useState<GraphVariableDraft>(createDefaultVariableDraft());
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
+    const [editOverlayTop, setEditOverlayTop] = useState(DEFAULT_EXPANDED_PANEL_TOP);
+    const listViewportRef = useRef<HTMLDivElement | null>(null);
+    const selectedRowRef = useRef<HTMLDivElement | null>(null);
 
     const selectedVariable = useMemo(
         () => variables.find((variable) => variable.name === selectedVariableName) ?? null,
         [selectedVariableName, variables],
     );
     const selectedUsages = useMemo(
-        () => (selectedVariableName ? getVariableUsages(selectedVariableName) : []),
-        [getVariableUsages, selectedVariableName],
+        () => (!isCreating && selectedVariableName ? getVariableUsages(selectedVariableName) : []),
+        [getVariableUsages, isCreating, selectedVariableName],
     );
+    const orderedVariables = useMemo(() => {
+        if (isCreating || !selectedVariableName) {
+            return variables;
+        }
+        const activeVariable = variables.find((variable) => variable.name === selectedVariableName);
+        if (!activeVariable) {
+            return variables;
+        }
+        return [activeVariable, ...variables.filter((variable) => variable.name !== selectedVariableName)];
+    }, [isCreating, selectedVariableName, variables]);
     const duplicateName = useMemo(() => {
         const normalizedName = draft.name.trim();
         if (!normalizedName) {
@@ -221,6 +248,16 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
                 (isCreating || normalizedName !== selectedVariableName),
         );
     }, [draft.name, isCreating, selectedVariableName, variables]);
+    const variableParseMessages = useMemo(
+        () => ({
+            invalidIntegerInitialValue: t('graphVariable.errors.invalidIntegerInitialValue'),
+            invalidFloatInitialValue: t('graphVariable.errors.invalidFloatInitialValue'),
+            invalidJsonInitialValue: t('graphVariable.errors.invalidJsonInitialValue'),
+            listInitialValueMustBeArray: t('graphVariable.errors.listInitialValueMustBeArray'),
+            dictInitialValueMustBeObject: t('graphVariable.errors.dictInitialValueMustBeObject'),
+        }),
+        [t],
+    );
 
     useEffect(() => {
         if (!open) {
@@ -242,6 +279,25 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
         setSelectedVariableName(firstVariable.name);
         setDraft(buildDraftFromVariable(firstVariable));
     }, [isCreating, open, selectedVariable, selectedVariableName, variables]);
+
+    useEffect(() => {
+        if (!open || isCreating || !selectedVariableName) {
+            return;
+        }
+        const viewport = listViewportRef.current;
+        const row = selectedRowRef.current;
+        if (!viewport || !row) {
+            setEditOverlayTop(DEFAULT_EXPANDED_PANEL_TOP);
+            return;
+        }
+        const measuredTop = row.offsetTop;
+        const measuredHeight = row.offsetHeight;
+        const nextTop =
+            measuredHeight > 0
+                ? measuredTop + measuredHeight + LIST_GAP
+                : DEFAULT_EXPANDED_PANEL_TOP;
+        setEditOverlayTop(nextTop);
+    }, [isCreating, open, orderedVariables, selectedVariableName]);
 
     if (!open) {
         return null;
@@ -284,6 +340,7 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
                 draft.valueKind,
                 draft.scalarInitialValue,
                 draft.jsonInitialValue,
+                variableParseMessages,
             );
 
             if (isCreating || !selectedVariableName) {
@@ -417,117 +474,18 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
         setErrorMessage(null);
     };
 
-    return (
-        <aside aria-label="variable-manager-drawer" style={drawerStyle} data-testid="variable-manager-drawer">
-            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                <strong>
-                    {t('variableManager.title', {
-                        defaultValue: '变量管理',
-                    })}
-                </strong>
-                <button
-                    type="button"
-                    style={closeButtonStyle}
-                    aria-label={t('variableManager.actions.close', {defaultValue: '关闭变量管理'})}
-                    onClick={onClose}
-                >
-                    <X size={14} strokeWidth={2.1} aria-hidden="true"/>
-                </button>
-            </div>
+    const renderVariableForm = (mode: 'create' | 'edit') => {
+        const isEditMode = mode === 'edit';
 
-            <section style={sectionStyle}>
-                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                    <strong style={{fontSize: 12, color: '#334155'}}>
-                        {t('variableManager.sections.list', {
-                            defaultValue: '变量列表',
-                        })}
-                    </strong>
-                    <button
-                        type="button"
-                        style={buttonStyle}
-                        onClick={beginCreate}
-                        data-testid="variable-manager-new-button"
-                    >
-                        {t('variableManager.actions.new', {defaultValue: '新建变量'})}
-                    </button>
-                </div>
-                <div style={{display: 'grid', gap: 8}}>
-                    {variables.length === 0 ? (
-                        <div style={{fontSize: 12, color: '#64748b'}} data-testid="variable-manager-empty">
-                            {t('variableManager.empty', {
-                                defaultValue: '当前图还没有变量。',
-                            })}
-                        </div>
-                    ) : (
-                        variables.map((variable) => {
-                            const usageCount = getVariableUsages(variable.name).length;
-                            const selected = !isCreating && variable.name === selectedVariableName;
-                            return (
-                                <button
-                                    key={variable.name}
-                                    type="button"
-                                    style={selected ? selectedListButtonStyle : listButtonStyle}
-                                    onClick={() => selectVariableForEdit(variable)}
-                                    data-testid={`variable-manager-item-${variable.name}`}
-                                >
-                                    <div
-                                        style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            gap: 12,
-                                            minWidth: 0,
-                                        }}
-                                    >
-                                        <div
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 8,
-                                                minWidth: 0,
-                                                flex: '1 1 auto',
-                                            }}
-                                        >
-                                            <strong
-                                                style={{
-                                                    fontSize: 13,
-                                                    minWidth: 0,
-                                                    overflow: 'hidden',
-                                                    textOverflow: 'ellipsis',
-                                                    whiteSpace: 'nowrap',
-                                                }}
-                                            >
-                                                {variable.name}
-                                            </strong>
-                                            <span style={buildVariableTypeBadgeStyle(variable.value_kind)}>
-                                                {getValueKindLabel(variable.value_kind)}
-                                            </span>
-                                        </div>
-                                        <div
-                                            style={variableValueTextStyle}
-                                            title={summarizeVariableInitialValue(variable)}
-                                        >
-                                            {summarizeVariableInitialValue(variable)}
-                                        </div>
-                                    </div>
-                                    <div style={{fontSize: 10, lineHeight: 1.2, color: '#94a3b8'}}>
-                                        {t('variableManager.usageCount', {
-                                            defaultValue: '引用 {{count}}',
-                                            count: usageCount,
-                                        })}
-                                    </div>
-                                </button>
-                            );
-                        })
-                    )}
-                </div>
-            </section>
-
-            <section style={sectionStyle}>
+        return (
+            <div
+                style={isEditMode ? editorPanelStyle : overlayPanelStyle}
+                data-testid={isEditMode ? 'variable-manager-edit-panel' : 'variable-manager-create-overlay'}
+            >
                 <strong style={{fontSize: 12, color: '#334155'}}>
-                    {isCreating
-                        ? t('variableManager.sections.create', {defaultValue: '新建变量'})
-                        : t('variableManager.sections.edit', {defaultValue: '编辑变量'})}
+                    {isEditMode
+                        ? t('variableManager.sections.edit', {defaultValue: '编辑变量'})
+                        : t('variableManager.sections.create', {defaultValue: '新建变量'})}
                 </strong>
                 <label style={labelStyle}>
                     {t('variableManager.fields.name', {defaultValue: '变量名称'})}
@@ -558,10 +516,7 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
                                         : nextValueKind === 'scalar.int'
                                             ? current.scalarInitialValue || '0'
                                             : current.scalarInitialValue,
-                                jsonInitialValue:
-                                    nextValueKind.startsWith('json.')
-                                        ? current.jsonInitialValue
-                                        : current.jsonInitialValue,
+                                jsonInitialValue: current.jsonInitialValue,
                             }));
                             setErrorMessage(null);
                             setSuccessMessage(null);
@@ -570,7 +525,7 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
                     >
                         {GRAPH_VARIABLE_VALUE_KINDS.map((valueKind) => (
                             <option key={valueKind} value={valueKind}>
-                                {getValueKindLabel(valueKind)}
+                                {translateValueKind(t, valueKind)}
                             </option>
                         ))}
                     </select>
@@ -619,7 +574,7 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
                     >
                         {t('variableManager.actions.save', {defaultValue: '保存变量'})}
                     </button>
-                    {!isCreating && selectedVariableName && (
+                    {isEditMode && selectedVariableName && (
                         <button
                             type="button"
                             style={dangerButtonStyle}
@@ -654,46 +609,204 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
                         {successMessage}
                     </div>
                 )}
-            </section>
+                {isEditMode && (
+                    <section style={{display: 'grid', gap: 8}}>
+                        <strong style={{fontSize: 12, color: '#334155'}}>
+                            {t('variableManager.sections.usages', {
+                                defaultValue: '引用位置',
+                            })}
+                        </strong>
+                        {selectedUsages.length === 0 ? (
+                            <div style={{fontSize: 12, color: '#64748b'}} data-testid="variable-manager-usage-empty">
+                                {t('variableManager.usagesEmpty', {
+                                    defaultValue: '当前变量暂无引用。',
+                                })}
+                            </div>
+                        ) : (
+                            <div style={{display: 'grid', gap: 8}}>
+                                {selectedUsages.map((usage) => (
+                                    <button
+                                        key={`${usage.node_id}:${usage.field_name}`}
+                                        type="button"
+                                        style={listButtonStyle}
+                                        onClick={() => {
+                                            selectNode(usage.node_id);
+                                            onClose();
+                                        }}
+                                        data-testid={`variable-manager-usage-${usage.node_id}-${usage.field_name}`}
+                                    >
+                                        <div style={{fontWeight: 600, fontSize: 13}}>
+                                            {usage.node_title || usage.node_id}
+                                        </div>
+                                        <div style={{fontSize: 12, color: '#475569'}}>
+                                            {`${usage.node_id} · ${usage.node_type}`}
+                                        </div>
+                                        <div style={{fontSize: 11, color: '#64748b'}}>
+                                            {translateVariableUsageField(t, usage.field_name)}
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </section>
+                )}
+            </div>
+        );
+    };
 
-            <section style={sectionStyle}>
-                <strong style={{fontSize: 12, color: '#334155'}}>
-                    {t('variableManager.sections.usages', {
-                        defaultValue: '引用位置',
+    return (
+        <aside aria-label="variable-manager-drawer" style={drawerStyle} data-testid="variable-manager-drawer">
+            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                <strong>
+                    {t('variableManager.title', {
+                        defaultValue: '变量管理',
                     })}
                 </strong>
-                {selectedVariableName === null || selectedUsages.length === 0 ? (
-                    <div style={{fontSize: 12, color: '#64748b'}} data-testid="variable-manager-usage-empty">
-                        {t('variableManager.usagesEmpty', {
-                            defaultValue: '当前变量暂无引用。',
+                <button
+                    type="button"
+                    style={closeButtonStyle}
+                    aria-label={t('variableManager.actions.close', {defaultValue: '关闭变量管理'})}
+                    onClick={onClose}
+                >
+                    <X size={14} strokeWidth={2.1} aria-hidden="true"/>
+                </button>
+            </div>
+
+            <section style={{display: 'flex', flexDirection: 'column', gap: 10, flex: '1 1 auto', minHeight: 0}}>
+                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                    <strong style={{fontSize: 12, color: '#334155'}}>
+                        {t('variableManager.sections.list', {
+                            defaultValue: '变量列表',
                         })}
+                    </strong>
+                    <button
+                        type="button"
+                        style={buttonStyle}
+                        onClick={beginCreate}
+                        data-testid="variable-manager-new-button"
+                    >
+                        {t('variableManager.actions.new', {defaultValue: '新建变量'})}
+                    </button>
+                </div>
+                <div
+                    style={{
+                        position: 'relative',
+                        flex: '1 1 auto',
+                        minHeight: 0,
+                        overflow: 'auto',
+                    }}
+                    ref={listViewportRef}
+                >
+                    <div
+                        style={{
+                            display: 'grid',
+                            gap: 8,
+                            alignContent: 'start',
+                            opacity: isCreating ? 0.18 : 1,
+                            pointerEvents: isCreating ? 'none' : undefined,
+                            userSelect: isCreating ? 'none' : undefined,
+                            minHeight: '100%',
+                        }}
+                        data-testid="variable-manager-list"
+                    >
+                        {variables.length === 0 ? (
+                            <div style={{fontSize: 12, color: '#64748b'}} data-testid="variable-manager-empty">
+                                {t('variableManager.empty', {
+                                    defaultValue: '当前图还没有变量。',
+                                })}
+                            </div>
+                        ) : (
+                            orderedVariables.map((variable) => {
+                                const usageCount = getVariableUsages(variable.name).length;
+                                const selected = !isCreating && variable.name === selectedVariableName;
+
+                                return (
+                                    <div
+                                        key={variable.name}
+                                        style={{display: 'grid', gap: 8}}
+                                        data-testid={`variable-manager-row-${variable.name}`}
+                                        ref={selected ? selectedRowRef : undefined}
+                                    >
+                                        <button
+                                            type="button"
+                                            style={selected ? selectedListButtonStyle : listButtonStyle}
+                                            onClick={() => selectVariableForEdit(variable)}
+                                            data-testid={`variable-manager-item-${variable.name}`}
+                                        >
+                                            <div
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                    gap: 12,
+                                                    minWidth: 0,
+                                                }}
+                                            >
+                                                <div
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: 8,
+                                                        minWidth: 0,
+                                                        flex: '1 1 auto',
+                                                    }}
+                                                >
+                                                    <strong
+                                                        style={{
+                                                            fontSize: 13,
+                                                            minWidth: 0,
+                                                            overflow: 'hidden',
+                                                            textOverflow: 'ellipsis',
+                                                            whiteSpace: 'nowrap',
+                                                        }}
+                                                    >
+                                                        {variable.name}
+                                                    </strong>
+                                                    <span style={buildVariableTypeBadgeStyle(variable.value_kind)}>
+                                                        {translateValueKind(t, variable.value_kind)}
+                                                    </span>
+                                                </div>
+                                                <div
+                                                    style={variableValueTextStyle}
+                                                    title={summarizeVariableInitialValue(variable)}
+                                                >
+                                                    {summarizeVariableInitialValue(variable)}
+                                                </div>
+                                            </div>
+                                            <div style={{fontSize: 10, lineHeight: 1.2, color: '#94a3b8'}}>
+                                                {t('variableManager.usageCount', {
+                                                    defaultValue: '引用 {{count}}',
+                                                    count: usageCount,
+                                                })}
+                                            </div>
+                                        </button>
+                                    </div>
+                                );
+                            })
+                        )}
                     </div>
-                ) : (
-                    <div style={{display: 'grid', gap: 8}}>
-                        {selectedUsages.map((usage) => (
-                            <button
-                                key={`${usage.node_id}:${usage.field_name}`}
-                                type="button"
-                                style={listButtonStyle}
-                                onClick={() => {
-                                    selectNode(usage.node_id);
-                                    onClose();
-                                }}
-                                data-testid={`variable-manager-usage-${usage.node_id}-${usage.field_name}`}
-                            >
-                                <div style={{fontWeight: 600, fontSize: 13}}>
-                                    {usage.node_title || usage.node_id}
-                                </div>
-                                <div style={{fontSize: 12, color: '#475569'}}>
-                                    {`${usage.node_id} · ${usage.node_type}`}
-                                </div>
-                                <div style={{fontSize: 11, color: '#64748b'}}>
-                                    {getUsageFieldLabel(usage.field_name)}
-                                </div>
-                            </button>
-                        ))}
-                    </div>
-                )}
+                    {!isCreating && selectedVariable && (
+                        <div
+                            style={{
+                                ...overlayStyle,
+                                top: editOverlayTop,
+                            }}
+                            data-testid="variable-manager-edit-overlay"
+                        >
+                            {renderVariableForm('edit')}
+                        </div>
+                    )}
+                    {isCreating && (
+                        <div
+                            style={{
+                                ...overlayStyle,
+                                top: 0,
+                            }}
+                        >
+                            {renderVariableForm('create')}
+                        </div>
+                    )}
+                </div>
             </section>
         </aside>
     );

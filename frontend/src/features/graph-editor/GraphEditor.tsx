@@ -42,10 +42,13 @@ import 'reactflow/dist/style.css';
 import type {EdgeSpec, NodeInstanceSpec, NodeSpec, PortSpec} from '../../entities/workbench/types';
 import {apiClient} from '../../shared/api/client';
 import {changeAppLanguage, normalizeLanguage} from '../../shared/i18n/i18n';
-import {translateNodeTypeDescription, translatePortDescription} from '../../shared/i18n/label-mappers';
+import {
+    translateNodeTypeDescription,
+    translatePortDescription,
+    translateValueKind,
+} from '../../shared/i18n/label-mappers';
 import {
     getNodeBoundVariable,
-    getValueKindLabel,
     isGenericDataNodeType,
     isVisibleDataLibraryType,
 } from '../../shared/data-registry';
@@ -1125,7 +1128,7 @@ const GraphEditorInner = () => {
                         boundVariableLabel: getNodeBoundVariable(graph.metadata, node)?.name ?? null,
                         boundVariableKindLabel: (() => {
                             const variable = getNodeBoundVariable(graph.metadata, node);
-                            return variable ? getValueKindLabel(variable.value_kind) : null;
+                            return variable ? translateValueKind(t, variable.value_kind) : null;
                         })(),
                         isEditing: node.node_id === selectedNodeId,
                         isValidationError: highlighted,
@@ -1832,7 +1835,7 @@ const GraphEditorInner = () => {
                         <button
                             type="button"
                             style={nodeLibraryCloseButtonStyle}
-                            aria-label="Close node library"
+                            aria-label={t('graphEditor.drawer.close')}
                             onClick={() => setLeftDrawer(null)}
                         >
                             <X size={14} strokeWidth={2.1} aria-hidden="true"/>

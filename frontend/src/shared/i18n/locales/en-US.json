@@ -62,10 +62,26 @@
     "history": {
       "title": "History",
       "toggle": "Open history",
-      "empty": "No graph edits yet"
+      "empty": "No graph edits yet",
+      "labels": {
+        "graphMetaUpdated": "Updated graph metadata",
+        "nodesUpdated": "Updated nodes",
+        "edgesUpdated": "Updated edges",
+        "variableCreated": "Created variable",
+        "variableUpdated": "Updated variable",
+        "variableRenamed": "Renamed variable",
+        "variableDeleted": "Deleted variable",
+        "nodeUpdated": "Updated node",
+        "nodeCreated": "Created node",
+        "nodeConfigUpdated": "Updated node config",
+        "nodeDeleted": "Deleted node",
+        "undo": "Undo: {{action}}",
+        "redo": "Redo: {{action}}"
+      }
     },
     "inspector": {
-      "title": "Node Inspector"
+      "title": "Node Inspector",
+      "close": "Close node inspector"
     },
     "persistence": {
       "title": "Graph Repository",
@@ -148,6 +164,7 @@
     },
     "drawer": {
       "title": "Node Library",
+      "close": "Close node library",
       "tip": "Drag to canvas or click to add quickly.",
       "add": "Add to Canvas",
       "inputs": "Inputs",
@@ -163,7 +180,8 @@
       "syncInitiator": "Sync initiator",
       "syncExecutor": "Sync executor",
       "passiveNode": "Passive node",
-      "dataType": "Data type"
+      "dataType": "Data type",
+      "dataRefUnbound": "Unbound"
     },
     "zoom": {
       "decrease": "Zoom out 10%",
@@ -283,6 +301,17 @@
       "clear": "Clear binding"
     },
     "data": {
+      "ref": {
+        "variable": "Bound Variable",
+        "showCreate": "Create Variable",
+        "hideCreate": "Hide Variable Form",
+        "variableName": "Variable Name",
+        "duplicateName": "Variable name already exists. Use a unique name.",
+        "valueKind": "Variable Type",
+        "initialValue": "Initial Value",
+        "initialValueJson": "Initial Value JSON",
+        "createAndBind": "Create and Bind"
+      },
       "scalarType": "Value Type",
       "scalarTypes": {
         "integer": "Integer",
@@ -292,7 +321,7 @@
       "initialValue": "Initial Value",
       "initialValueJson": "Initial Value JSON",
       "writer": {
-        "target": "Target Container",
+        "target": "Target Variable",
         "operation": "Operation",
         "operations": {
           "add": "Add",
@@ -308,9 +337,11 @@
         "operandMode": "Operand Source",
         "operandModes": {
           "literal": "Literal",
-          "container": "Container"
+          "container": "Container",
+          "variable": "Variable"
         },
         "operandContainer": "Operand Container",
+        "operandVariable": "Operand Variable",
         "literalValue": "Literal Operand",
         "fieldPath": "Field Path"
       }
@@ -517,6 +548,30 @@
       "abortCount": "Abort Count: {{count}}",
       "abortReasons": "Abort Reasons: {{reasons}}",
       "abortReasonsEmpty": "Abort Reasons: None"
+    }
+  },
+  "graphVariable": {
+    "valueKinds": {
+      "scalarInt": "Integer",
+      "scalarFloat": "Float",
+      "scalarString": "String",
+      "jsonList": "List",
+      "jsonDict": "Object",
+      "jsonAny": "JSON"
+    },
+    "usageFields": {
+      "variableName": "Bound Variable",
+      "targetVariableName": "Target Variable",
+      "operandVariableName": "Operand Variable"
+    },
+    "errors": {
+      "emptyName": "Variable name cannot be empty",
+      "duplicateName": "Variable name already exists: {{name}}",
+      "invalidIntegerInitialValue": "Invalid integer initial value",
+      "invalidFloatInitialValue": "Invalid float initial value",
+      "invalidJsonInitialValue": "Initial value JSON is invalid",
+      "listInitialValueMustBeArray": "List initial value must be an array",
+      "dictInitialValueMustBeObject": "Object initial value must be an object"
     }
   },
   "variableManager": {

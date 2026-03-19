@@ -6,7 +6,6 @@ import {apiClient, ApiClientError} from '../../shared/api/client';
 import {
     GRAPH_VARIABLE_VALUE_KINDS,
     findGraphVariable,
-    getValueKindLabel,
     isDuplicateGraphVariableName,
     isDataWriterType,
     isGenericDataNodeType,
@@ -18,6 +17,7 @@ import {
     parseVariableInitialValue,
     type GraphVariableDraft,
 } from '../../shared/graph-variables';
+import {translateValueKind} from '../../shared/i18n/label-mappers';
 import {SchemaForm} from '../../shared/schema-form/SchemaForm';
 import {applySchemaDefaults, findPlaintextSecretPaths} from '../../shared/schema-form/normalize-schema';
 import {useGraphStore} from '../../shared/state/graph-store';
@@ -293,6 +293,16 @@ export function NodeConfigPanel() {
         },
         [graphMetadata, variableDraft.name],
     );
+    const variableParseMessages = useMemo(
+        () => ({
+            invalidIntegerInitialValue: t('graphVariable.errors.invalidIntegerInitialValue'),
+            invalidFloatInitialValue: t('graphVariable.errors.invalidFloatInitialValue'),
+            invalidJsonInitialValue: t('graphVariable.errors.invalidJsonInitialValue'),
+            listInitialValueMustBeArray: t('graphVariable.errors.listInitialValueMustBeArray'),
+            dictInitialValueMustBeObject: t('graphVariable.errors.dictInitialValueMustBeObject'),
+        }),
+        [t],
+    );
 
     useEffect(() => {
         let cancelled = false;
@@ -473,15 +483,20 @@ export function NodeConfigPanel() {
         try {
             const name = variableDraft.name.trim();
             if (!name) {
-                throw new Error('变量名称不能为空');
+                throw new Error(t('graphVariable.errors.emptyName'));
             }
             if (isDuplicateGraphVariableName(graphMetadata, name)) {
-                throw new Error(`变量名称已存在: ${name}`);
+                throw new Error(
+                    t('graphVariable.errors.duplicateName', {
+                        name,
+                    }),
+                );
             }
             const initialValue = parseVariableInitialValue(
                 variableDraft.valueKind,
                 variableDraft.scalarInitialValue,
                 variableDraft.jsonInitialValue,
+                variableParseMessages,
             );
             const created = createVariable({
                 name,
@@ -489,7 +504,11 @@ export function NodeConfigPanel() {
                 initial_value: initialValue,
             });
             if (!created) {
-                throw new Error(`变量名称已存在: ${name}`);
+                throw new Error(
+                    t('graphVariable.errors.duplicateName', {
+                        name,
+                    }),
+                );
             }
             commitRuntimeConfigChange({
                 ...runtimeConfigDraft,
@@ -611,14 +630,14 @@ export function NodeConfigPanel() {
                             <option value="">{t('nodeConfig.form.emptyValue')}</option>
                             {graphVariables.map((variable) => (
                                 <option key={variable.name} value={variable.name}>
-                                    {variable.name} ({getValueKindLabel(variable.value_kind)})
+                                    {variable.name} ({translateValueKind(t, variable.value_kind)})
                                 </option>
                             ))}
                         </select>
                     </label>
                     {selectedDataRefVariable && (
                         <div style={{fontSize: 12, color: '#475569'}} data-testid="node-config-bound-variable-summary">
-                            {`${selectedDataRefVariable.name} · ${getValueKindLabel(selectedDataRefVariable.value_kind)}`}
+                            {`${selectedDataRefVariable.name} · ${translateValueKind(t, selectedDataRefVariable.value_kind)}`}
                         </div>
                     )}
                     <div style={{display: 'flex', justifyContent: 'flex-start'}}>
@@ -671,7 +690,7 @@ export function NodeConfigPanel() {
                                 >
                                     {GRAPH_VARIABLE_VALUE_KINDS.map((valueKind) => (
                                         <option key={valueKind} value={valueKind}>
-                                            {getValueKindLabel(valueKind)}
+                                            {translateValueKind(t, valueKind)}
                                         </option>
                                     ))}
                                 </select>
@@ -746,7 +765,7 @@ export function NodeConfigPanel() {
                             <option value="">{t('nodeConfig.form.emptyValue')}</option>
                             {graphVariables.map((variable) => (
                                 <option key={variable.name} value={variable.name}>
-                                    {variable.name} ({getValueKindLabel(variable.value_kind)})
+                                    {variable.name} ({translateValueKind(t, variable.value_kind)})
                                 </option>
                             ))}
                         </select>
@@ -813,7 +832,7 @@ export function NodeConfigPanel() {
                                             .filter((variable) => variable.value_kind.startsWith('scalar.'))
                                             .map((variable) => (
                                                 <option key={variable.name} value={variable.name}>
-                                                    {variable.name} ({getValueKindLabel(variable.value_kind)})
+                                                    {variable.name} ({translateValueKind(t, variable.value_kind)})
                                                 </option>
                                             ))}
                                     </select>

@@ -75,6 +75,19 @@ interface InternalGraphState extends GraphState {
 
 const HISTORY_LIMIT = 100;
 const DEFAULT_GRAPH_ID = 'graph_new';
+const HISTORY_LABELS = {
+    graphMetaUpdated: 'graphMetaUpdated',
+    nodesUpdated: 'nodesUpdated',
+    edgesUpdated: 'edgesUpdated',
+    variableCreated: 'variableCreated',
+    variableUpdated: 'variableUpdated',
+    variableRenamed: 'variableRenamed',
+    variableDeleted: 'variableDeleted',
+    nodeUpdated: 'nodeUpdated',
+    nodeCreated: 'nodeCreated',
+    nodeConfigUpdated: 'nodeConfigUpdated',
+    nodeDeleted: 'nodeDeleted',
+} as const;
 
 const createDefaultGraph = (graphId = DEFAULT_GRAPH_ID): GraphSpec => ({
     graph_id: graphId,
@@ -183,7 +196,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
                 graph_id: graphId.trim() || state.graph.graph_id,
                 version: version.trim() || state.graph.version,
             };
-            return commitGraphUpdate(state, nextGraph, '更新图元信息');
+            return commitGraphUpdate(state, nextGraph, HISTORY_LABELS.graphMetaUpdated);
         }),
     setMetadata: (metadata) =>
         set((current) => {
@@ -208,7 +221,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
                 ...state.graph,
                 nodes,
             };
-            return commitGraphUpdate(state, nextGraph, '更新节点集合');
+            return commitGraphUpdate(state, nextGraph, HISTORY_LABELS.nodesUpdated);
         }),
     setEdges: (edges) =>
         set((current) => {
@@ -217,7 +230,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
                 ...state.graph,
                 edges,
             };
-            return commitGraphUpdate(state, nextGraph, '更新连线集合');
+            return commitGraphUpdate(state, nextGraph, HISTORY_LABELS.edgesUpdated);
         }),
     createVariable: (variable) => {
         const normalizedName = variable.name.trim();
@@ -242,7 +255,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
                 ]),
             };
             changed = !sameGraph(state.graph, nextGraph);
-            return commitGraphUpdate(state, nextGraph, '新增变量');
+            return commitGraphUpdate(state, nextGraph, HISTORY_LABELS.variableCreated);
         });
         return changed;
     },
@@ -274,7 +287,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
                 metadata: replaceGraphVariables(state.graph.metadata, nextVariables),
             };
             changed = !sameGraph(state.graph, nextGraph);
-            return commitGraphUpdate(state, nextGraph, '更新变量');
+            return commitGraphUpdate(state, nextGraph, HISTORY_LABELS.variableUpdated);
         });
         return changed;
     },
@@ -303,7 +316,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
                 metadata: replaceGraphVariables(state.graph.metadata, nextVariables),
             };
             changed = !sameGraph(state.graph, nextGraph);
-            return commitGraphUpdate(state, nextGraph, '重命名变量');
+            return commitGraphUpdate(state, nextGraph, HISTORY_LABELS.variableRenamed);
         });
         return changed;
     },
@@ -325,7 +338,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
                 metadata: replaceGraphVariables(state.graph.metadata, nextVariables),
             };
             changed = !sameGraph(state.graph, nextGraph);
-            return commitGraphUpdate(state, nextGraph, '删除变量');
+            return commitGraphUpdate(state, nextGraph, HISTORY_LABELS.variableDeleted);
         });
         return changed;
     },
@@ -354,7 +367,11 @@ export const useGraphStore = create<GraphState>((set, get) => ({
                 ...state.graph,
                 nodes: nextNodes,
             };
-            return commitGraphUpdate(state, nextGraph, existingIndex >= 0 ? '更新节点' : '新增节点');
+            return commitGraphUpdate(
+                state,
+                nextGraph,
+                existingIndex >= 0 ? HISTORY_LABELS.nodeUpdated : HISTORY_LABELS.nodeCreated,
+            );
         }),
     patchNode: (nodeId, patch) =>
         set((current) => {
@@ -378,7 +395,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
                 ...state.graph,
                 nodes: nextNodes,
             };
-            return commitGraphUpdate(state, nextGraph, '更新节点配置');
+            return commitGraphUpdate(state, nextGraph, HISTORY_LABELS.nodeConfigUpdated);
         }),
     removeNode: (nodeId) =>
         set((current) => {
@@ -399,7 +416,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
                 nodes: nextNodes,
                 edges: nextEdges,
             };
-            return commitGraphUpdate(state, nextGraph, '删除节点');
+            return commitGraphUpdate(state, nextGraph, HISTORY_LABELS.nodeDeleted);
         }),
     selectNode: (nodeId) => set(() => ({selectedNodeId: nodeId})),
     undo: () =>
@@ -428,7 +445,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
                 canRedo: nextFuture.length > 0,
                 _past: nextPast,
                 _future: nextFuture,
-                ...appendHistoryEntry(state, `撤销：${checkpoint.label}`),
+                ...appendHistoryEntry(state, `undo:${checkpoint.label}`),
                 ...createEmptyValidationState(),
             };
         }),
@@ -458,7 +475,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
                 canRedo: nextFuture.length > 0,
                 _past: nextPast,
                 _future: nextFuture,
-                ...appendHistoryEntry(state, `重做：${checkpoint.label}`),
+                ...appendHistoryEntry(state, `redo:${checkpoint.label}`),
                 ...createEmptyValidationState(),
             };
         }),
