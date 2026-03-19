@@ -1,12 +1,9 @@
-import {useEffect, useMemo, useRef, useState, type CSSProperties} from 'react';
+import {useEffect, useMemo, useState, type CSSProperties} from 'react';
 import {X} from 'lucide-react';
 import {useTranslation} from 'react-i18next';
 
 import {type GraphVariableSpec} from '../../entities/workbench/types';
-import {
-    GRAPH_VARIABLE_VALUE_KINDS,
-    readDataRegistry,
-} from '../../shared/data-registry';
+import {GRAPH_VARIABLE_VALUE_KINDS, readDataRegistry} from '../../shared/data-registry';
 import {
     createDefaultVariableDraft,
     formatVariableInitialValue,
@@ -64,9 +61,8 @@ const listButtonStyle: CSSProperties = {
 
 const selectedListButtonStyle: CSSProperties = {
     ...listButtonStyle,
-    border: '1px solid #93c5fd',
-    background: '#eff6ff',
-    boxShadow: '0 10px 24px rgba(147, 197, 253, 0.16)',
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
 };
 
 const editorPanelStyle: CSSProperties = {
@@ -74,10 +70,9 @@ const editorPanelStyle: CSSProperties = {
     flexDirection: 'column',
     gap: 10,
     padding: '12px 12px 14px',
-    border: '1px solid #bfdbfe',
+    border: '1px solid #dce3ee',
     borderRadius: 12,
-    background: 'linear-gradient(180deg, rgba(239, 246, 255, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%)',
-    boxShadow: '0 16px 28px rgba(59, 130, 246, 0.14)',
+    background: 'rgba(255, 255, 255, 0.98)',
     height: '100%',
     boxSizing: 'border-box',
     overflow: 'auto',
@@ -94,11 +89,12 @@ const overlayStyle: CSSProperties = {
 const overlayPanelStyle: CSSProperties = {
     ...editorPanelStyle,
     background: 'rgba(255, 255, 255, 0.98)',
-    boxShadow: '0 22px 40px rgba(15, 23, 42, 0.12)',
 };
 
-const DEFAULT_EXPANDED_PANEL_TOP = 92;
-const LIST_GAP = 8;
+const OVERLAY_GAP = 8;
+const FLOATING_CARD_TRANSITION = 'transform 240ms cubic-bezier(0.22, 1, 0.36, 1)';
+const PANEL_ENTER_TRANSITION = 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)';
+const PANEL_HIDDEN_TRANSFORM = 'translateY(calc(100% + 16px))';
 
 const buildVariableTypeBadgeStyle = (valueKind: GraphVariableSpec['value_kind']): CSSProperties => {
     const color = valueKind.startsWith('scalar.') ? '#0f766e' : '#c2410c';
@@ -112,6 +108,17 @@ const buildVariableTypeBadgeStyle = (valueKind: GraphVariableSpec['value_kind'])
         flexShrink: 0,
         lineHeight: 1.4,
     };
+};
+
+const constantBadgeStyle: CSSProperties = {
+    fontSize: 10,
+    borderRadius: 999,
+    padding: '1px 6px',
+    background: 'rgba(59, 130, 246, 0.12)',
+    color: '#1d4ed8',
+    border: '1px solid rgba(59, 130, 246, 0.3)',
+    flexShrink: 0,
+    lineHeight: 1.4,
 };
 
 const variableValueTextStyle: CSSProperties = {
@@ -178,6 +185,21 @@ const labelStyle: CSSProperties = {
     color: '#334155',
 };
 
+const readonlyValueStyle: CSSProperties = {
+    marginTop: 4,
+    border: '1px solid rgba(148, 163, 184, 0.28)',
+    borderRadius: 8,
+    padding: '8px 10px',
+    fontSize: 13,
+    color: '#334155',
+    background: '#f8fafc',
+    minHeight: 18,
+    display: 'flex',
+    alignItems: 'center',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+};
+
 const messageStyle: CSSProperties = {
     fontSize: 12,
     padding: '8px 10px',
@@ -188,6 +210,7 @@ const buildDraftFromVariable = (variable: GraphVariableSpec): GraphVariableDraft
     const formatted = formatVariableInitialValue(variable);
     return {
         name: variable.name,
+        isConstant: Boolean(variable.is_constant),
         valueKind: variable.value_kind,
         scalarInitialValue: formatted.scalar || (variable.value_kind === 'scalar.int' ? '0' : ''),
         jsonInitialValue: formatted.json,
@@ -215,28 +238,18 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
     const [draft, setDraft] = useState<GraphVariableDraft>(createDefaultVariableDraft());
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
-    const [editOverlayTop, setEditOverlayTop] = useState(DEFAULT_EXPANDED_PANEL_TOP);
-    const listViewportRef = useRef<HTMLDivElement | null>(null);
-    const selectedRowRef = useRef<HTMLDivElement | null>(null);
+    const [overlayEntered, setOverlayEntered] = useState(false);
+    const [floatingCardStartTop, setFloatingCardStartTop] = useState(0);
 
     const selectedVariable = useMemo(
         () => variables.find((variable) => variable.name === selectedVariableName) ?? null,
         [selectedVariableName, variables],
     );
+    const selectedVariableIsConstant = Boolean(selectedVariable?.is_constant);
     const selectedUsages = useMemo(
         () => (!isCreating && selectedVariableName ? getVariableUsages(selectedVariableName) : []),
         [getVariableUsages, isCreating, selectedVariableName],
     );
-    const orderedVariables = useMemo(() => {
-        if (isCreating || !selectedVariableName) {
-            return variables;
-        }
-        const activeVariable = variables.find((variable) => variable.name === selectedVariableName);
-        if (!activeVariable) {
-            return variables;
-        }
-        return [activeVariable, ...variables.filter((variable) => variable.name !== selectedVariableName)];
-    }, [isCreating, selectedVariableName, variables]);
     const duplicateName = useMemo(() => {
         const normalizedName = draft.name.trim();
         if (!normalizedName) {
@@ -258,6 +271,14 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
         }),
         [t],
     );
+    const activeOverlayMode = isCreating ? 'create' : selectedVariable ? 'edit' : null;
+    const constantReadonlyMessage = t('variableManager.errors.constantReadonly', {
+        defaultValue: '常量只能创建，不能修改或删除',
+    });
+    const clearFeedback = () => {
+        setErrorMessage(null);
+        setSuccessMessage(null);
+    };
 
     useEffect(() => {
         if (!open) {
@@ -266,38 +287,31 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
         if (isCreating) {
             return;
         }
-        if (selectedVariableName && selectedVariable) {
-            return;
-        }
-        const firstVariable = variables[0] ?? null;
-        if (!firstVariable) {
+        if (variables.length === 0) {
             setIsCreating(true);
             setSelectedVariableName(null);
             setDraft(createDefaultVariableDraft());
             return;
         }
-        setSelectedVariableName(firstVariable.name);
-        setDraft(buildDraftFromVariable(firstVariable));
+        if (selectedVariableName && !selectedVariable) {
+            setSelectedVariableName(null);
+            setDraft(createDefaultVariableDraft());
+        }
     }, [isCreating, open, selectedVariable, selectedVariableName, variables]);
 
     useEffect(() => {
-        if (!open || isCreating || !selectedVariableName) {
+        if (!activeOverlayMode) {
+            setOverlayEntered(false);
             return;
         }
-        const viewport = listViewportRef.current;
-        const row = selectedRowRef.current;
-        if (!viewport || !row) {
-            setEditOverlayTop(DEFAULT_EXPANDED_PANEL_TOP);
-            return;
-        }
-        const measuredTop = row.offsetTop;
-        const measuredHeight = row.offsetHeight;
-        const nextTop =
-            measuredHeight > 0
-                ? measuredTop + measuredHeight + LIST_GAP
-                : DEFAULT_EXPANDED_PANEL_TOP;
-        setEditOverlayTop(nextTop);
-    }, [isCreating, open, orderedVariables, selectedVariableName]);
+        setOverlayEntered(false);
+        const frame = window.requestAnimationFrame(() => {
+            setOverlayEntered(true);
+        });
+        return () => {
+            window.cancelAnimationFrame(frame);
+        };
+    }, [activeOverlayMode, selectedVariableName]);
 
     if (!open) {
         return null;
@@ -306,21 +320,31 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
     const beginCreate = () => {
         setIsCreating(true);
         setSelectedVariableName(null);
+        setFloatingCardStartTop(0);
         setDraft(createDefaultVariableDraft());
-        setErrorMessage(null);
-        setSuccessMessage(null);
+        clearFeedback();
     };
 
-    const selectVariableForEdit = (variable: GraphVariableSpec) => {
+    const selectVariableForEdit = (variable: GraphVariableSpec, sourceTop = 0) => {
+        if (!isCreating && selectedVariableName === variable.name) {
+            setSelectedVariableName(null);
+            setFloatingCardStartTop(0);
+            setDraft(createDefaultVariableDraft());
+            clearFeedback();
+            return;
+        }
         setIsCreating(false);
         setSelectedVariableName(variable.name);
+        setFloatingCardStartTop(sourceTop);
         setDraft(buildDraftFromVariable(variable));
-        setErrorMessage(null);
-        setSuccessMessage(null);
+        clearFeedback();
     };
 
     const handleSave = () => {
         try {
+            if (!isCreating && selectedVariableIsConstant) {
+                throw new Error(constantReadonlyMessage);
+            }
             const normalizedName = draft.name.trim();
             if (!normalizedName) {
                 throw new Error(
@@ -346,6 +370,7 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
             if (isCreating || !selectedVariableName) {
                 const created = createVariable({
                     name: normalizedName,
+                    is_constant: draft.isConstant,
                     value_kind: draft.valueKind,
                     initial_value: initialValue,
                 });
@@ -356,8 +381,9 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
                         }),
                     );
                 }
-                const nextVariable = {
+                const nextVariable: GraphVariableSpec = {
                     name: normalizedName,
+                    is_constant: draft.isConstant,
                     value_kind: draft.valueKind,
                     initial_value: initialValue,
                 };
@@ -405,8 +431,9 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
                 }
             }
 
-            const nextVariable = {
+            const nextVariable: GraphVariableSpec = {
                 name: effectiveName,
+                is_constant: selectedVariableIsConstant,
                 value_kind: draft.valueKind,
                 initial_value: initialValue,
             };
@@ -426,6 +453,11 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
 
     const handleDelete = () => {
         if (!selectedVariableName) {
+            return;
+        }
+        if (selectedVariableIsConstant) {
+            setErrorMessage(constantReadonlyMessage);
+            setSuccessMessage(null);
             return;
         }
         const usages = getVariableUsages(selectedVariableName);
@@ -476,61 +508,135 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
 
     const renderVariableForm = (mode: 'create' | 'edit') => {
         const isEditMode = mode === 'edit';
+        const readonly = isEditMode && selectedVariableIsConstant;
+        const kindLabel = draft.isConstant
+            ? t('graphVariable.entryKinds.constant', {defaultValue: '常量'})
+            : t('graphVariable.entryKinds.variable', {defaultValue: '变量'});
+        const initialValueSummary = draft.valueKind.startsWith('json.')
+            ? draft.jsonInitialValue
+            : draft.scalarInitialValue;
 
         return (
             <div
-                style={isEditMode ? editorPanelStyle : overlayPanelStyle}
+                style={{
+                    ...(isEditMode ? editorPanelStyle : overlayPanelStyle),
+                    transform: overlayEntered ? 'translateY(0)' : PANEL_HIDDEN_TRANSFORM,
+                    transition: PANEL_ENTER_TRANSITION,
+                }}
                 data-testid={isEditMode ? 'variable-manager-edit-panel' : 'variable-manager-create-overlay'}
             >
                 <strong style={{fontSize: 12, color: '#334155'}}>
-                    {isEditMode
-                        ? t('variableManager.sections.edit', {defaultValue: '编辑变量'})
-                        : t('variableManager.sections.create', {defaultValue: '新建变量'})}
+                    {readonly
+                        ? t('variableManager.sections.readonly', {defaultValue: '常量详情'})
+                        : isEditMode
+                            ? t('variableManager.sections.edit', {defaultValue: '编辑变量'})
+                            : t('variableManager.sections.create', {defaultValue: '新建变量'})}
                 </strong>
+                {readonly && (
+                    <div
+                        style={{
+                            ...messageStyle,
+                            color: '#1d4ed8',
+                            background: 'rgba(219, 234, 254, 0.8)',
+                        }}
+                        data-testid="variable-manager-readonly-hint"
+                    >
+                        {t('variableManager.readonlyHint', {
+                            defaultValue: '常量只能创建，不能修改或删除。',
+                        })}
+                    </div>
+                )}
                 <label style={labelStyle}>
                     {t('variableManager.fields.name', {defaultValue: '变量名称'})}
-                    <input
-                        value={draft.name}
-                        style={duplicateName ? invalidInputStyle : inputStyle}
-                        onChange={(event) => {
-                            setDraft((current) => ({...current, name: event.target.value}));
-                            setErrorMessage(null);
-                            setSuccessMessage(null);
-                        }}
-                        data-testid="variable-manager-name-input"
-                    />
+                    {readonly ? (
+                        <div style={readonlyValueStyle} data-testid="variable-manager-name-readonly">
+                            {draft.name}
+                        </div>
+                    ) : (
+                        <input
+                            value={draft.name}
+                            style={duplicateName ? invalidInputStyle : inputStyle}
+                            onChange={(event) => {
+                                setDraft((current) => ({...current, name: event.target.value}));
+                                clearFeedback();
+                            }}
+                            data-testid="variable-manager-name-input"
+                        />
+                    )}
+                </label>
+                <label style={labelStyle}>
+                    {t('variableManager.fields.kind', {defaultValue: '条目类型'})}
+                    {isEditMode ? (
+                        <div style={readonlyValueStyle} data-testid="variable-manager-kind-readonly">
+                            {kindLabel}
+                        </div>
+                    ) : (
+                        <select
+                            value={draft.isConstant ? 'constant' : 'variable'}
+                            style={inputStyle}
+                            onChange={(event) => {
+                                setDraft((current) => ({
+                                    ...current,
+                                    isConstant: event.target.value === 'constant',
+                                }));
+                                clearFeedback();
+                            }}
+                            data-testid="variable-manager-kind-select"
+                        >
+                            <option value="variable">
+                                {t('graphVariable.entryKinds.variable', {defaultValue: '变量'})}
+                            </option>
+                            <option value="constant">
+                                {t('graphVariable.entryKinds.constant', {defaultValue: '常量'})}
+                            </option>
+                        </select>
+                    )}
                 </label>
                 <label style={labelStyle}>
                     {t('variableManager.fields.type', {defaultValue: '变量类型'})}
-                    <select
-                        value={draft.valueKind}
-                        style={inputStyle}
-                        onChange={(event) => {
-                            const nextValueKind = event.target.value as GraphVariableSpec['value_kind'];
-                            setDraft((current) => ({
-                                ...current,
-                                valueKind: nextValueKind,
-                                scalarInitialValue:
-                                    nextValueKind === 'scalar.string'
-                                        ? current.scalarInitialValue
-                                        : nextValueKind === 'scalar.int'
-                                            ? current.scalarInitialValue || '0'
-                                            : current.scalarInitialValue,
-                                jsonInitialValue: current.jsonInitialValue,
-                            }));
-                            setErrorMessage(null);
-                            setSuccessMessage(null);
-                        }}
-                        data-testid="variable-manager-type-select"
-                    >
-                        {GRAPH_VARIABLE_VALUE_KINDS.map((valueKind) => (
-                            <option key={valueKind} value={valueKind}>
-                                {translateValueKind(t, valueKind)}
-                            </option>
-                        ))}
-                    </select>
+                    {readonly ? (
+                        <div style={readonlyValueStyle} data-testid="variable-manager-type-readonly">
+                            {translateValueKind(t, draft.valueKind)}
+                        </div>
+                    ) : (
+                        <select
+                            value={draft.valueKind}
+                            style={inputStyle}
+                            onChange={(event) => {
+                                const nextValueKind = event.target.value as GraphVariableSpec['value_kind'];
+                                setDraft((current) => ({
+                                    ...current,
+                                    valueKind: nextValueKind,
+                                    scalarInitialValue:
+                                        nextValueKind === 'scalar.string'
+                                            ? current.scalarInitialValue
+                                            : nextValueKind === 'scalar.int'
+                                                ? current.scalarInitialValue || '0'
+                                                : current.scalarInitialValue,
+                                    jsonInitialValue: current.jsonInitialValue,
+                                }));
+                                clearFeedback();
+                            }}
+                            data-testid="variable-manager-type-select"
+                        >
+                            {GRAPH_VARIABLE_VALUE_KINDS.map((valueKind) => (
+                                <option key={valueKind} value={valueKind}>
+                                    {translateValueKind(t, valueKind)}
+                                </option>
+                            ))}
+                        </select>
+                    )}
                 </label>
-                {draft.valueKind.startsWith('json.') ? (
+                {readonly ? (
+                    <label style={labelStyle}>
+                        {draft.valueKind.startsWith('json.')
+                            ? t('variableManager.fields.initialJson', {defaultValue: '初始值 JSON'})
+                            : t('variableManager.fields.initialValue', {defaultValue: '初始值'})}
+                        <div style={readonlyValueStyle} data-testid="variable-manager-initial-readonly">
+                            {initialValueSummary || ' '}
+                        </div>
+                    </label>
+                ) : draft.valueKind.startsWith('json.') ? (
                     <label style={labelStyle}>
                         {t('variableManager.fields.initialJson', {defaultValue: '初始值 JSON'})}
                         <textarea
@@ -541,8 +647,7 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
                                     ...current,
                                     jsonInitialValue: event.target.value,
                                 }));
-                                setErrorMessage(null);
-                                setSuccessMessage(null);
+                                clearFeedback();
                             }}
                             data-testid="variable-manager-json-input"
                         />
@@ -558,33 +663,34 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
                                     ...current,
                                     scalarInitialValue: event.target.value,
                                 }));
-                                setErrorMessage(null);
-                                setSuccessMessage(null);
+                                clearFeedback();
                             }}
                             data-testid="variable-manager-scalar-input"
                         />
                     </label>
                 )}
-                <div style={{display: 'flex', gap: 8}}>
-                    <button
-                        type="button"
-                        style={buttonStyle}
-                        onClick={handleSave}
-                        data-testid="variable-manager-save-button"
-                    >
-                        {t('variableManager.actions.save', {defaultValue: '保存变量'})}
-                    </button>
-                    {isEditMode && selectedVariableName && (
+                {!readonly && (
+                    <div style={{display: 'flex', gap: 8}}>
                         <button
                             type="button"
-                            style={dangerButtonStyle}
-                            onClick={handleDelete}
-                            data-testid="variable-manager-delete-button"
+                            style={buttonStyle}
+                            onClick={handleSave}
+                            data-testid="variable-manager-save-button"
                         >
-                            {t('variableManager.actions.delete', {defaultValue: '删除变量'})}
+                            {t('variableManager.actions.save', {defaultValue: '保存变量'})}
                         </button>
-                    )}
-                </div>
+                        {isEditMode && selectedVariableName && (
+                            <button
+                                type="button"
+                                style={dangerButtonStyle}
+                                onClick={handleDelete}
+                                data-testid="variable-manager-delete-button"
+                            >
+                                {t('variableManager.actions.delete', {defaultValue: '删除变量'})}
+                            </button>
+                        )}
+                    </div>
+                )}
                 {errorMessage && (
                     <div
                         style={{
@@ -654,12 +760,85 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
         );
     };
 
+    const renderVariableCard = (variable: GraphVariableSpec, selected: boolean, floating = false) => {
+        const usageCount = getVariableUsages(variable.name).length;
+
+        return (
+            <button
+                type="button"
+                style={selected ? selectedListButtonStyle : listButtonStyle}
+                onClick={(event) => {
+                    const sourceTop = floating
+                        ? 0
+                        : (event.currentTarget.parentElement as HTMLDivElement | null)?.offsetTop ?? 0;
+                    selectVariableForEdit(variable, sourceTop);
+                }}
+                data-testid={floating ? `variable-manager-floating-item-${variable.name}` : `variable-manager-item-${variable.name}`}
+            >
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        minWidth: 0,
+                    }}
+                >
+                    <div
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            minWidth: 0,
+                            flex: '1 1 auto',
+                        }}
+                    >
+                        <strong
+                            style={{
+                                fontSize: 13,
+                                minWidth: 0,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                            }}
+                        >
+                            {variable.name}
+                        </strong>
+                        {variable.is_constant ? (
+                            <span
+                                style={constantBadgeStyle}
+                                data-testid={floating ? undefined : `variable-manager-constant-badge-${variable.name}`}
+                            >
+                                {t('graphVariable.entryKinds.constant', {defaultValue: '常量'})}
+                            </span>
+                        ) : null}
+                        <span style={buildVariableTypeBadgeStyle(variable.value_kind)}>
+                            {translateValueKind(t, variable.value_kind)}
+                        </span>
+                    </div>
+                    <div
+                        style={variableValueTextStyle}
+                        title={summarizeVariableInitialValue(variable)}
+                    >
+                        {summarizeVariableInitialValue(variable)}
+                    </div>
+                </div>
+                <div style={{fontSize: 10, lineHeight: 1.2, color: '#94a3b8'}}>
+                    {t('variableManager.usageCount', {
+                        defaultValue: '引用 {{count}}',
+                        count: usageCount,
+                    })}
+                </div>
+            </button>
+        );
+    };
+
     return (
         <aside aria-label="variable-manager-drawer" style={drawerStyle} data-testid="variable-manager-drawer">
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                 <strong>
                     {t('variableManager.title', {
-                        defaultValue: '变量管理',
+                        defaultValue: '变量与常量',
                     })}
                 </strong>
                 <button
@@ -676,7 +855,7 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
                 <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                     <strong style={{fontSize: 12, color: '#334155'}}>
                         {t('variableManager.sections.list', {
-                            defaultValue: '变量列表',
+                            defaultValue: '变量与常量列表',
                         })}
                     </strong>
                     <button
@@ -685,7 +864,7 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
                         onClick={beginCreate}
                         data-testid="variable-manager-new-button"
                     >
-                        {t('variableManager.actions.new', {defaultValue: '新建变量'})}
+                        {t('variableManager.actions.new', {defaultValue: '新建变量/常量'})}
                     </button>
                 </div>
                 <div
@@ -695,7 +874,6 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
                         minHeight: 0,
                         overflow: 'auto',
                     }}
-                    ref={listViewportRef}
                 >
                     <div
                         style={{
@@ -712,74 +890,24 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
                         {variables.length === 0 ? (
                             <div style={{fontSize: 12, color: '#64748b'}} data-testid="variable-manager-empty">
                                 {t('variableManager.empty', {
-                                    defaultValue: '当前图还没有变量。',
+                                    defaultValue: '当前图还没有变量或常量。',
                                 })}
                             </div>
                         ) : (
-                            orderedVariables.map((variable) => {
-                                const usageCount = getVariableUsages(variable.name).length;
+                            variables.map((variable) => {
                                 const selected = !isCreating && variable.name === selectedVariableName;
 
                                 return (
                                     <div
                                         key={variable.name}
-                                        style={{display: 'grid', gap: 8}}
+                                        style={{
+                                            display: 'grid',
+                                            gap: 8,
+                                            visibility: selected ? 'hidden' : 'visible',
+                                        }}
                                         data-testid={`variable-manager-row-${variable.name}`}
-                                        ref={selected ? selectedRowRef : undefined}
                                     >
-                                        <button
-                                            type="button"
-                                            style={selected ? selectedListButtonStyle : listButtonStyle}
-                                            onClick={() => selectVariableForEdit(variable)}
-                                            data-testid={`variable-manager-item-${variable.name}`}
-                                        >
-                                            <div
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'space-between',
-                                                    gap: 12,
-                                                    minWidth: 0,
-                                                }}
-                                            >
-                                                <div
-                                                    style={{
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: 8,
-                                                        minWidth: 0,
-                                                        flex: '1 1 auto',
-                                                    }}
-                                                >
-                                                    <strong
-                                                        style={{
-                                                            fontSize: 13,
-                                                            minWidth: 0,
-                                                            overflow: 'hidden',
-                                                            textOverflow: 'ellipsis',
-                                                            whiteSpace: 'nowrap',
-                                                        }}
-                                                    >
-                                                        {variable.name}
-                                                    </strong>
-                                                    <span style={buildVariableTypeBadgeStyle(variable.value_kind)}>
-                                                        {translateValueKind(t, variable.value_kind)}
-                                                    </span>
-                                                </div>
-                                                <div
-                                                    style={variableValueTextStyle}
-                                                    title={summarizeVariableInitialValue(variable)}
-                                                >
-                                                    {summarizeVariableInitialValue(variable)}
-                                                </div>
-                                            </div>
-                                            <div style={{fontSize: 10, lineHeight: 1.2, color: '#94a3b8'}}>
-                                                {t('variableManager.usageCount', {
-                                                    defaultValue: '引用 {{count}}',
-                                                    count: usageCount,
-                                                })}
-                                            </div>
-                                        </button>
+                                        {renderVariableCard(variable, selected)}
                                     </div>
                                 );
                             })
@@ -789,11 +917,34 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
                         <div
                             style={{
                                 ...overlayStyle,
-                                top: editOverlayTop,
+                                top: 0,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: OVERLAY_GAP,
+                                pointerEvents: 'none',
                             }}
                             data-testid="variable-manager-edit-overlay"
                         >
-                            {renderVariableForm('edit')}
+                            <div
+                                style={{
+                                    transform: overlayEntered ? 'translateY(0)' : `translateY(${floatingCardStartTop}px)`,
+                                    transition: FLOATING_CARD_TRANSITION,
+                                    pointerEvents: 'auto',
+                                    willChange: 'transform',
+                                }}
+                                data-testid="variable-manager-floating-card"
+                            >
+                                {renderVariableCard(selectedVariable, true, true)}
+                            </div>
+                            <div
+                                style={{
+                                    flex: '1 1 auto',
+                                    minHeight: 0,
+                                    pointerEvents: 'auto',
+                                }}
+                            >
+                                {renderVariableForm('edit')}
+                            </div>
                         </div>
                     )}
                     {isCreating && (

@@ -14,7 +14,7 @@ describe('VariableManagerDrawer', () => {
         resetGraphStore();
     });
 
-    it('renders the first variable selected by default with inline edit panel', async () => {
+    it('renders variable list in collapsed state by default', async () => {
         useGraphStore.getState().createVariable({
             name: 'counter',
             value_kind: 'scalar.int',
@@ -36,11 +36,11 @@ describe('VariableManagerDrawer', () => {
         expect(within(item).getByText('整数')).toBeTruthy();
         expect(within(item).getByText('1')).toBeTruthy();
         expect(item.textContent).toContain('1');
-        expect(screen.getByTestId('variable-manager-edit-panel')).toBeTruthy();
-        expect(screen.getByTestId('variable-manager-usage-v1-variable_name')).toBeTruthy();
+        expect(screen.queryByTestId('variable-manager-edit-panel')).toBeNull();
+        expect(screen.queryByTestId('variable-manager-edit-overlay')).toBeNull();
     });
 
-    it('moves the clicked variable to the top and expands its editor below', async () => {
+    it('keeps the list order stable, expands its editor, and collapses on second click', async () => {
         useGraphStore.getState().createVariable({
             name: 'counter',
             value_kind: 'scalar.int',
@@ -63,15 +63,26 @@ describe('VariableManagerDrawer', () => {
 
         await waitFor(() => {
             expect(getListOrder()).toEqual([
-                'variable-manager-item-balance',
                 'variable-manager-item-counter',
+                'variable-manager-item-balance',
             ]);
             expect(screen.getByTestId('variable-manager-edit-overlay')).toBeTruthy();
             expect(screen.getByTestId('variable-manager-edit-panel')).toBeTruthy();
         });
+
+        fireEvent.click(screen.getByTestId('variable-manager-item-balance'));
+
+        await waitFor(() => {
+            expect(getListOrder()).toEqual([
+                'variable-manager-item-counter',
+                'variable-manager-item-balance',
+            ]);
+            expect(screen.queryByTestId('variable-manager-edit-overlay')).toBeNull();
+            expect(screen.queryByTestId('variable-manager-edit-panel')).toBeNull();
+        });
     });
 
-    it('shows a full create overlay and moves the new variable to the top after save', async () => {
+    it('shows a full create overlay and keeps the list order after save', async () => {
         useGraphStore.getState().createVariable({
             name: 'counter',
             value_kind: 'scalar.int',
@@ -104,13 +115,49 @@ describe('VariableManagerDrawer', () => {
         });
         await waitFor(() => {
             expect(getListOrder()).toEqual([
-                'variable-manager-item-fresh',
                 'variable-manager-item-counter',
                 'variable-manager-item-balance',
+                'variable-manager-item-fresh',
             ]);
             expect(screen.getByTestId('variable-manager-edit-overlay')).toBeTruthy();
             expect(screen.getByTestId('variable-manager-edit-panel')).toBeTruthy();
         });
+    });
+
+    it('creates constants and renders them as readonly details', async () => {
+        render(<VariableManagerDrawer open onClose={() => undefined}/>);
+
+        expect(screen.getByTestId('variable-manager-create-overlay')).toBeTruthy();
+
+        fireEvent.change(screen.getByTestId('variable-manager-name-input'), {
+            target: {value: 'api_key'},
+        });
+        fireEvent.change(screen.getByTestId('variable-manager-kind-select'), {
+            target: {value: 'constant'},
+        });
+        fireEvent.change(screen.getByTestId('variable-manager-type-select'), {
+            target: {value: 'scalar.string'},
+        });
+        fireEvent.change(screen.getByTestId('variable-manager-scalar-input'), {
+            target: {value: 'token-1'},
+        });
+        fireEvent.click(screen.getByTestId('variable-manager-save-button'));
+
+        await waitFor(() => {
+            expect(screen.queryByTestId('variable-manager-create-overlay')).toBeNull();
+        });
+        expect(useGraphStore.getState().graph.metadata.data_registry?.variables).toEqual([
+            {
+                name: 'api_key',
+                value_kind: 'scalar.string',
+                initial_value: 'token-1',
+                is_constant: true,
+            },
+        ]);
+        expect(screen.getByTestId('variable-manager-readonly-hint').textContent).toContain('常量');
+        expect(screen.getByTestId('variable-manager-constant-badge-api_key')).toBeTruthy();
+        expect(screen.queryByTestId('variable-manager-save-button')).toBeNull();
+        expect(screen.queryByTestId('variable-manager-delete-button')).toBeNull();
     });
 
     it('warns before deleting a referenced variable, keeps stale references, and returns to create overlay when empty', async () => {
@@ -131,6 +178,7 @@ describe('VariableManagerDrawer', () => {
 
         render(<VariableManagerDrawer open onClose={() => undefined}/>);
 
+        fireEvent.click(screen.getByTestId('variable-manager-item-counter'));
         fireEvent.click(screen.getByTestId('variable-manager-delete-button'));
 
         expect(confirmSpy).toHaveBeenCalledTimes(1);
@@ -159,6 +207,7 @@ describe('VariableManagerDrawer', () => {
 
         render(<VariableManagerDrawer open onClose={onClose}/>);
 
+        fireEvent.click(screen.getByTestId('variable-manager-item-counter'));
         const usageButton = await screen.findByTestId('variable-manager-usage-v1-variable_name');
         fireEvent.click(usageButton);
 
