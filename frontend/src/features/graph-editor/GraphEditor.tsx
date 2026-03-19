@@ -1163,6 +1163,7 @@ const GraphEditorInner = () => {
         selectNode,
         setRfEdges,
         setRfNodes,
+        t,
         validationTargets,
     ]);
 

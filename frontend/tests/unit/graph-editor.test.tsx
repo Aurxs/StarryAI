@@ -525,6 +525,74 @@ describe('GraphEditor', () => {
         });
     });
 
+    it('updates data.ref subtitle value-kind label immediately after language switch', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'data.ref',
+                            version: '0.1.0',
+                            mode: 'passive',
+                            inputs: [],
+                            outputs: [
+                                {
+                                    name: 'value',
+                                    frame_schema: 'int',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                },
+                            ],
+                            sync_config: null,
+                            config_schema: {},
+                            description: 'Passive data reference node.',
+                            tags: ['data_ref'],
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        render(<GraphEditor/>);
+
+        useGraphStore.getState().setMetadata({
+            data_registry: {
+                variables: [
+                    {
+                        name: 'message',
+                        value_kind: 'scalar.string',
+                        initial_value: 'hello',
+                    },
+                ],
+            },
+        });
+
+        fireEvent.click(screen.getByTitle('新增节点'));
+        const drawer = screen.getByLabelText('node-library-drawer');
+        fireEvent.click(await within(drawer).findByText('data.ref'));
+        useGraphStore.getState().patchNode('n1', {
+            title: 'ref-message',
+            config: {variable_name: 'message'},
+        });
+
+        const nodeCard = await screen.findByTestId('workflow-node-n1');
+
+        await waitFor(() => {
+            expect(within(nodeCard).getByTestId('workflow-node-subtitle').textContent).toBe('message · 字符串');
+        });
+
+        fireEvent.click(screen.getByRole('button', {name: '设置'}));
+        const dialog = screen.getByRole('dialog', {name: '设置'});
+        const languageSelect = within(dialog).getByLabelText('语言') as HTMLSelectElement;
+        fireEvent.change(languageSelect, {target: {value: 'en-US'}});
+
+        await waitFor(() => {
+            expect(within(nodeCard).getByTestId('workflow-node-subtitle').textContent).toBe('message · String');
+        });
+    });
+
     it('supports +/-10% zoom controls and clamps ratio to [20%, 200%] (edge path)', async () => {
         render(<GraphEditor/>);
 

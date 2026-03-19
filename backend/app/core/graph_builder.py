@@ -1209,6 +1209,11 @@ class GraphBuilder:
             )
 
         if operation in {"add", "subtract", "multiply", "divide"}:
+            numeric_scalar_kinds = {"scalar.int", "scalar.float"}
+
+            def _is_scalar_literal(value: object) -> bool:
+                return isinstance(value, (int, float, str)) and not isinstance(value, bool)
+
             operand_mode = writer_config.get("operand_mode")
             if operand_mode == "variable":
                 operand_variable_name = writer_config.get("operand_variable_name")
@@ -1233,3 +1238,62 @@ class GraphBuilder:
                                 ),
                             )
                         )
+                    elif target_variable.value_kind == "scalar.string":
+                        if operation != "add" or operand_variable.value_kind != "scalar.string":
+                            issues.append(
+                                ValidationIssue(
+                                    level="error",
+                                    code="data.writer_operand_variable_incompatible",
+                                    message=(
+                                        f"数据写入器 {writer_node_id} 的字符串变量仅支持 add 且操作数变量必须是 scalar.string，"
+                                        f"当前 operation={operation}、operand={operand_variable.value_kind}"
+                                    ),
+                                )
+                            )
+                    elif target_variable.value_kind in numeric_scalar_kinds and operand_variable.value_kind not in numeric_scalar_kinds:
+                        issues.append(
+                            ValidationIssue(
+                                level="error",
+                                code="data.writer_operand_variable_incompatible",
+                                message=(
+                                    f"数据写入器 {writer_node_id} 的数值算术操作仅允许数值操作数变量，"
+                                    f"当前目标类型={target_variable.value_kind}、operand={operand_variable.value_kind}"
+                                ),
+                            )
+                        )
+            elif operand_mode == "literal":
+                literal_value = writer_config.get("literal_value")
+                if not _is_scalar_literal(literal_value):
+                    issues.append(
+                        ValidationIssue(
+                            level="error",
+                            code="data.writer_operand_literal_invalid",
+                            message=(
+                                f"数据写入器 {writer_node_id} 的 literal_value 必须是 int/float/string，"
+                                f"当前为 {literal_value!r}"
+                            ),
+                        )
+                    )
+                elif target_variable.value_kind == "scalar.string":
+                    if operation != "add" or not isinstance(literal_value, str):
+                        issues.append(
+                            ValidationIssue(
+                                level="error",
+                                code="data.writer_operand_literal_incompatible",
+                                message=(
+                                    f"数据写入器 {writer_node_id} 的字符串变量仅支持 add 且 literal_value 必须是字符串，"
+                                    f"当前 operation={operation}、literal_value={literal_value!r}"
+                                ),
+                            )
+                        )
+                elif target_variable.value_kind in numeric_scalar_kinds and isinstance(literal_value, str):
+                    issues.append(
+                        ValidationIssue(
+                            level="error",
+                            code="data.writer_operand_literal_incompatible",
+                            message=(
+                                f"数据写入器 {writer_node_id} 的数值算术操作不允许字符串 literal_value，"
+                                f"当前目标类型={target_variable.value_kind}、literal_value={literal_value!r}"
+                            ),
+                        )
+                    )

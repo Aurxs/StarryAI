@@ -436,3 +436,83 @@ def test_graph_validation_allows_constant_as_scalar_operand_variable() -> None:
     report = GraphBuilder(create_default_registry()).validate(graph)
     assert report.valid is True
     assert report.issues == []
+
+
+def test_graph_validation_rejects_string_target_with_numeric_literal_operand() -> None:
+    graph = GraphSpec(
+        graph_id="g_data_writer_string_literal_mismatch",
+        metadata={
+            "data_registry": {
+                "variables": [
+                    {
+                        "name": "message",
+                        "value_kind": "scalar.string",
+                        "initial_value": "hello",
+                    }
+                ]
+            }
+        },
+        nodes=[
+            NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+            NodeInstanceSpec(
+                node_id="n2",
+                type_name="data.writer",
+                config={
+                    "target_variable_name": "message",
+                    "operation": "add",
+                    "operand_mode": "literal",
+                    "literal_value": 1,
+                },
+            ),
+        ],
+        edges=[
+            EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="in"),
+        ],
+    )
+
+    report = GraphBuilder(create_default_registry()).validate(graph)
+    assert report.valid is False
+    assert any(issue.code == "data.writer_operand_literal_incompatible" for issue in report.issues)
+
+
+def test_graph_validation_rejects_numeric_target_with_string_operand_variable() -> None:
+    graph = GraphSpec(
+        graph_id="g_data_writer_numeric_operand_mismatch",
+        metadata={
+            "data_registry": {
+                "variables": [
+                    {
+                        "name": "counter",
+                        "value_kind": "scalar.int",
+                        "initial_value": 1,
+                    },
+                    {
+                        "name": "suffix",
+                        "value_kind": "scalar.string",
+                        "initial_value": "!",
+                    },
+                ]
+            }
+        },
+        nodes=[
+            NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+            NodeInstanceSpec(
+                node_id="n2",
+                type_name="data.writer",
+                config={
+                    "target_variable_name": "counter",
+                    "operation": "add",
+                    "operand_mode": "variable",
+                    "operand_variable_name": "suffix",
+                },
+            ),
+        ],
+        edges=[
+            EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="in"),
+        ],
+    )
+
+    report = GraphBuilder(create_default_registry()).validate(graph)
+    assert report.valid is False
+    assert any(issue.code == "data.writer_operand_variable_incompatible" for issue in report.issues)
+
