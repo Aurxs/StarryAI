@@ -382,6 +382,7 @@ export function NodeConfigPanel() {
         setShowCreateVariable(false);
         setVariableDraft({
             name: '',
+            isConstant: selectedVariable?.is_constant ?? false,
             valueKind: selectedVariable?.value_kind ?? 'scalar.int',
             scalarInitialValue: formattedInitial.scalar || '0',
             jsonInitialValue: formattedInitial.json,
@@ -500,6 +501,7 @@ export function NodeConfigPanel() {
             );
             const created = createVariable({
                 name,
+                is_constant: variableDraft.isConstant,
                 value_kind: variableDraft.valueKind,
                 initial_value: initialValue,
             });
@@ -539,6 +541,7 @@ export function NodeConfigPanel() {
         const formattedInitial = formatVariableInitialValue(selectedVariable);
         setVariableDraft({
             name: '',
+            isConstant: selectedVariable?.is_constant ?? false,
             valueKind: selectedVariable?.value_kind ?? 'scalar.int',
             scalarInitialValue: formattedInitial.scalar || '0',
             jsonInitialValue: formattedInitial.json,
@@ -637,7 +640,7 @@ export function NodeConfigPanel() {
                     </label>
                     {selectedDataRefVariable && (
                         <div style={{fontSize: 12, color: '#475569'}} data-testid="node-config-bound-variable-summary">
-                            {`${selectedDataRefVariable.name} · ${translateValueKind(t, selectedDataRefVariable.value_kind)}`}
+                            {`${selectedDataRefVariable.name} · ${translateValueKind(t, selectedDataRefVariable.value_kind)}${selectedDataRefVariable.is_constant ? ` · ${t('graphVariable.entryKinds.constant', {defaultValue: '常量'})}` : ''}`}
                         </div>
                     )}
                     <div style={{display: 'flex', justifyContent: 'flex-start'}}>
@@ -670,6 +673,29 @@ export function NodeConfigPanel() {
                                         {t('nodeConfig.data.ref.duplicateName', {defaultValue: '变量名称重复，请使用唯一名称'})}
                                     </div>
                                 )}
+                            </label>
+                            <label style={labelStyle}>
+                                {t('nodeConfig.data.ref.kind', {defaultValue: '条目类型'})}
+                                <select
+                                    value={variableDraft.isConstant ? 'constant' : 'variable'}
+                                    style={inputStyle}
+                                    className="node-config-control"
+                                    onChange={(event) => {
+                                        setVariableDraft((current) => ({
+                                            ...current,
+                                            isConstant: event.target.value === 'constant',
+                                        }));
+                                        setErrorMessage(null);
+                                    }}
+                                    data-testid="node-config-variable-kind-select"
+                                >
+                                    <option value="variable">
+                                        {t('graphVariable.entryKinds.variable', {defaultValue: '变量'})}
+                                    </option>
+                                    <option value="constant">
+                                        {t('graphVariable.entryKinds.constant', {defaultValue: '常量'})}
+                                    </option>
+                                </select>
                             </label>
                             <label style={labelStyle}>
                                 {t('nodeConfig.data.ref.valueKind', {defaultValue: '变量类型'})}
@@ -763,11 +789,13 @@ export function NodeConfigPanel() {
                             }}
                         >
                             <option value="">{t('nodeConfig.form.emptyValue')}</option>
-                            {graphVariables.map((variable) => (
+                            {graphVariables
+                                .filter((variable) => !variable.is_constant)
+                                .map((variable) => (
                                 <option key={variable.name} value={variable.name}>
                                     {variable.name} ({translateValueKind(t, variable.value_kind)})
                                 </option>
-                            ))}
+                                ))}
                         </select>
                     </label>
                     <label style={labelStyle}>

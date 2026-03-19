@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import ValidationError
 import pytest
 
+from app.core.data_registry import parse_data_registry
 from app.core.frame import (
     Frame,
     FrameType,
@@ -171,3 +172,42 @@ def test_graph_runtime_to_dict_roundtrip() -> None:
     assert payload["metrics"]["event_total"] == 5
     assert payload["node_states"]["n1"]["metrics"]["duration_ms"] == 1000
     assert payload["edge_states"][0]["forwarded_frames"] == 3
+
+
+def test_parse_data_registry_defaults_variable_to_non_constant() -> None:
+    registry = parse_data_registry(
+        {
+            "data_registry": {
+                "variables": [
+                    {
+                        "name": "counter",
+                        "value_kind": "scalar.int",
+                        "initial_value": 1,
+                    }
+                ]
+            }
+        }
+    )
+
+    assert len(registry.variables) == 1
+    assert registry.variables[0].is_constant is False
+
+
+def test_parse_data_registry_keeps_explicit_constant_flag() -> None:
+    registry = parse_data_registry(
+        {
+            "data_registry": {
+                "variables": [
+                    {
+                        "name": "api_key",
+                        "value_kind": "scalar.string",
+                        "initial_value": "secret",
+                        "is_constant": True,
+                    }
+                ]
+            }
+        }
+    )
+
+    assert len(registry.variables) == 1
+    assert registry.variables[0].is_constant is True

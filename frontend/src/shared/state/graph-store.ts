@@ -80,6 +80,7 @@ const HISTORY_LABELS = {
     nodesUpdated: 'nodesUpdated',
     edgesUpdated: 'edgesUpdated',
     variableCreated: 'variableCreated',
+    constantCreated: 'constantCreated',
     variableUpdated: 'variableUpdated',
     variableRenamed: 'variableRenamed',
     variableDeleted: 'variableDeleted',
@@ -251,11 +252,16 @@ export const useGraphStore = create<GraphState>((set, get) => ({
                     {
                         ...variable,
                         name: normalizedName,
+                        is_constant: Boolean(variable.is_constant),
                     },
                 ]),
             };
             changed = !sameGraph(state.graph, nextGraph);
-            return commitGraphUpdate(state, nextGraph, HISTORY_LABELS.variableCreated);
+            return commitGraphUpdate(
+                state,
+                nextGraph,
+                Boolean(variable.is_constant) ? HISTORY_LABELS.constantCreated : HISTORY_LABELS.variableCreated,
+            );
         });
         return changed;
     },
@@ -273,6 +279,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
                 return state;
             }
             const currentVariable = variables[index];
+            if (currentVariable.is_constant) {
+                return state;
+            }
             const nextVariables = [...variables];
             nextVariables[index] = {
                 ...currentVariable,
@@ -302,7 +311,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
             }
             const variables = readDataRegistry(state.graph.metadata).variables;
             const index = variables.findIndex((item) => item.name === normalizedName);
-            if (index < 0 || variables.some((item) => item.name === normalizedNextName)) {
+            if (index < 0 || variables[index]?.is_constant || variables.some((item) => item.name === normalizedNextName)) {
                 return state;
             }
             const nextVariables = [...variables];
@@ -329,6 +338,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
                 return state;
             }
             const variables = readDataRegistry(state.graph.metadata).variables;
+            if (variables.some((item) => item.name === normalizedName && item.is_constant)) {
+                return state;
+            }
             const nextVariables = variables.filter((item) => item.name !== normalizedName);
             if (nextVariables.length === variables.length) {
                 return state;

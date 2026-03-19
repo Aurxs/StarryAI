@@ -50,6 +50,7 @@ class GraphDataVariable(BaseModel):
     name: str = Field(..., min_length=1)
     value_kind: DataValueKind = Field(...)
     initial_value: Any = Field(default=None)
+    is_constant: bool = Field(default=False)
 
     @field_validator("name")
     @classmethod

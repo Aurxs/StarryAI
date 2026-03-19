@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from app.core.data_registry import GraphDataVariable
 from app.core.node_base import NodeContext
 from app.core.registry import create_default_registry
@@ -344,6 +346,22 @@ def test_data_writer_applies_literal_add_operation() -> None:
             assert store.read("counter") == 7
 
     asyncio.run(_run())
+
+
+def test_runtime_data_store_rejects_writes_to_constants() -> None:
+    store = RuntimeDataStore(
+        entries={
+            "api_key": RuntimeDataEntry(
+                variable_name="api_key",
+                value_kind="scalar.string",
+                value="token-1",
+                is_constant=True,
+            ),
+        },
+    )
+
+    with pytest.raises(ValueError, match="常量"):
+        store.write("api_key", "token-2")
 
 
 def test_mock_output_node_consumes_any_payload() -> None:

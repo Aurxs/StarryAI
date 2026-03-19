@@ -28,6 +28,7 @@ const graphHistoryActionKeyMap: Record<string, string> = {
     nodesUpdated: 'workbench.history.labels.nodesUpdated',
     edgesUpdated: 'workbench.history.labels.edgesUpdated',
     variableCreated: 'workbench.history.labels.variableCreated',
+    constantCreated: 'workbench.history.labels.constantCreated',
     variableUpdated: 'workbench.history.labels.variableUpdated',
     variableRenamed: 'workbench.history.labels.variableRenamed',
     variableDeleted: 'workbench.history.labels.variableDeleted',

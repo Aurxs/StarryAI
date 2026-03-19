@@ -222,6 +222,26 @@ describe('graph store', () => {
         expect(useGraphStore.getState().graph.metadata.data_registry?.variables).toEqual([]);
     });
 
+    it('creates constants and records constant history labels', () => {
+        const created = useGraphStore.getState().createVariable({
+            name: 'api_key',
+            value_kind: 'scalar.string',
+            initial_value: 'token-1',
+            is_constant: true,
+        });
+
+        expect(created).toBe(true);
+        expect(useGraphStore.getState().graph.metadata.data_registry?.variables).toEqual([
+            {
+                name: 'api_key',
+                value_kind: 'scalar.string',
+                initial_value: 'token-1',
+                is_constant: true,
+            },
+        ]);
+        expect(useGraphStore.getState().historyEntries.at(-1)?.label).toBe('constantCreated');
+    });
+
     it('renames variables and synchronizes data node references', () => {
         useGraphStore.getState().createVariable({
             name: 'counter',
@@ -304,5 +324,33 @@ describe('graph store', () => {
         });
         expect(state.validationValid).toBeNull();
         expect(state.validationIssues).toHaveLength(0);
+    });
+
+    it('refuses to rename update or delete constants', () => {
+        useGraphStore.getState().createVariable({
+            name: 'api_key',
+            value_kind: 'scalar.string',
+            initial_value: 'token-1',
+            is_constant: true,
+        });
+
+        const renamed = useGraphStore.getState().renameVariable('api_key', 'api_key_next');
+        const updated = useGraphStore.getState().updateVariable('api_key', {
+            value_kind: 'scalar.string',
+            initial_value: 'token-2',
+        });
+        const deleted = useGraphStore.getState().deleteVariable('api_key');
+
+        expect(renamed).toBe(false);
+        expect(updated).toBe(false);
+        expect(deleted).toBe(false);
+        expect(useGraphStore.getState().graph.metadata.data_registry?.variables).toEqual([
+            {
+                name: 'api_key',
+                value_kind: 'scalar.string',
+                initial_value: 'token-1',
+                is_constant: true,
+            },
+        ]);
     });
 });

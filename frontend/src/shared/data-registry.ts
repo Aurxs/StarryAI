@@ -45,6 +45,7 @@ export const readDataRegistry = (metadata?: GraphMetadata | null): GraphDataRegi
                 name: item.name.trim(),
                 value_kind: item.value_kind,
                 initial_value: item.initial_value,
+                is_constant: Boolean(item.is_constant),
             })),
     };
 };
@@ -62,9 +63,11 @@ export const upsertGraphVariable = (
     variable: GraphVariableSpec,
 ): GraphMetadata => {
     const registry = readDataRegistry(metadata);
+    const {is_constant: _isConstant, ...restVariable} = variable;
     const normalizedVariable = {
-        ...variable,
+        ...restVariable,
         name: normalizeVariableName(variable.name),
+        ...(Boolean(variable.is_constant) ? {is_constant: true} : {}),
     };
     const existingIndex = registry.variables.findIndex((item) => item.name === normalizedVariable.name);
     const nextVariables = [...registry.variables];
@@ -87,10 +90,14 @@ export const replaceGraphVariables = (
 ): GraphMetadata => ({
     ...(metadata ?? {}),
     data_registry: {
-        variables: variables.map((variable) => ({
-            ...variable,
-            name: normalizeVariableName(variable.name),
-        })),
+        variables: variables.map((variable) => {
+            const {is_constant: _isConstant, ...restVariable} = variable;
+            return {
+                ...restVariable,
+                name: normalizeVariableName(variable.name),
+                ...(Boolean(variable.is_constant) ? {is_constant: true} : {}),
+            };
+        }),
     },
 });
 

@@ -68,6 +68,7 @@ export interface GraphVariableSpec {
     name: string;
     value_kind: GraphVariableValueKind;
     initial_value: unknown;
+    is_constant?: boolean;
 }
 
 export type GraphVariableReferenceField =

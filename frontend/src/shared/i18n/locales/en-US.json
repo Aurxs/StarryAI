@@ -68,6 +68,7 @@
         "nodesUpdated": "Updated nodes",
         "edgesUpdated": "Updated edges",
         "variableCreated": "Created variable",
+        "constantCreated": "Created constant",
         "variableUpdated": "Updated variable",
         "variableRenamed": "Renamed variable",
         "variableDeleted": "Deleted variable",
@@ -147,7 +148,7 @@
     },
     "quick": {
       "add": "Add Node",
-      "variables": "Variable Manager",
+      "variables": "Variables & Constants",
       "pointer": "Pointer Mode",
       "hand": "Hand Mode",
       "arrange": "Auto Arrange",
@@ -303,10 +304,11 @@
     "data": {
       "ref": {
         "variable": "Bound Variable",
-        "showCreate": "Create Variable",
-        "hideCreate": "Hide Variable Form",
+        "showCreate": "Create Variable/Constant",
+        "hideCreate": "Hide Creation Form",
         "variableName": "Variable Name",
         "duplicateName": "Variable name already exists. Use a unique name.",
+        "kind": "Entry Type",
         "valueKind": "Variable Type",
         "initialValue": "Initial Value",
         "initialValueJson": "Initial Value JSON",
@@ -551,6 +553,10 @@
     }
   },
   "graphVariable": {
+    "entryKinds": {
+      "variable": "Variable",
+      "constant": "Constant"
+    },
     "valueKinds": {
       "scalarInt": "Integer",
       "scalarFloat": "Float",
@@ -575,25 +581,28 @@
     }
   },
   "variableManager": {
-    "title": "Variable Manager",
-    "tip": "Manage every variable in the current graph and inspect which nodes reference it.",
-    "empty": "This graph has no variables yet.",
+    "title": "Variables & Constants",
+    "tip": "Manage every variable and constant in the current graph and inspect which nodes reference them.",
+    "empty": "This graph has no variables or constants yet.",
     "usageCount": "{{count}} reference(s)",
-    "usagesEmpty": "This variable is not referenced yet.",
+    "usagesEmpty": "This entry is not referenced yet.",
+    "readonlyHint": "Constants can be created, but cannot be modified or deleted.",
     "sections": {
-      "list": "Variables",
-      "create": "Create Variable",
+      "list": "Variables & Constants",
+      "create": "Create Variable or Constant",
       "edit": "Edit Variable",
+      "readonly": "Constant Details",
       "usages": "Usages"
     },
     "fields": {
       "name": "Variable Name",
+      "kind": "Entry Type",
       "type": "Variable Type",
       "initialValue": "Initial Value",
       "initialJson": "Initial JSON"
     },
     "actions": {
-      "new": "New Variable",
+      "new": "New Variable/Constant",
       "save": "Save Variable",
       "delete": "Delete Variable",
       "close": "Close variable manager"
@@ -609,7 +618,8 @@
       "createFailed": "Failed to create variable",
       "renameFailed": "Failed to rename variable",
       "updateFailed": "Failed to update variable",
-      "deleteFailed": "Failed to delete variable"
+      "deleteFailed": "Failed to delete variable",
+      "constantReadonly": "Constants can be created, but cannot be modified or deleted"
     },
     "confirm": {
       "deleteReferenced": "This variable is still referenced by {{count}} node(s). Deleting it will leave stale references and trigger validation errors. Continue?\n{{usageList}}"

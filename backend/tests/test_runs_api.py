@@ -398,6 +398,97 @@ def _data_variable_graph_payload() -> dict[str, Any]:
     }
 
 
+def _data_constant_graph_payload() -> dict[str, Any]:
+    return {
+        "graph": {
+            "graph_id": "g_api_data_constant",
+            "metadata": {
+                "data_registry": {
+                    "variables": [
+                        {
+                            "name": "api_key",
+                            "value_kind": "scalar.string",
+                            "initial_value": "token-1",
+                            "is_constant": True,
+                        }
+                    ]
+                }
+            },
+            "nodes": [
+                {"node_id": "n1", "type_name": "mock.input", "config": {"content": "go"}},
+                {
+                    "node_id": "n2",
+                    "type_name": "data.ref",
+                    "config": {"variable_name": "api_key"},
+                },
+                {"node_id": "n3", "type_name": "data.requester"},
+                {"node_id": "n4", "type_name": "test.capture_api"},
+            ],
+            "edges": [
+                {
+                    "source_node": "n2",
+                    "source_port": "value",
+                    "target_node": "n3",
+                    "target_port": "source",
+                },
+                {
+                    "source_node": "n1",
+                    "source_port": "text",
+                    "target_node": "n3",
+                    "target_port": "trigger",
+                },
+                {
+                    "source_node": "n3",
+                    "source_port": "value",
+                    "target_node": "n4",
+                    "target_port": "in",
+                },
+            ],
+        },
+        "stream_id": "stream_api_data_constant",
+    }
+
+
+def _data_constant_write_graph_payload() -> dict[str, Any]:
+    return {
+        "graph": {
+            "graph_id": "g_api_data_constant_write",
+            "metadata": {
+                "data_registry": {
+                    "variables": [
+                        {
+                            "name": "api_key",
+                            "value_kind": "scalar.string",
+                            "initial_value": "token-1",
+                            "is_constant": True,
+                        }
+                    ]
+                }
+            },
+            "nodes": [
+                {"node_id": "n1", "type_name": "mock.input"},
+                {
+                    "node_id": "n2",
+                    "type_name": "data.writer",
+                    "config": {
+                        "target_variable_name": "api_key",
+                        "operation": "set_from_input",
+                    },
+                },
+            ],
+            "edges": [
+                {
+                    "source_node": "n1",
+                    "source_port": "text",
+                    "target_node": "n2",
+                    "target_port": "in",
+                },
+            ],
+        },
+        "stream_id": "stream_api_data_constant_write",
+    }
+
+
 def _data_staging_graph_payload() -> dict[str, Any]:
     return {
         "graph": {
@@ -675,6 +766,21 @@ def test_create_run_updates_variable_and_requests_new_value(monkeypatch: pytest.
     assert captured_values == [3]
 
 
+def test_create_run_reads_constant_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_values: list[Any] = []
+    monkeypatch.setattr(run_service_module, "_run_service_singleton", _build_capture_run_service(captured_values))
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/runs", json=_data_constant_graph_payload())
+        assert response.status_code == 200
+        run_id = response.json()["run_id"]
+
+        final_snapshot = _wait_for_terminal_status(client, run_id)
+        assert final_snapshot["status"] == "completed"
+
+    assert captured_values == ["token-1"]
+
+
 def test_create_run_writes_motion_payload_into_staging_then_requests_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -708,6 +814,18 @@ def test_create_run_returns_422_for_invalid_graph() -> None:
         detail = resp.json()["detail"]
         assert detail["message"] == "Graph validation failed before execution"
         assert detail["report"]["valid"] is False
+
+
+def test_create_run_returns_422_for_constant_write_target() -> None:
+    with TestClient(app) as client:
+        resp = client.post("/api/v1/runs", json=_data_constant_write_graph_payload())
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert detail["message"] == "Graph validation failed before execution"
+        assert any(
+            issue["code"] == "data.writer_target_constant_forbidden"
+            for issue in detail["report"]["issues"]
+        )
 
 
 def test_create_run_returns_422_for_blank_stream_id() -> None:

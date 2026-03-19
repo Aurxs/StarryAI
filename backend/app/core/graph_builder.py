@@ -659,6 +659,17 @@ class GraphBuilder:
                                 ),
                             )
                         )
+                    elif target_variable.is_constant:
+                        issues.append(
+                            ValidationIssue(
+                                level="error",
+                                code="data.writer_target_constant_forbidden",
+                                message=(
+                                    f"数据写入器 {node_id} 的 target_variable_name 不能指向常量，"
+                                    f"当前为 {target_variable_name}"
+                                ),
+                            )
+                        )
                     else:
                         self._validate_writer_operation(
                             writer_node_id=node_id,

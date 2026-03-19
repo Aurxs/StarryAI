@@ -668,7 +668,7 @@ describe('NodeConfigPanel', () => {
         expect(jsonInput.value).toContain('"model": "gpt-4o-mini"');
     });
 
-    it('keeps inline data-ref variable creation and binds the new variable without save', async () => {
+    it('keeps inline data-ref item creation and binds a new constant without save', async () => {
         server.use(
             http.get('*/api/v1/node-types', () =>
                 HttpResponse.json({
@@ -703,21 +703,31 @@ describe('NodeConfigPanel', () => {
         render(<NodeConfigPanel/>);
 
         const panel = await screen.findByTestId('node-config-data-ref');
-        fireEvent.click(within(panel).getByRole('button', {name: '新建变量'}));
+        fireEvent.click(within(panel).getByRole('button', {name: '新建变量/常量'}));
         fireEvent.change(screen.getByTestId('node-config-variable-name-input'), {
-            target: {value: 'counter'},
+            target: {value: 'api_key'},
+        });
+        fireEvent.change(screen.getByTestId('node-config-variable-kind-select'), {
+            target: {value: 'constant'},
+        });
+        fireEvent.change(screen.getByRole('combobox', {name: '变量类型'}), {
+            target: {value: 'scalar.string'},
+        });
+        fireEvent.change(screen.getByRole('textbox', {name: '初始值'}), {
+            target: {value: 'token-1'},
         });
         fireEvent.click(screen.getByRole('button', {name: '创建并绑定'}));
 
         const state = useGraphStore.getState();
         expect(state.graph.metadata.data_registry?.variables).toEqual([
             {
-                name: 'counter',
-                value_kind: 'scalar.int',
-                initial_value: 0,
+                name: 'api_key',
+                value_kind: 'scalar.string',
+                initial_value: 'token-1',
+                is_constant: true,
             },
         ]);
-        expect(state.graph.nodes[0]?.config.variable_name).toBe('counter');
+        expect(state.graph.nodes[0]?.config.variable_name).toBe('api_key');
     });
 
     it('renders custom data writer controls and hot-updates specialized config', async () => {
@@ -761,6 +771,12 @@ describe('NodeConfigPanel', () => {
                         value_kind: 'scalar.int',
                         initial_value: 1,
                     },
+                    {
+                        name: 'step',
+                        value_kind: 'scalar.int',
+                        initial_value: 2,
+                        is_constant: true,
+                    },
                 ],
             },
         });
@@ -788,13 +804,20 @@ describe('NodeConfigPanel', () => {
         render(<NodeConfigPanel/>);
 
         const panel = await screen.findByTestId('node-config-data-writer');
-        const [, operationSelect] = within(panel).getAllByRole('combobox');
+        const [targetSelect, operationSelect] = within(panel).getAllByRole('combobox');
+        expect(within(targetSelect).queryByRole('option', {name: /step/})).toBeNull();
         fireEvent.change(operationSelect, {
             target: {value: 'multiply'},
         });
         fireEvent.change(within(panel).getByDisplayValue('2'), {
             target: {value: '4'},
         });
+
+        fireEvent.change(within(panel).getAllByRole('combobox')[2], {
+            target: {value: 'variable'},
+        });
+        const operandSelect = within(panel).getByRole('combobox', {name: '操作数变量'});
+        expect(within(operandSelect).getByRole('option', {name: /step/})).toBeTruthy();
 
         const node = useGraphStore.getState().graph.nodes.find((item) => item.node_id === 'w1');
         expect(node?.config.target_variable_name).toBe('counter');

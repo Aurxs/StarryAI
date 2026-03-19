@@ -17,6 +17,7 @@ class RuntimeDataEntry:
     variable_name: str
     value_kind: str
     value: Any
+    is_constant: bool = False
 
 
 class RuntimeDataStore:
@@ -35,6 +36,7 @@ class RuntimeDataStore:
                 variable_name=variable_name,
                 value_kind=variable.value_kind,
                 value=deepcopy(variable.initial_value),
+                is_constant=variable.is_constant,
             )
         return cls(entries=entries)
 
@@ -48,6 +50,8 @@ class RuntimeDataStore:
         return deepcopy(self._entries[variable_name].value)
 
     def write(self, variable_name: str, value: Any) -> Any:
+        if self._entries[variable_name].is_constant:
+            raise ValueError(f"变量 {variable_name} 是常量，不能写入")
         self._entries[variable_name].value = deepcopy(value)
         return self.read(variable_name)
 

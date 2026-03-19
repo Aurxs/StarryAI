@@ -2,6 +2,7 @@ import type {GraphVariableSpec, GraphVariableValueKind} from '../entities/workbe
 
 export interface GraphVariableDraft {
     name: string;
+    isConstant: boolean;
     valueKind: GraphVariableValueKind;
     scalarInitialValue: string;
     jsonInitialValue: string;
@@ -110,6 +111,7 @@ export const formatVariableInitialValue = (
 
 export const createDefaultVariableDraft = (): GraphVariableDraft => ({
     name: '',
+    isConstant: false,
     valueKind: 'scalar.int',
     scalarInitialValue: '0',
     jsonInitialValue: 'null',

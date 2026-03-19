@@ -29,6 +29,7 @@ describe('i18n core', () => {
         expect(i18n.t('nodeConfig.data.writer.operations.merge_from_input', {lng: 'zh-CN'})).toBe('合并输入对象');
         expect(i18n.t('nodeConfig.data.ref.variable', {lng: 'en-US'})).toBe('Bound Variable');
         expect(i18n.t('graphEditor.nodeTypeBadges.dataRefUnbound', {lng: 'en-US'})).toBe('Unbound');
+        expect(i18n.t('graphEditor.quick.variables', {lng: 'en-US'})).toBe('Variables & Constants');
     });
 
     it('keeps zh-CN and en-US locale keys aligned', () => {
@@ -40,6 +41,7 @@ describe('i18n core', () => {
     it('translates graph history labels and undo/redo wrappers', () => {
         const zhT = i18n.getFixedT('zh-CN');
         expect(translateGraphHistoryLabel(zhT, 'nodeConfigUpdated')).toBe('更新节点配置');
+        expect(translateGraphHistoryLabel(zhT, 'constantCreated')).toBe('新增常量');
         expect(translateGraphHistoryLabel(zhT, 'undo:nodeConfigUpdated')).toBe('撤销：更新节点配置');
         expect(i18n.t('workbench.history.labels.nodeConfigUpdated', {lng: 'en-US'})).toBe('Updated node config');
     });
