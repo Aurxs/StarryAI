@@ -70,6 +70,18 @@ export interface GraphVariableSpec {
     initial_value: unknown;
 }
 
+export type GraphVariableReferenceField =
+    | 'variable_name'
+    | 'target_variable_name'
+    | 'operand_variable_name';
+
+export interface GraphVariableUsage {
+    node_id: string;
+    node_title: string;
+    node_type: string;
+    field_name: GraphVariableReferenceField;
+}
+
 export interface GraphDataRegistry {
     variables: GraphVariableSpec[];
 }

@@ -1,7 +1,9 @@
 import type {
     GraphDataRegistry,
     GraphMetadata,
+    GraphSpec,
     GraphVariableSpec,
+    GraphVariableUsage,
     GraphVariableValueKind,
     NodeInstanceSpec,
 } from '../entities/workbench/types';
@@ -18,6 +20,8 @@ export const GRAPH_VARIABLE_VALUE_KINDS: GraphVariableValueKind[] = [
 export const createEmptyDataRegistry = (): GraphDataRegistry => ({
     variables: [],
 });
+
+const normalizeVariableName = (value: string): string => value.trim();
 
 export const ensureGraphMetadata = (metadata?: GraphMetadata | null): GraphMetadata => ({
     ...(metadata ?? {}),
@@ -60,7 +64,7 @@ export const upsertGraphVariable = (
     const registry = readDataRegistry(metadata);
     const normalizedVariable = {
         ...variable,
-        name: variable.name.trim(),
+        name: normalizeVariableName(variable.name),
     };
     const existingIndex = registry.variables.findIndex((item) => item.name === normalizedVariable.name);
     const nextVariables = [...registry.variables];
@@ -77,6 +81,19 @@ export const upsertGraphVariable = (
     };
 };
 
+export const replaceGraphVariables = (
+    metadata: GraphMetadata | null | undefined,
+    variables: GraphVariableSpec[],
+): GraphMetadata => ({
+    ...(metadata ?? {}),
+    data_registry: {
+        variables: variables.map((variable) => ({
+            ...variable,
+            name: normalizeVariableName(variable.name),
+        })),
+    },
+});
+
 export const findGraphVariable = (
     metadata: GraphMetadata | null | undefined,
     variableName: string | null | undefined,
@@ -90,7 +107,7 @@ export const findGraphVariable = (
 export const isDuplicateGraphVariableName = (
     metadata: GraphMetadata | null | undefined,
     preferredName: string,
-): boolean => readDataRegistry(metadata).variables.some((item) => item.name === preferredName.trim());
+): boolean => readDataRegistry(metadata).variables.some((item) => item.name === normalizeVariableName(preferredName));
 
 export const getVariableSchema = (valueKind: string | null | undefined): string => {
     switch (valueKind) {
@@ -143,4 +160,85 @@ export const getValueKindLabel = (valueKind: string): string => {
         default:
             return 'any';
     }
+};
+
+const collectNodeVariableUsages = (node: NodeInstanceSpec): GraphVariableUsage[] => {
+    const usages: GraphVariableUsage[] = [];
+    const pushUsage = (fieldName: GraphVariableUsage['field_name'], variableName: unknown) => {
+        if (typeof variableName !== 'string' || !normalizeVariableName(variableName)) {
+            return;
+        }
+        usages.push({
+            node_id: node.node_id,
+            node_title: node.title,
+            node_type: node.type_name,
+            field_name: fieldName,
+        });
+    };
+
+    if (isGenericDataNodeType(node.type_name)) {
+        pushUsage('variable_name', node.config.variable_name);
+    }
+    if (isDataWriterType(node.type_name)) {
+        pushUsage('target_variable_name', node.config.target_variable_name);
+        if (node.config.operand_mode === 'variable') {
+            pushUsage('operand_variable_name', node.config.operand_variable_name);
+        }
+    }
+    return usages;
+};
+
+export const getGraphVariableUsages = (
+    graph: Pick<GraphSpec, 'nodes'>,
+    variableName?: string | null,
+): GraphVariableUsage[] => {
+    const normalizedVariableName = typeof variableName === 'string' ? normalizeVariableName(variableName) : '';
+    return graph.nodes.flatMap((node) =>
+        collectNodeVariableUsages(node).filter((usage) => {
+            if (!normalizedVariableName) {
+                return true;
+            }
+            const rawValue = node.config[usage.field_name];
+            return typeof rawValue === 'string' && normalizeVariableName(rawValue) === normalizedVariableName;
+        }),
+    );
+};
+
+export const renameVariableReferences = (
+    nodes: NodeInstanceSpec[],
+    currentName: string,
+    nextName: string,
+): NodeInstanceSpec[] => {
+    const from = normalizeVariableName(currentName);
+    const to = normalizeVariableName(nextName);
+    if (!from || !to || from === to) {
+        return nodes;
+    }
+    return nodes.map((node) => {
+        let changed = false;
+        const nextConfig = {...node.config};
+        if (isGenericDataNodeType(node.type_name) && nextConfig.variable_name === from) {
+            nextConfig.variable_name = to;
+            changed = true;
+        }
+        if (isDataWriterType(node.type_name) && nextConfig.target_variable_name === from) {
+            nextConfig.target_variable_name = to;
+            changed = true;
+        }
+        if (
+            isDataWriterType(node.type_name) &&
+            nextConfig.operand_mode === 'variable' &&
+            nextConfig.operand_variable_name === from
+        ) {
+            nextConfig.operand_variable_name = to;
+            changed = true;
+        }
+        if (!changed) {
+            return node;
+        }
+        return {
+            ...node,
+            config: nextConfig,
+        };
+    });
 };

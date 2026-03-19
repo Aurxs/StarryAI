@@ -131,6 +131,7 @@
     },
     "quick": {
       "add": "新增节点",
+      "variables": "变量管理",
       "pointer": "指针模式",
       "hand": "手模式",
       "arrange": "自动整理节点",
@@ -185,7 +186,6 @@
     }
   },
   "nodeConfig": {
-    "title": "节点配置",
     "emptyPrompt": "请先在画布上选择一个节点，再编辑标题和配置。",
     "meta": {
       "nodeId": "节点 ID: {{nodeId}}",
@@ -331,7 +331,6 @@
       }
     },
     "actions": {
-      "save": "保存",
       "reset": "重置",
       "showAdvanced": "显示高级 JSON",
       "hideAdvanced": "隐藏高级 JSON"
@@ -344,9 +343,6 @@
       "syncRoundInvalid": "sync_round 必须是大于等于 0 的整数。",
       "readyTimeoutInvalid": "ready_timeout_ms 必须是大于等于 1 的整数。",
       "commitLeadInvalid": "commit_lead_ms 必须是大于等于 1 的整数。"
-    },
-    "success": {
-      "saved": "配置已保存。"
     }
   },
   "secretManager": {
@@ -521,6 +517,47 @@
       "abortCount": "中止次数: {{count}}",
       "abortReasons": "中止原因: {{reasons}}",
       "abortReasonsEmpty": "中止原因: 无"
+    }
+  },
+  "variableManager": {
+    "title": "变量管理",
+    "tip": "统一管理当前图里的所有变量，并查看它们被哪些节点引用。",
+    "empty": "当前图还没有变量。",
+    "usageCount": "引用 {{count}}",
+    "usagesEmpty": "当前变量暂无引用。",
+    "sections": {
+      "list": "变量列表",
+      "create": "新建变量",
+      "edit": "编辑变量",
+      "usages": "引用位置"
+    },
+    "fields": {
+      "name": "变量名称",
+      "type": "变量类型",
+      "initialValue": "初始值",
+      "initialJson": "初始值 JSON"
+    },
+    "actions": {
+      "new": "新建变量",
+      "save": "保存变量",
+      "delete": "删除变量",
+      "close": "关闭变量管理"
+    },
+    "success": {
+      "created": "变量已创建",
+      "saved": "变量已保存",
+      "deleted": "变量已删除"
+    },
+    "errors": {
+      "emptyName": "变量名称不能为空",
+      "duplicateName": "变量名称已存在",
+      "createFailed": "变量创建失败",
+      "renameFailed": "变量重命名失败",
+      "updateFailed": "变量更新失败",
+      "deleteFailed": "变量删除失败"
+    },
+    "confirm": {
+      "deleteReferenced": "变量仍被 {{count}} 个节点引用，删除后这些引用会失效并进入校验错误。继续删除？\n{{usageList}}"
     }
   }
 }

@@ -20,7 +20,7 @@ describe('NodeConfigPanel', () => {
         );
     });
 
-    it('updates selected node title and config on save', () => {
+    it('updates selected node title and config immediately', () => {
         useGraphStore.getState().upsertNode({
             node_id: 'n1',
             type_name: 'mock.input',
@@ -39,7 +39,6 @@ describe('NodeConfigPanel', () => {
         fireEvent.change(screen.getByTestId('node-config-json-input'), {
             target: {value: '{\n  "content": "world"\n}'},
         });
-        fireEvent.click(screen.getByRole('button', {name: '保存'}));
 
         const state = useGraphStore.getState();
         const node = state.graph.nodes.find((item) => item.node_id === 'n1');
@@ -64,7 +63,6 @@ describe('NodeConfigPanel', () => {
         fireEvent.change(screen.getByTestId('node-config-json-input'), {
             target: {value: '{invalid'},
         });
-        fireEvent.click(screen.getByRole('button', {name: '保存'}));
 
         expect(screen.getByTestId('node-config-error').textContent).toContain('配置 JSON 格式无效');
         const node = useGraphStore
@@ -73,7 +71,7 @@ describe('NodeConfigPanel', () => {
         expect(node?.config).toEqual({enabled: true});
     });
 
-    it('keeps sync fields readonly for executor and only saves runtime config', async () => {
+    it('keeps sync fields readonly for executor and hot-updates runtime config', async () => {
         server.use(
             http.get('*/api/v1/node-types', () =>
                 HttpResponse.json({
@@ -138,7 +136,6 @@ describe('NodeConfigPanel', () => {
         fireEvent.change(screen.getByTestId('node-config-json-input'), {
             target: {value: '{\n  "volume": 0.8,\n  "channel": "L"\n}'},
         });
-        fireEvent.click(screen.getByRole('button', {name: '保存'}));
 
         const node = useGraphStore.getState().graph.nodes.find((item) => item.node_id === 'n_sync');
         expect(node?.config).toEqual({
@@ -281,7 +278,7 @@ describe('NodeConfigPanel', () => {
         expect(within(secretSection as HTMLElement).queryByRole('button', {name: '新建密钥'})).toBeNull();
     });
 
-    it('renders schema form and saves inline-created secret refs', async () => {
+    it('renders schema form and hot-updates inline-created secret refs', async () => {
         server.use(
             http.get('*/api/v1/node-types', () =>
                 HttpResponse.json({
@@ -390,7 +387,6 @@ describe('NodeConfigPanel', () => {
         await screen.findByText('LLM Inline (llm-inline)');
         expect(within(secretSection as HTMLElement).getByText('类型: 通用')).toBeTruthy();
         expect(within(secretSection as HTMLElement).getByText('存储: 内存')).toBeTruthy();
-        fireEvent.click(screen.getByRole('button', {name: '保存'}));
 
         const node = useGraphStore.getState().graph.nodes.find((item) => item.node_id === 'n_llm');
         expect(node?.config).toMatchObject({
@@ -403,7 +399,7 @@ describe('NodeConfigPanel', () => {
         expect(JSON.stringify(node?.config)).not.toContain('sk-inline-value');
     });
 
-    it('rejects plaintext secret values from advanced json save', async () => {
+    it('rejects plaintext secret values from advanced json hot update', async () => {
         server.use(
             http.get('*/api/v1/node-types', () =>
                 HttpResponse.json({
@@ -470,7 +466,6 @@ describe('NodeConfigPanel', () => {
         fireEvent.change(screen.getByTestId('node-config-json-input'), {
             target: {value: '{\n  "api_key": "sk-plaintext"\n}'},
         });
-        fireEvent.click(screen.getByRole('button', {name: '保存'}));
 
         expect(screen.getByTestId('node-config-error').textContent).toContain('不允许保存明文值');
         const node = useGraphStore.getState().graph.nodes.find((item) => item.node_id === 'n_llm_plaintext');
@@ -548,7 +543,6 @@ describe('NodeConfigPanel', () => {
 
         await screen.findByTestId('node-config-sync-group-input');
         fireEvent.change(screen.getByTestId('node-config-ready-timeout-input'), {target: {value: '0'}});
-        fireEvent.click(screen.getByRole('button', {name: '保存'}));
 
         expect(screen.getByTestId('node-config-error').textContent).toContain('ready_timeout_ms');
         const node = useGraphStore.getState().graph.nodes.find((item) => item.node_id === 'n_init');
@@ -674,7 +668,59 @@ describe('NodeConfigPanel', () => {
         expect(jsonInput.value).toContain('"model": "gpt-4o-mini"');
     });
 
-    it('renders custom data writer controls and saves specialized config', async () => {
+    it('keeps inline data-ref variable creation and binds the new variable without save', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'data.ref',
+                            version: '0.1.0',
+                            mode: 'passive',
+                            inputs: [],
+                            outputs: [{name: 'value', frame_schema: 'any', is_stream: false, required: true, description: ''}],
+                            sync_config: null,
+                            config_schema: {},
+                            description: '',
+                            tags: ['data_ref'],
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        useGraphStore.getState().upsertNode({
+            node_id: 'v1',
+            type_name: 'data.ref',
+            title: 'Variable',
+            config: {
+                variable_name: '',
+            },
+        });
+        useGraphStore.getState().selectNode('v1');
+
+        render(<NodeConfigPanel/>);
+
+        const panel = await screen.findByTestId('node-config-data-ref');
+        fireEvent.click(within(panel).getByRole('button', {name: '新建变量'}));
+        fireEvent.change(screen.getByTestId('node-config-variable-name-input'), {
+            target: {value: 'counter'},
+        });
+        fireEvent.click(screen.getByRole('button', {name: '创建并绑定'}));
+
+        const state = useGraphStore.getState();
+        expect(state.graph.metadata.data_registry?.variables).toEqual([
+            {
+                name: 'counter',
+                value_kind: 'scalar.int',
+                initial_value: 0,
+            },
+        ]);
+        expect(state.graph.nodes[0]?.config.variable_name).toBe('counter');
+    });
+
+    it('renders custom data writer controls and hot-updates specialized config', async () => {
         server.use(
             http.get('*/api/v1/node-types', () =>
                 HttpResponse.json({
@@ -749,7 +795,6 @@ describe('NodeConfigPanel', () => {
         fireEvent.change(within(panel).getByDisplayValue('2'), {
             target: {value: '4'},
         });
-        fireEvent.click(screen.getByRole('button', {name: '保存'}));
 
         const node = useGraphStore.getState().graph.nodes.find((item) => item.node_id === 'w1');
         expect(node?.config.target_variable_name).toBe('counter');

@@ -200,4 +200,109 @@ describe('graph store', () => {
         expect(state.validationValid).toBeNull();
         expect(state.validationIssues).toHaveLength(0);
     });
+
+    it('creates variables and records them in undo history', () => {
+        const created = useGraphStore.getState().createVariable({
+            name: 'counter',
+            value_kind: 'scalar.int',
+            initial_value: 1,
+        });
+
+        expect(created).toBe(true);
+        expect(useGraphStore.getState().graph.metadata.data_registry?.variables).toEqual([
+            {
+                name: 'counter',
+                value_kind: 'scalar.int',
+                initial_value: 1,
+            },
+        ]);
+        expect(useGraphStore.getState().canUndo).toBe(true);
+
+        useGraphStore.getState().undo();
+        expect(useGraphStore.getState().graph.metadata.data_registry?.variables).toEqual([]);
+    });
+
+    it('renames variables and synchronizes data node references', () => {
+        useGraphStore.getState().createVariable({
+            name: 'counter',
+            value_kind: 'scalar.int',
+            initial_value: 0,
+        });
+        useGraphStore.getState().setNodes([
+            {
+                node_id: 'v1',
+                type_name: 'data.ref',
+                title: 'Variable Ref',
+                config: {
+                    variable_name: 'counter',
+                },
+            },
+            {
+                node_id: 'w1',
+                type_name: 'data.writer',
+                title: 'Writer',
+                config: {
+                    target_variable_name: 'counter',
+                    operand_mode: 'variable',
+                    operand_variable_name: 'counter',
+                },
+            },
+        ]);
+
+        const renamed = useGraphStore.getState().renameVariable('counter', 'balance');
+        expect(renamed).toBe(true);
+
+        const state = useGraphStore.getState();
+        expect(state.graph.metadata.data_registry?.variables[0]?.name).toBe('balance');
+        expect(state.graph.nodes[0]?.config.variable_name).toBe('balance');
+        expect(state.graph.nodes[1]?.config.target_variable_name).toBe('balance');
+        expect(state.graph.nodes[1]?.config.operand_variable_name).toBe('balance');
+    });
+
+    it('deletes variables without clearing stale node references', () => {
+        useGraphStore.getState().createVariable({
+            name: 'counter',
+            value_kind: 'scalar.int',
+            initial_value: 0,
+        });
+        useGraphStore.getState().upsertNode({
+            node_id: 'v1',
+            type_name: 'data.ref',
+            title: 'Variable Ref',
+            config: {
+                variable_name: 'counter',
+            },
+        });
+
+        const deleted = useGraphStore.getState().deleteVariable('counter');
+        expect(deleted).toBe(true);
+
+        const state = useGraphStore.getState();
+        expect(state.graph.metadata.data_registry?.variables).toEqual([]);
+        expect(state.graph.nodes[0]?.config.variable_name).toBe('counter');
+    });
+
+    it('updates variables and clears stale validation results', () => {
+        useGraphStore.getState().createVariable({
+            name: 'counter',
+            value_kind: 'scalar.int',
+            initial_value: 0,
+        });
+        useGraphStore.getState().setValidationResult(true, []);
+
+        const updated = useGraphStore.getState().updateVariable('counter', {
+            value_kind: 'scalar.float',
+            initial_value: 1.5,
+        });
+
+        expect(updated).toBe(true);
+        const state = useGraphStore.getState();
+        expect(state.graph.metadata.data_registry?.variables[0]).toEqual({
+            name: 'counter',
+            value_kind: 'scalar.float',
+            initial_value: 1.5,
+        });
+        expect(state.validationValid).toBeNull();
+        expect(state.validationIssues).toHaveLength(0);
+    });
 });

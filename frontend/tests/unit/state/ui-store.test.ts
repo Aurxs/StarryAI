@@ -28,13 +28,13 @@ describe('ui store', () => {
 
     it('switches editor mode and triggers canvas commands (edge path)', () => {
         useUiStore.getState().setEditorMode('hand');
-        useUiStore.getState().setNodeLibraryOpen(true);
+        useUiStore.getState().setLeftDrawer('node-library');
         useUiStore.getState().requestAutoLayout();
         useUiStore.getState().requestFitCanvas();
 
         const state = useUiStore.getState();
         expect(state.editorMode).toBe('hand');
-        expect(state.nodeLibraryOpen).toBe(true);
+        expect(state.leftDrawer).toBe('node-library');
         expect(state.autoLayoutRequestTick).toBe(1);
         expect(state.fitCanvasRequestTick).toBe(1);
     });

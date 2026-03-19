@@ -14,6 +14,11 @@ const addNodeFromDrawer = (typeName: string) => {
     fireEvent.click(within(drawer).getByText(typeName));
 };
 
+const openVariableManager = () => {
+    fireEvent.click(screen.getByTestId('graph-editor-open-variable-manager'));
+    return screen.getByLabelText('variable-manager-drawer');
+};
+
 describe('GraphEditor', () => {
     beforeEach(() => {
         resetGraphStore();
@@ -297,6 +302,78 @@ describe('GraphEditor', () => {
         await waitFor(() => {
             expect(within(nodeCard).getByTestId('workflow-node-subtitle').textContent).toBe('counter · int');
             expect(within(nodeCard).queryByText('container')).toBeNull();
+        });
+    });
+
+    it('keeps node library and variable manager drawers mutually exclusive', async () => {
+        render(<GraphEditor/>);
+
+        fireEvent.click(screen.getByTitle('新增节点'));
+        expect(screen.getByLabelText('node-library-drawer')).toBeTruthy();
+
+        fireEvent.click(screen.getByTestId('graph-editor-open-variable-manager'));
+        expect(screen.getByLabelText('variable-manager-drawer')).toBeTruthy();
+        expect(screen.queryByLabelText('node-library-drawer')).toBeNull();
+    });
+
+    it('updates passive data-node subtitle after variable rename in manager', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'data.ref',
+                            version: '0.1.0',
+                            mode: 'passive',
+                            inputs: [],
+                            outputs: [
+                                {
+                                    name: 'value',
+                                    frame_schema: 'int',
+                                    is_stream: false,
+                                    required: true,
+                                    description: '',
+                                },
+                            ],
+                            sync_config: null,
+                            config_schema: {},
+                            description: 'Passive data reference node.',
+                            tags: ['data_ref'],
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        render(<GraphEditor/>);
+        useGraphStore.getState().createVariable({
+            name: 'counter',
+            value_kind: 'scalar.int',
+            initial_value: 0,
+        });
+        fireEvent.click(screen.getByTitle('新增节点'));
+        const nodeLibraryDrawer = screen.getByLabelText('node-library-drawer');
+        fireEvent.click(await within(nodeLibraryDrawer).findByText('data.ref'));
+        useGraphStore.getState().patchNode('n1', {
+            title: 'Data Ref',
+            config: {variable_name: 'counter'},
+        });
+
+        const nodeCard = await screen.findByTestId('workflow-node-n1');
+        await waitFor(() => {
+            expect(within(nodeCard).getByTestId('workflow-node-subtitle').textContent).toBe('counter · int');
+        });
+
+        const drawer = openVariableManager();
+        fireEvent.click(within(drawer).getByTestId('variable-manager-item-counter'));
+        fireEvent.change(within(drawer).getByTestId('variable-manager-name-input'), {
+            target: {value: 'balance'},
+        });
+        fireEvent.click(within(drawer).getByTestId('variable-manager-save-button'));
+
+        await waitFor(() => {
+            expect(within(nodeCard).getByTestId('workflow-node-subtitle').textContent).toBe('balance · int');
         });
     });
 

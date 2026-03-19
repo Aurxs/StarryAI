@@ -131,6 +131,7 @@
     },
     "quick": {
       "add": "Add Node",
+      "variables": "Variable Manager",
       "pointer": "Pointer Mode",
       "hand": "Hand Mode",
       "arrange": "Auto Arrange",
@@ -185,7 +186,6 @@
     }
   },
   "nodeConfig": {
-    "title": "Node Config",
     "emptyPrompt": "Select a node on the canvas before editing title and config.",
     "meta": {
       "nodeId": "Node ID: {{nodeId}}",
@@ -331,7 +331,6 @@
       }
     },
     "actions": {
-      "save": "Save",
       "reset": "Reset",
       "showAdvanced": "Show Advanced JSON",
       "hideAdvanced": "Hide Advanced JSON"
@@ -344,9 +343,6 @@
       "syncRoundInvalid": "sync_round must be an integer >= 0.",
       "readyTimeoutInvalid": "ready_timeout_ms must be an integer >= 1.",
       "commitLeadInvalid": "commit_lead_ms must be an integer >= 1."
-    },
-    "success": {
-      "saved": "Config saved."
     }
   },
   "secretManager": {
@@ -521,6 +517,47 @@
       "abortCount": "Abort Count: {{count}}",
       "abortReasons": "Abort Reasons: {{reasons}}",
       "abortReasonsEmpty": "Abort Reasons: None"
+    }
+  },
+  "variableManager": {
+    "title": "Variable Manager",
+    "tip": "Manage every variable in the current graph and inspect which nodes reference it.",
+    "empty": "This graph has no variables yet.",
+    "usageCount": "{{count}} reference(s)",
+    "usagesEmpty": "This variable is not referenced yet.",
+    "sections": {
+      "list": "Variables",
+      "create": "Create Variable",
+      "edit": "Edit Variable",
+      "usages": "Usages"
+    },
+    "fields": {
+      "name": "Variable Name",
+      "type": "Variable Type",
+      "initialValue": "Initial Value",
+      "initialJson": "Initial JSON"
+    },
+    "actions": {
+      "new": "New Variable",
+      "save": "Save Variable",
+      "delete": "Delete Variable",
+      "close": "Close variable manager"
+    },
+    "success": {
+      "created": "Variable created",
+      "saved": "Variable saved",
+      "deleted": "Variable deleted"
+    },
+    "errors": {
+      "emptyName": "Variable name cannot be empty",
+      "duplicateName": "Variable name already exists",
+      "createFailed": "Failed to create variable",
+      "renameFailed": "Failed to rename variable",
+      "updateFailed": "Failed to update variable",
+      "deleteFailed": "Failed to delete variable"
+    },
+    "confirm": {
+      "deleteReferenced": "This variable is still referenced by {{count}} node(s). Deleting it will leave stale references and trigger validation errors. Continue?\n{{usageList}}"
     }
   }
 }

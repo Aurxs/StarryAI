@@ -3,9 +3,17 @@ import {create} from 'zustand';
 import type {
     EdgeSpec,
     GraphSpec,
+    GraphVariableSpec,
+    GraphVariableUsage,
     NodeInstanceSpec,
     ValidationIssue,
 } from '../../entities/workbench/types';
+import {
+    getGraphVariableUsages,
+    readDataRegistry,
+    renameVariableReferences,
+    replaceGraphVariables,
+} from '../data-registry';
 
 export interface GraphHistoryEntry {
     id: number;
@@ -30,6 +38,14 @@ export interface GraphState {
     setMetadata: (metadata: Record<string, unknown>) => void;
     setNodes: (nodes: NodeInstanceSpec[]) => void;
     setEdges: (edges: EdgeSpec[]) => void;
+    createVariable: (variable: GraphVariableSpec) => boolean;
+    updateVariable: (
+        variableName: string,
+        patch: Partial<Pick<GraphVariableSpec, 'value_kind' | 'initial_value'>>,
+    ) => boolean;
+    renameVariable: (variableName: string, nextName: string) => boolean;
+    deleteVariable: (variableName: string) => boolean;
+    getVariableUsages: (variableName?: string | null) => GraphVariableUsage[];
     upsertNode: (node: NodeInstanceSpec) => void;
     patchNode: (
         nodeId: string,
@@ -155,7 +171,7 @@ const commitGraphUpdate = (
     };
 };
 
-export const useGraphStore = create<GraphState>((set) => ({
+export const useGraphStore = create<GraphState>((set, get) => ({
     ...createInitialState(),
     ...createEmptyHistoryState(),
     ...createEmptyValidationState(),
@@ -203,6 +219,117 @@ export const useGraphStore = create<GraphState>((set) => ({
             };
             return commitGraphUpdate(state, nextGraph, '更新连线集合');
         }),
+    createVariable: (variable) => {
+        const normalizedName = variable.name.trim();
+        let changed = false;
+        set((current) => {
+            const state = current as InternalGraphState;
+            if (!normalizedName) {
+                return state;
+            }
+            const variables = readDataRegistry(state.graph.metadata).variables;
+            if (variables.some((item) => item.name === normalizedName)) {
+                return state;
+            }
+            const nextGraph = {
+                ...state.graph,
+                metadata: replaceGraphVariables(state.graph.metadata, [
+                    ...variables,
+                    {
+                        ...variable,
+                        name: normalizedName,
+                    },
+                ]),
+            };
+            changed = !sameGraph(state.graph, nextGraph);
+            return commitGraphUpdate(state, nextGraph, '新增变量');
+        });
+        return changed;
+    },
+    updateVariable: (variableName, patch) => {
+        const normalizedName = variableName.trim();
+        let changed = false;
+        set((current) => {
+            const state = current as InternalGraphState;
+            if (!normalizedName) {
+                return state;
+            }
+            const variables = readDataRegistry(state.graph.metadata).variables;
+            const index = variables.findIndex((item) => item.name === normalizedName);
+            if (index < 0) {
+                return state;
+            }
+            const currentVariable = variables[index];
+            const nextVariables = [...variables];
+            nextVariables[index] = {
+                ...currentVariable,
+                value_kind: patch.value_kind ?? currentVariable.value_kind,
+                initial_value:
+                    patch.initial_value !== undefined
+                        ? patch.initial_value
+                        : currentVariable.initial_value,
+            };
+            const nextGraph = {
+                ...state.graph,
+                metadata: replaceGraphVariables(state.graph.metadata, nextVariables),
+            };
+            changed = !sameGraph(state.graph, nextGraph);
+            return commitGraphUpdate(state, nextGraph, '更新变量');
+        });
+        return changed;
+    },
+    renameVariable: (variableName, nextName) => {
+        const normalizedName = variableName.trim();
+        const normalizedNextName = nextName.trim();
+        let changed = false;
+        set((current) => {
+            const state = current as InternalGraphState;
+            if (!normalizedName || !normalizedNextName || normalizedName === normalizedNextName) {
+                return state;
+            }
+            const variables = readDataRegistry(state.graph.metadata).variables;
+            const index = variables.findIndex((item) => item.name === normalizedName);
+            if (index < 0 || variables.some((item) => item.name === normalizedNextName)) {
+                return state;
+            }
+            const nextVariables = [...variables];
+            nextVariables[index] = {
+                ...nextVariables[index],
+                name: normalizedNextName,
+            };
+            const nextGraph = {
+                ...state.graph,
+                nodes: renameVariableReferences(state.graph.nodes, normalizedName, normalizedNextName),
+                metadata: replaceGraphVariables(state.graph.metadata, nextVariables),
+            };
+            changed = !sameGraph(state.graph, nextGraph);
+            return commitGraphUpdate(state, nextGraph, '重命名变量');
+        });
+        return changed;
+    },
+    deleteVariable: (variableName) => {
+        const normalizedName = variableName.trim();
+        let changed = false;
+        set((current) => {
+            const state = current as InternalGraphState;
+            if (!normalizedName) {
+                return state;
+            }
+            const variables = readDataRegistry(state.graph.metadata).variables;
+            const nextVariables = variables.filter((item) => item.name !== normalizedName);
+            if (nextVariables.length === variables.length) {
+                return state;
+            }
+            const nextGraph = {
+                ...state.graph,
+                metadata: replaceGraphVariables(state.graph.metadata, nextVariables),
+            };
+            changed = !sameGraph(state.graph, nextGraph);
+            return commitGraphUpdate(state, nextGraph, '删除变量');
+        });
+        return changed;
+    },
+    getVariableUsages: (variableName) => getGraphVariableUsages(get().graph, variableName),
     upsertNode: (node) =>
         set((current) => {
             const state = current as InternalGraphState;

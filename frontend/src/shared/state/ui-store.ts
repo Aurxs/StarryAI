@@ -3,12 +3,13 @@ import {create} from 'zustand';
 export type LeftPanelKey = 'node-library' | 'graph-outline';
 export type RightPanelKey = 'node-config' | 'run-inspector';
 export type EditorMode = 'pointer' | 'hand';
+export type LeftDrawerKey = 'node-library' | 'variable-manager';
 
 export interface UiState {
     leftPanel: LeftPanelKey;
     rightPanel: RightPanelKey;
+    leftDrawer: LeftDrawerKey | null;
     editorMode: EditorMode;
-    nodeLibraryOpen: boolean;
     reviewDrawerOpen: boolean;
     historyDrawerOpen: boolean;
     zoomMenuOpen: boolean;
@@ -16,8 +17,8 @@ export interface UiState {
     autoLayoutRequestTick: number;
     setLeftPanel: (panel: LeftPanelKey) => void;
     setRightPanel: (panel: RightPanelKey) => void;
+    setLeftDrawer: (drawer: LeftDrawerKey | null) => void;
     setEditorMode: (mode: EditorMode) => void;
-    setNodeLibraryOpen: (open: boolean) => void;
     setReviewDrawerOpen: (open: boolean) => void;
     setHistoryDrawerOpen: (open: boolean) => void;
     setZoomMenuOpen: (open: boolean) => void;
@@ -30,8 +31,8 @@ const createInitialState = (): Pick<
     UiState,
     | 'leftPanel'
     | 'rightPanel'
+    | 'leftDrawer'
     | 'editorMode'
-    | 'nodeLibraryOpen'
     | 'reviewDrawerOpen'
     | 'historyDrawerOpen'
     | 'zoomMenuOpen'
@@ -40,8 +41,8 @@ const createInitialState = (): Pick<
 > => ({
     leftPanel: 'node-library',
     rightPanel: 'node-config',
+    leftDrawer: null,
     editorMode: 'pointer',
-    nodeLibraryOpen: false,
     reviewDrawerOpen: false,
     historyDrawerOpen: false,
     zoomMenuOpen: false,
@@ -53,8 +54,8 @@ export const useUiStore = create<UiState>((set) => ({
     ...createInitialState(),
     setLeftPanel: (panel) => set(() => ({leftPanel: panel})),
     setRightPanel: (panel) => set(() => ({rightPanel: panel})),
+    setLeftDrawer: (drawer) => set(() => ({leftDrawer: drawer})),
     setEditorMode: (mode) => set(() => ({editorMode: mode})),
-    setNodeLibraryOpen: (open) => set(() => ({nodeLibraryOpen: open})),
     setReviewDrawerOpen: (open) => set(() => ({reviewDrawerOpen: open})),
     setHistoryDrawerOpen: (open) => set(() => ({historyDrawerOpen: open})),
     setZoomMenuOpen: (open) => set(() => ({zoomMenuOpen: open})),

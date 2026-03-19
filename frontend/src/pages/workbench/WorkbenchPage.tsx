@@ -85,7 +85,7 @@ const historyTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
     second: '2-digit',
 });
 const INSPECTOR_TRANSITION_MS = 220;
-const INSPECTOR_DOCK_WIDTH = 352;
+const INSPECTOR_DOCK_WIDTH = 354;
 const NON_LINEAR_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 const PANEL_EXPANDED_WIDTH = 300;
 const PANEL_COLLAPSED_MAX_HEIGHT = 48;
@@ -168,7 +168,7 @@ export function WorkbenchPage() {
     const setReviewDrawerOpen = useUiStore((state) => state.setReviewDrawerOpen);
     const setHistoryDrawerOpen = useUiStore((state) => state.setHistoryDrawerOpen);
     const setEditorMode = useUiStore((state) => state.setEditorMode);
-    const setNodeLibraryOpen = useUiStore((state) => state.setNodeLibraryOpen);
+    const setLeftDrawer = useUiStore((state) => state.setLeftDrawer);
 
     const [savedGraphs, setSavedGraphs] = useState<GraphSummary[]>([]);
     const [panelExpanded, setPanelExpanded] = useState(false);
@@ -708,7 +708,7 @@ export function WorkbenchPage() {
 
     return (
         <main style={shellStyle}>
-            <section style={{position: 'absolute', inset: 0, zIndex: 0}}>
+            <section style={{position: 'absolute', inset: 0}}>
                 <GraphEditor/>
             </section>
 
@@ -1172,14 +1172,13 @@ export function WorkbenchPage() {
                     style={{
                         ...surfaceStyle,
                         position: 'absolute',
-                        right: 0,
-                        top: 0,
-                        bottom: 0,
-                        width: 340,
+                        right: 10,
+                        top: 10,
+                        bottom: 10,
+                        width: 344,
                         zIndex: 12,
-                        borderRadius: '14px 0 0 14px',
-                        borderLeft: '1px solid rgba(148, 163, 184, 0.45)',
-                        padding: 10,
+                        borderRadius: 20,
+                        padding: 14,
                         overflow: 'auto',
                         transform: isInspectorActive ? 'translateX(0)' : 'translateX(100%)',
                         opacity: isInspectorActive ? 1 : 0,
@@ -1195,7 +1194,7 @@ export function WorkbenchPage() {
                             aria-label="Close node inspector"
                             onClick={() => {
                                 selectNode(null);
-                                setNodeLibraryOpen(false);
+                                setLeftDrawer(null);
                             }}
                         >
                             <X size={14} strokeWidth={2.1} aria-hidden="true"/>

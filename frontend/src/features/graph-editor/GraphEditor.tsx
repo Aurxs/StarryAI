@@ -9,7 +9,7 @@ import {
     type MouseEvent as ReactMouseEvent,
     type TouchEvent as ReactTouchEvent,
 } from 'react';
-import {Expand, Hand, LayoutGrid, Minus, MousePointer2, Plus, Settings, X} from 'lucide-react';
+import {Database, Expand, Hand, LayoutGrid, Minus, MousePointer2, Plus, Settings, X} from 'lucide-react';
 import {useTranslation} from 'react-i18next';
 import ReactFlow, {
     Background,
@@ -54,6 +54,7 @@ import {notifyUser} from '../../shared/state/global-info-store';
 import {useUiStore} from '../../shared/state/ui-store';
 import {SettingsDialog} from '../settings/SettingsDialog';
 import {buildInitiatorDefaultConfig, isSyncInitiatorNodeType} from '../sync-config/managed-config';
+import {VariableManagerDrawer} from '../variable-manager/VariableManagerDrawer';
 import {
     SOURCE_HANDLE_PREFIX,
     TARGET_HANDLE_PREFIX,
@@ -642,11 +643,11 @@ const GraphEditorInner = () => {
     const validationIssues = useGraphStore((state) => state.validationIssues);
 
     const editorMode = useUiStore((state) => state.editorMode);
-    const nodeLibraryOpen = useUiStore((state) => state.nodeLibraryOpen);
+    const leftDrawer = useUiStore((state) => state.leftDrawer);
     const fitCanvasRequestTick = useUiStore((state) => state.fitCanvasRequestTick);
     const autoLayoutRequestTick = useUiStore((state) => state.autoLayoutRequestTick);
     const zoomMenuOpen = useUiStore((state) => state.zoomMenuOpen);
-    const setNodeLibraryOpen = useUiStore((state) => state.setNodeLibraryOpen);
+    const setLeftDrawer = useUiStore((state) => state.setLeftDrawer);
     const setEditorMode = useUiStore((state) => state.setEditorMode);
     const setZoomMenuOpen = useUiStore((state) => state.setZoomMenuOpen);
     const requestFitCanvas = useUiStore((state) => state.requestFitCanvas);
@@ -758,6 +759,8 @@ const GraphEditorInner = () => {
     const bottomRightOffset = isInspectorOpen ? INSPECTOR_OVERLAY_WIDTH : 0;
     const isHandMode = editorMode === 'hand';
     const currentLanguage = normalizeLanguage(i18n.resolvedLanguage ?? i18n.language);
+    const nodeLibraryOpen = leftDrawer === 'node-library';
+    const variableManagerOpen = leftDrawer === 'variable-manager';
 
     const handleLanguageChange = useCallback((language: string) => {
         const nextLanguage = normalizeLanguage(language);
@@ -1713,9 +1716,26 @@ const GraphEditorInner = () => {
                     title={t('graphEditor.quick.add')}
                     aria-label={t('graphEditor.quick.add')}
                     style={quickToolButtonStyle}
-                    onClick={() => setNodeLibraryOpen(true)}
+                    onClick={() => setLeftDrawer('node-library')}
                 >
                     <Plus size={16} aria-hidden="true"/>
+                </button>
+                <button
+                    type="button"
+                    title={t('graphEditor.quick.variables', {defaultValue: '变量管理'})}
+                    aria-label={t('graphEditor.quick.variables', {defaultValue: '变量管理'})}
+                    data-testid="graph-editor-open-variable-manager"
+                    style={{
+                        ...quickToolButtonStyle,
+                        borderColor: variableManagerOpen ? '#93c5fd' : '#d6deeb',
+                        background: variableManagerOpen ? '#eff6ff' : '#ffffff',
+                        color: variableManagerOpen ? '#1d4ed8' : '#475569',
+                    }}
+                    onClick={() =>
+                        setLeftDrawer(variableManagerOpen ? null : 'variable-manager')
+                    }
+                >
+                    <Database size={16} aria-hidden="true"/>
                 </button>
                 <div aria-hidden="true" style={quickToolDividerStyle}/>
                 <button
@@ -1784,6 +1804,11 @@ const GraphEditorInner = () => {
                 onLanguageChange={handleLanguageChange}
             />
 
+            <VariableManagerDrawer
+                open={variableManagerOpen}
+                onClose={() => setLeftDrawer(null)}
+            />
+
             {nodeLibraryOpen && (
                 <aside
                     aria-label="node-library-drawer"
@@ -1808,7 +1833,7 @@ const GraphEditorInner = () => {
                             type="button"
                             style={nodeLibraryCloseButtonStyle}
                             aria-label="Close node library"
-                            onClick={() => setNodeLibraryOpen(false)}
+                            onClick={() => setLeftDrawer(null)}
                         >
                             <X size={14} strokeWidth={2.1} aria-hidden="true"/>
                         </button>
@@ -1828,7 +1853,7 @@ const GraphEditorInner = () => {
                                         draggable
                                         onClick={() => {
                                             addNodeAt(nodeType.type_name);
-                                            setNodeLibraryOpen(false);
+                                            setLeftDrawer(null);
                                         }}
                                         onDragStart={(event) => {
                                             event.dataTransfer.setData('application/x-starry-node-type', nodeType.type_name);
