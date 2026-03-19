@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import model_validator
 
@@ -191,15 +191,19 @@ class DataWriterNode(AsyncNode):
         if operation == "merge_from_input":
             if not isinstance(current_value, dict) or not isinstance(incoming_value, dict):
                 raise ValueError("merge_from_input 要求目标与输入均为 dict")
-            next_value = deepcopy(current_value)
-            next_value.update(deepcopy(incoming_value))
-            return next_value
+            next_dict = cast(dict[str, Any], deepcopy(current_value))
+            next_dict.update(cast(dict[str, Any], deepcopy(incoming_value)))
+            return next_dict
         if operation == "set_path_from_input":
             if not isinstance(current_value, (dict, list)):
                 raise ValueError("set_path_from_input 仅支持 list/dict 容器")
-            next_value = deepcopy(current_value)
-            set_value_at_path(next_value, parse_field_path(cfg.field_path or ""), deepcopy(incoming_value))
-            return next_value
+            next_container: dict[str, Any] | list[Any]
+            if isinstance(current_value, dict):
+                next_container = cast(dict[str, Any], deepcopy(current_value))
+            else:
+                next_container = cast(list[Any], deepcopy(current_value))
+            set_value_at_path(next_container, parse_field_path(cfg.field_path or ""), deepcopy(incoming_value))
+            return next_container
 
         operand = self._resolve_operand(cfg=cfg, data_store=data_store, variables_by_name=variables_by_name)
         return self._apply_scalar_arithmetic(

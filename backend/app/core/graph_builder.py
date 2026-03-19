@@ -785,6 +785,8 @@ class GraphBuilder:
 
         for node_id in topo_order:
             spec = node_specs[node_id]
+            node_instance = node_instances.get(node_id)
+            node_config = node_instance.config if node_instance is not None else {}
             node_input_schemas: dict[str, str] = {}
             dynamic_input_schemas: dict[str, str] = {}
             node_output_schemas: dict[str, str] = {}
@@ -815,7 +817,7 @@ class GraphBuilder:
                 if output_port.derived_from_input is None:
                     node_output_schemas[output_port.name] = self._resolve_declared_output_schema(
                         spec=spec,
-                        node_config=node_instances.get(node_id).config if node_id in node_instances else {},
+                        node_config=node_config,
                         output_port=output_port,
                         variables_by_name=variables_by_name,
                         data_node_bindings=data_node_bindings,
@@ -833,13 +835,15 @@ class GraphBuilder:
         for node_id, spec in node_specs.items():
             if node_id in resolved_inputs:
                 continue
+            node_instance = node_instances.get(node_id)
+            node_config = node_instance.config if node_instance is not None else {}
             resolved_inputs[node_id] = {
                 port.name: normalize_schema(port.frame_schema) for port in spec.inputs
             }
             resolved_outputs[node_id] = {
                 port.name: self._resolve_declared_output_schema(
                     spec=spec,
-                    node_config=node_instances.get(node_id).config if node_id in node_instances else {},
+                    node_config=node_config,
                     output_port=port,
                     variables_by_name=variables_by_name,
                     data_node_bindings=data_node_bindings,

@@ -352,7 +352,6 @@ test('creates secret, binds it to real llm node, saves graph, and runs with secr
 
     const apiKeyField = inspector.locator('[data-field-path="api_key"]');
     await apiKeyField.locator('select').selectOption('openai-main');
-    await inspector.getByRole('button', {name: '保存'}).click();
     await expect.poll(() => validateCalls).toBeGreaterThan(0);
     await expect(page.getByTestId('review-bar')).toContainText('无问题');
 
