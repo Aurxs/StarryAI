@@ -2,12 +2,21 @@
   "graph_id": "graph_data_staging_motion",
   "version": "0.1.0",
   "metadata": {
+    "data_registry": {
+      "variables": [
+        {
+          "name": "motion_buffer",
+          "value_kind": "json.any",
+          "initial_value": null
+        }
+      ]
+    },
     "compat": {
       "graph_format_version": "0.1.0",
       "node_type_versions": {
         "mock.input": "0.1.0",
         "mock.motion": "0.1.0",
-        "data.staging": "0.1.0",
+        "data.ref": "0.1.0",
         "data.writer": "0.1.0",
         "data.requester": "0.1.0",
         "mock.output": "0.1.0"
@@ -59,10 +68,10 @@
     },
     {
       "node_id": "n3",
-      "type_name": "data.staging",
-      "title": "data.staging",
+      "type_name": "data.ref",
+      "title": "data.ref",
       "config": {
-        "initial_value": null
+        "variable_name": "motion_buffer"
       }
     },
     {
@@ -70,7 +79,7 @@
       "type_name": "data.writer",
       "title": "data.writer",
       "config": {
-        "target_node_id": "n3",
+        "target_variable_name": "motion_buffer",
         "operation": "set_from_input",
         "operand_mode": "literal",
         "literal_value": 0

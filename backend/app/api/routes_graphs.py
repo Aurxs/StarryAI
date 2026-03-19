@@ -137,8 +137,16 @@ async def save_graph(graph_id: str, graph: GraphSpec) -> dict[str, object]:
     registry = create_default_registry()
     builder = GraphBuilder(registry, secret_exists=get_secret_service().exists)
     report = builder.validate(graph)
-    config_errors = [issue for issue in report.issues if issue.code.startswith("node.config_") or issue.code.startswith("node.secret_")]
-    if config_errors:
+    blocking_issue_codes = {
+        "data.registry_invalid",
+    }
+    blocking_issues = [
+        issue for issue in report.issues
+        if issue.code.startswith("node.config_")
+        or issue.code.startswith("node.secret_")
+        or issue.code in blocking_issue_codes
+    ]
+    if blocking_issues:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
@@ -146,7 +154,7 @@ async def save_graph(graph_id: str, graph: GraphSpec) -> dict[str, object]:
                 "report": {
                     "graph_id": report.graph_id,
                     "valid": False,
-                    "issues": [issue.model_dump(mode="json") for issue in config_errors],
+                    "issues": [issue.model_dump(mode="json") for issue in blocking_issues],
                 },
             },
         )

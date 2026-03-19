@@ -56,12 +56,35 @@ export interface EdgeSpec {
     queue_maxsize: number;
 }
 
+export type GraphVariableValueKind =
+    | 'scalar.int'
+    | 'scalar.float'
+    | 'scalar.string'
+    | 'json.list'
+    | 'json.dict'
+    | 'json.any';
+
+export interface GraphVariableSpec {
+    name: string;
+    value_kind: GraphVariableValueKind;
+    initial_value: unknown;
+}
+
+export interface GraphDataRegistry {
+    variables: GraphVariableSpec[];
+}
+
+export interface GraphMetadata {
+    data_registry?: GraphDataRegistry;
+    [key: string]: unknown;
+}
+
 export interface GraphSpec {
     graph_id: string;
     version: string;
     nodes: NodeInstanceSpec[];
     edges: EdgeSpec[];
-    metadata: Record<string, unknown>;
+    metadata: GraphMetadata;
 }
 
 export interface ValidationIssue {

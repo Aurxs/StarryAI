@@ -242,14 +242,14 @@ describe('GraphEditor', () => {
         });
     });
 
-    it('renders the actual data type subtitle for passive data nodes', async () => {
+    it('renders the bound variable subtitle for passive data nodes', async () => {
         server.use(
             http.get('*/api/v1/node-types', () =>
                 HttpResponse.json({
                     count: 1,
                     items: [
                         {
-                            type_name: 'data.variable',
+                            type_name: 'data.ref',
                             version: '0.1.0',
                             mode: 'passive',
                             inputs: [],
@@ -264,8 +264,8 @@ describe('GraphEditor', () => {
                             ],
                             sync_config: null,
                             config_schema: {},
-                            description: 'Passive scalar variable container.',
-                            tags: ['data_container'],
+                            description: 'Passive data reference node.',
+                            tags: ['data_ref'],
                         },
                     ],
                 }),
@@ -273,14 +273,29 @@ describe('GraphEditor', () => {
         );
 
         render(<GraphEditor/>);
+        useGraphStore.getState().setMetadata({
+            data_registry: {
+                variables: [
+                    {
+                        name: 'counter',
+                        value_kind: 'scalar.int',
+                        initial_value: 0,
+                    },
+                ],
+            },
+        });
 
         fireEvent.click(screen.getByTitle('新增节点'));
         const drawer = screen.getByLabelText('node-library-drawer');
-        fireEvent.click(await within(drawer).findByText('data.variable'));
+        fireEvent.click(await within(drawer).findByText('data.ref'));
+        useGraphStore.getState().patchNode('n1', {
+            title: 'Data Ref',
+            config: {variable_name: 'counter'},
+        });
 
         const nodeCard = await screen.findByTestId('workflow-node-n1');
         await waitFor(() => {
-            expect(within(nodeCard).getByTestId('workflow-node-subtitle').textContent).toBe('int');
+            expect(within(nodeCard).getByTestId('workflow-node-subtitle').textContent).toBe('counter · int');
             expect(within(nodeCard).queryByText('container')).toBeNull();
         });
     });

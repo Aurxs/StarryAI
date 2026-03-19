@@ -128,12 +128,12 @@ class GraphScheduler:
         self._node_policies: dict[str, NodeExecutionPolicy] = {}
         # _sync_coordinator: 同步组协调器（当前 run 内共享）。
         self._sync_coordinator = SyncCoordinator()
-        # _data_store: 当前 run 的被动容器值存储。
+        # _data_store: 当前 run 的真实变量值存储。
         self._data_store: RuntimeDataStore | None = None
-        # _pending_container_writes: (container_id, trigger_token) -> 未完成写入数量。
-        self._pending_container_writes: dict[tuple[str, str], int] = {}
-        # _pending_container_events: (container_id, trigger_token) -> 写入完成事件。
-        self._pending_container_events: dict[tuple[str, str], asyncio.Event] = {}
+        # _pending_variable_writes: (variable_name, trigger_token) -> 未完成写入数量。
+        self._pending_variable_writes: dict[tuple[str, str], int] = {}
+        # _pending_variable_events: (variable_name, trigger_token) -> 写入完成事件。
+        self._pending_variable_events: dict[tuple[str, str], asyncio.Event] = {}
 
         # _failed: 运行是否已经进入失败路径（用于最终态决策）。
         self._failed = False
@@ -257,8 +257,8 @@ class GraphScheduler:
         self._node_policies.clear()
         self._sync_coordinator = SyncCoordinator()
         self._data_store = RuntimeDataStore.from_graph(compiled_graph.graph, compiled_graph.node_specs)
-        self._pending_container_writes.clear()
-        self._pending_container_events.clear()
+        self._pending_variable_writes.clear()
+        self._pending_variable_events.clear()
 
         self.runtime_state = GraphRuntimeState(
             run_id=self._run_id,
@@ -487,8 +487,10 @@ class GraphScheduler:
                     "sync_coordinator": self._sync_coordinator,
                     "sync_group_participants": self._compiled_graph.sync_group_participants,
                     "data_store": self._data_store,
+                    "variables_by_name": self._compiled_graph.variables_by_name,
                     "reference_bindings": self._compiled_graph.reference_bindings,
                     "writer_targets": self._compiled_graph.writer_targets,
+                    "data_node_bindings": self._compiled_graph.data_node_bindings,
                     "input_metadata": deepcopy(self._node_input_metadata.get(node_id, {})),
                     "trigger_token": self._resolve_trigger_token(node_id),
                     "await_container_writes": self._await_container_writes,
@@ -597,7 +599,7 @@ class GraphScheduler:
         }
         for edge in edges:
             trigger_token = trigger_tokens_by_port[edge.source_port]
-            self._register_pending_container_write(edge.target_node, trigger_token)
+            self._register_pending_variable_write(edge.target_node, trigger_token)
 
         for edge in edges:
             if edge.source_port not in outputs:
@@ -788,43 +790,43 @@ class GraphScheduler:
                 return trigger_token
         return None
 
-    def _register_pending_container_write(self, target_node_id: str, trigger_token: str) -> None:
+    def _register_pending_variable_write(self, writer_node_id: str, trigger_token: str) -> None:
         assert self._compiled_graph is not None
-        if target_node_id not in self._compiled_graph.writer_targets:
+        if writer_node_id not in self._compiled_graph.writer_targets:
             return
-        container_id = self._compiled_graph.writer_targets[target_node_id]
-        key = (container_id, trigger_token)
-        self._pending_container_writes[key] = self._pending_container_writes.get(key, 0) + 1
-        event = self._pending_container_events.get(key)
+        variable_name = self._compiled_graph.writer_targets[writer_node_id]
+        key = (variable_name, trigger_token)
+        self._pending_variable_writes[key] = self._pending_variable_writes.get(key, 0) + 1
+        event = self._pending_variable_events.get(key)
         if event is None:
             event = asyncio.Event()
-            self._pending_container_events[key] = event
+            self._pending_variable_events[key] = event
         event.clear()
 
     def _complete_writer_barrier(self, node_id: str) -> None:
         assert self._compiled_graph is not None
-        container_id = self._compiled_graph.writer_targets.get(node_id)
-        if not isinstance(container_id, str):
+        variable_name = self._compiled_graph.writer_targets.get(node_id)
+        if not isinstance(variable_name, str):
             return
         trigger_token = self._resolve_trigger_token(node_id)
         if not isinstance(trigger_token, str) or not trigger_token:
             return
-        key = (container_id, trigger_token)
-        pending = self._pending_container_writes.get(key)
+        key = (variable_name, trigger_token)
+        pending = self._pending_variable_writes.get(key)
         if pending is None:
             return
         if pending <= 1:
-            self._pending_container_writes.pop(key, None)
-            event = self._pending_container_events.pop(key, None)
+            self._pending_variable_writes.pop(key, None)
+            event = self._pending_variable_events.pop(key, None)
             if event is not None:
                 event.set()
             return
-        self._pending_container_writes[key] = pending - 1
+        self._pending_variable_writes[key] = pending - 1
 
-    async def _await_container_writes(self, container_id: str, trigger_token: str) -> None:
-        key = (container_id, trigger_token)
-        event = self._pending_container_events.get(key)
-        pending = self._pending_container_writes.get(key, 0)
+    async def _await_container_writes(self, variable_name: str, trigger_token: str) -> None:
+        key = (variable_name, trigger_token)
+        event = self._pending_variable_events.get(key)
+        pending = self._pending_variable_writes.get(key, 0)
         if event is None or pending <= 0:
             return
         await event.wait()

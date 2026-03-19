@@ -681,7 +681,7 @@ describe('NodeConfigPanel', () => {
                     count: 2,
                     items: [
                         {
-                            type_name: 'data.variable',
+                            type_name: 'data.ref',
                             version: '0.1.0',
                             mode: 'passive',
                             inputs: [],
@@ -689,7 +689,7 @@ describe('NodeConfigPanel', () => {
                             sync_config: null,
                             config_schema: {},
                             description: '',
-                            tags: ['data_container'],
+                            tags: ['data_ref'],
                         },
                         {
                             type_name: 'data.writer',
@@ -707,13 +707,23 @@ describe('NodeConfigPanel', () => {
             ),
         );
 
+        useGraphStore.getState().setMetadata({
+            data_registry: {
+                variables: [
+                    {
+                        name: 'counter',
+                        value_kind: 'scalar.int',
+                        initial_value: 1,
+                    },
+                ],
+            },
+        });
         useGraphStore.getState().upsertNode({
             node_id: 'v1',
-            type_name: 'data.variable',
+            type_name: 'data.ref',
             title: 'Variable',
             config: {
-                value_type: 'integer',
-                initial_value: 1,
+                variable_name: 'counter',
             },
         });
         useGraphStore.getState().upsertNode({
@@ -721,7 +731,7 @@ describe('NodeConfigPanel', () => {
             type_name: 'data.writer',
             title: 'Writer',
             config: {
-                target_node_id: 'v1',
+                target_variable_name: 'counter',
                 operation: 'add',
                 operand_mode: 'literal',
                 literal_value: 2,
@@ -742,7 +752,7 @@ describe('NodeConfigPanel', () => {
         fireEvent.click(screen.getByRole('button', {name: '保存'}));
 
         const node = useGraphStore.getState().graph.nodes.find((item) => item.node_id === 'w1');
-        expect(node?.config.target_node_id).toBe('v1');
+        expect(node?.config.target_variable_name).toBe('counter');
         expect(node?.config.operation).toBe('multiply');
         expect(node?.config.literal_value).toBe(4);
     });

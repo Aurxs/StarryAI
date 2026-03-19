@@ -306,14 +306,14 @@ def test_graph_validation_rejects_sync_group_mismatch_between_initiator_and_exec
     assert any(issue.code == "sync.group_mismatch" for issue in report.issues)
 
 
-def test_graph_validation_allows_passive_data_container_without_connections() -> None:
+def test_graph_validation_allows_unbound_data_ref_without_connections() -> None:
     graph = GraphSpec(
-        graph_id="g_passive_data_container",
+        graph_id="g_passive_data_ref",
         nodes=[
             NodeInstanceSpec(
                 node_id="v1",
-                type_name="data.variable",
-                config={"value_type": "integer", "initial_value": 1},
+                type_name="data.ref",
+                config={"variable_name": ""},
             ),
         ],
         edges=[],
@@ -324,7 +324,7 @@ def test_graph_validation_allows_passive_data_container_without_connections() ->
     assert report.issues == []
 
 
-def test_graph_validation_rejects_requester_source_bound_to_non_container() -> None:
+def test_graph_validation_rejects_requester_source_bound_to_non_data_ref() -> None:
     graph = GraphSpec(
         graph_id="g_data_requester_invalid_source",
         nodes=[
@@ -339,7 +339,7 @@ def test_graph_validation_rejects_requester_source_bound_to_non_container() -> N
 
     report = GraphBuilder(create_default_registry()).validate(graph)
     assert report.valid is False
-    assert any(issue.code == "data.requester_source_not_container" for issue in report.issues)
+    assert any(issue.code == "data.requester_source_not_data_ref" for issue in report.issues)
 
 
 def test_graph_validation_rejects_writer_missing_target_container() -> None:

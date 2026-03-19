@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
+from app.core.data_registry import GraphDataVariable
 from app.core.node_base import NodeContext
 from app.core.registry import create_default_registry
 from app.core.runtime_data import RuntimeDataEntry, RuntimeDataStore
@@ -277,7 +278,7 @@ def test_data_requester_reads_current_value_from_runtime_store() -> None:
         node = DataRequesterNode("n_req", registry.get("data.requester"))
         store = RuntimeDataStore(
             entries={
-                "v1": RuntimeDataEntry(node_id="v1", type_name="data.variable", value=7),
+                "counter": RuntimeDataEntry(variable_name="counter", value_kind="scalar.int", value=7),
             },
         )
         output = await node.process(
@@ -288,6 +289,7 @@ def test_data_requester_reads_current_value_from_runtime_store() -> None:
                 metadata={
                     "data_store": store,
                     "reference_bindings": {"n_req": {"source": "v1"}},
+                    "data_node_bindings": {"v1": "counter"},
                     "trigger_token": "tt-1",
                     "await_container_writes": _noop_wait,
                 },
@@ -304,35 +306,42 @@ async def _noop_wait(_container_id: str, _trigger_token: str) -> None:
 
 def test_data_writer_applies_literal_add_operation() -> None:
     async def _run() -> None:
-        registry = create_default_registry()
-        node = DataWriterNode(
-            "n_writer",
-            registry.get("data.writer"),
-            config={
-                "target_node_id": "v1",
-                "operation": "add",
-                "operand_mode": "literal",
-                "literal_value": 2,
-            },
-        )
-        store = RuntimeDataStore(
-            entries={
-                "v1": RuntimeDataEntry(node_id="v1", type_name="data.variable", value=5),
-            },
-        )
-        output = await node.process(
+            registry = create_default_registry()
+            node = DataWriterNode(
+                "n_writer",
+                registry.get("data.writer"),
+                config={
+                    "target_variable_name": "counter",
+                    "operation": "add",
+                    "operand_mode": "literal",
+                    "literal_value": 2,
+                },
+            )
+            store = RuntimeDataStore(
+                entries={
+                    "counter": RuntimeDataEntry(variable_name="counter", value_kind="scalar.int", value=5),
+                },
+            )
+            output = await node.process(
             inputs={"in": "trigger"},
             context=NodeContext(
                 run_id="run_test",
                 node_id="n_writer",
-                metadata={
-                    "data_store": store,
-                    "writer_targets": {"n_writer": "v1"},
-                },
-            ),
-        )
-        assert output["__node_metrics"]["data_writes"] == 1
-        assert store.read("v1") == 7
+                    metadata={
+                        "data_store": store,
+                        "writer_targets": {"n_writer": "counter"},
+                        "variables_by_name": {
+                            "counter": GraphDataVariable(
+                                name="counter",
+                                value_kind="scalar.int",
+                                initial_value=5,
+                            )
+                        },
+                    },
+                ),
+            )
+            assert output["__node_metrics"]["data_writes"] == 1
+            assert store.read("counter") == 7
 
     asyncio.run(_run())
 

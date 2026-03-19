@@ -1,4 +1,4 @@
-"""数据容器、请求器与写入器节点。"""
+"""通用数据引用节点、请求器与写入器节点。"""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from pydantic import model_validator
 
+from app.core.data_registry import GraphDataVariable
 from app.core.node_async import AsyncNode
 from app.core.node_base import NodeContext
 from app.core.node_config import CommonNodeConfig, NodeField
@@ -15,8 +16,6 @@ from app.core.payload_path import parse_field_path, set_value_at_path
 from app.core.runtime_data import RuntimeDataStore
 from app.core.spec import InputBehavior, NodeMode, NodeSpec, PortSpec
 
-
-ScalarType = Literal["integer", "float", "string"]
 WriterOperation = Literal[
     "add",
     "subtract",
@@ -28,11 +27,18 @@ WriterOperation = Literal[
     "merge_from_input",
     "set_path_from_input",
 ]
-OperandMode = Literal["literal", "container"]
+OperandMode = Literal["literal", "variable"]
 
 
-class PassiveDataContainerNode(AsyncNode):
-    """被动数据容器占位实现。"""
+class DataReferenceConfig(CommonNodeConfig):
+    variable_name: str = NodeField(
+        default="",
+        description="Bound graph-level variable name.",
+    )
+
+
+class PassiveDataReferenceNode(AsyncNode):
+    """被动数据引用节点占位实现。"""
 
     async def process(self, inputs: dict[str, Any], context: NodeContext) -> dict[str, Any]:
         _ = inputs
@@ -40,46 +46,14 @@ class PassiveDataContainerNode(AsyncNode):
         return {}
 
 
-class ScalarContainerConfig(CommonNodeConfig):
-    value_type: ScalarType = NodeField(
-        default="integer",
-        description="Declared scalar type for this container.",
-    )
-    initial_value: int | float | str | None = NodeField(
-        default=0,
-        description="Initial scalar value for the container.",
-    )
-
-    @model_validator(mode="after")
-    def validate_initial_value(self) -> "ScalarContainerConfig":
-        value = self.initial_value
-        if self.value_type == "integer":
-            if isinstance(value, bool) or not isinstance(value, int):
-                raise ValueError("initial_value 必须是 integer")
-        elif self.value_type == "float":
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise ValueError("initial_value 必须是 float")
-        elif self.value_type == "string":
-            if not isinstance(value, str):
-                raise ValueError("initial_value 必须是 string")
-        return self
-
-
-class JsonContainerConfig(CommonNodeConfig):
-    initial_value: Any = NodeField(
-        default=None,
-        description="Initial JSON-like value for the container.",
-    )
-
-
 class DataRequesterConfig(CommonNodeConfig):
     pass
 
 
 class DataWriterConfig(CommonNodeConfig):
-    target_node_id: str = NodeField(
+    target_variable_name: str = NodeField(
         default="",
-        description="Target data container node id.",
+        description="Target graph-level variable name.",
     )
     operation: WriterOperation = NodeField(
         default="set_from_input",
@@ -89,9 +63,9 @@ class DataWriterConfig(CommonNodeConfig):
         default="literal",
         description="Operand source for scalar arithmetic operations.",
     )
-    operand_node_id: str | None = NodeField(
+    operand_variable_name: str | None = NodeField(
         default=None,
-        description="Container id used as arithmetic operand when operand_mode=container.",
+        description="Variable name used as arithmetic operand when operand_mode=variable.",
     )
     literal_value: int | float | str | None = NodeField(
         default=0,
@@ -104,12 +78,12 @@ class DataWriterConfig(CommonNodeConfig):
 
     @model_validator(mode="after")
     def validate_operation_fields(self) -> "DataWriterConfig":
-        if not self.target_node_id.strip():
-            raise ValueError("target_node_id 不能为空")
+        if not self.target_variable_name.strip():
+            raise ValueError("target_variable_name 不能为空")
         if self.operation in {"add", "subtract", "multiply", "divide"}:
-            if self.operand_mode == "container":
-                if not isinstance(self.operand_node_id, str) or not self.operand_node_id.strip():
-                    raise ValueError("operand_mode=container 时必须提供 operand_node_id")
+            if self.operand_mode == "variable":
+                if not isinstance(self.operand_variable_name, str) or not self.operand_variable_name.strip():
+                    raise ValueError("operand_mode=variable 时必须提供 operand_variable_name")
             elif self.literal_value is None:
                 raise ValueError("operand_mode=literal 时必须提供 literal_value")
         if self.operation == "set_path_from_input":
@@ -119,7 +93,7 @@ class DataWriterConfig(CommonNodeConfig):
 
 
 class DataRequesterNode(AsyncNode):
-    """被触发时从数据容器读取当前值。"""
+    """被触发时通过数据引用节点读取当前值。"""
 
     ConfigModel = DataRequesterConfig
 
@@ -131,23 +105,29 @@ class DataRequesterNode(AsyncNode):
         node_bindings = reference_bindings.get(context.node_id)
         if not isinstance(node_bindings, dict):
             raise ValueError(f"数据请求器 {context.node_id} 缺少 source 绑定")
-        container_node_id = node_bindings.get("source")
-        if not isinstance(container_node_id, str) or not container_node_id.strip():
-            raise ValueError(f"数据请求器 {context.node_id} 缺少 source 容器")
+        source_node_id = node_bindings.get("source")
+        if not isinstance(source_node_id, str) or not source_node_id.strip():
+            raise ValueError(f"数据请求器 {context.node_id} 缺少 source 数据节点")
+        data_node_bindings = context.metadata.get("data_node_bindings")
+        if not isinstance(data_node_bindings, dict):
+            raise ValueError("缺少 data_node_bindings 上下文")
+        variable_name = data_node_bindings.get(source_node_id)
+        if not isinstance(variable_name, str) or not variable_name.strip():
+            raise ValueError(f"数据请求器 {context.node_id} 的 source 未绑定真实变量")
 
         awaiter = context.metadata.get("await_container_writes")
         trigger_token = context.metadata.get("trigger_token")
         if callable(awaiter) and isinstance(trigger_token, str) and trigger_token:
-            await awaiter(container_node_id, trigger_token)
+            await awaiter(variable_name, trigger_token)
 
         data_store = context.metadata.get("data_store")
         if not isinstance(data_store, RuntimeDataStore):
             raise ValueError("缺少 data_store 上下文")
-        return {"value": data_store.read(container_node_id)}
+        return {"value": data_store.read(variable_name)}
 
 
 class DataWriterNode(AsyncNode):
-    """对目标容器执行副作用写入。"""
+    """对目标真实变量执行副作用写入。"""
 
     ConfigModel = DataWriterConfig
 
@@ -158,21 +138,29 @@ class DataWriterNode(AsyncNode):
         writer_targets = context.metadata.get("writer_targets")
         if not isinstance(writer_targets, dict):
             raise ValueError("缺少 writer_targets 上下文")
-        target_node_id = writer_targets.get(context.node_id)
-        if not isinstance(target_node_id, str) or not target_node_id.strip():
-            raise ValueError(f"数据写入器 {context.node_id} 缺少目标容器")
+        target_variable_name = writer_targets.get(context.node_id)
+        if not isinstance(target_variable_name, str) or not target_variable_name.strip():
+            raise ValueError(f"数据写入器 {context.node_id} 缺少目标变量")
+        variables_by_name = context.metadata.get("variables_by_name")
+        if not isinstance(variables_by_name, dict):
+            raise ValueError("缺少 variables_by_name 上下文")
+        target_variable = variables_by_name.get(target_variable_name)
+        if not isinstance(target_variable, GraphDataVariable):
+            raise ValueError(f"数据写入器 {context.node_id} 目标变量不存在: {target_variable_name}")
 
         cfg = self.cfg
         if not isinstance(cfg, DataWriterConfig):
             raise ValueError("数据写入器配置非法")
-        current_value = data_store.read(target_node_id)
+        current_value = data_store.read(target_variable_name)
         next_value = self._apply_operation(
             current_value=current_value,
             incoming_value=inputs.get("in"),
             cfg=cfg,
             data_store=data_store,
+            variables_by_name=variables_by_name,
+            target_variable=target_variable,
         )
-        data_store.write(target_node_id, next_value)
+        data_store.write(target_variable_name, next_value)
         return {"__node_metrics": {"data_writes": 1}}
 
     def _apply_operation(
@@ -182,6 +170,8 @@ class DataWriterNode(AsyncNode):
         incoming_value: Any,
         cfg: DataWriterConfig,
         data_store: RuntimeDataStore,
+        variables_by_name: dict[str, GraphDataVariable],
+        target_variable: GraphDataVariable,
     ) -> Any:
         operation = cfg.operation
         if operation == "set_from_input":
@@ -211,17 +201,27 @@ class DataWriterNode(AsyncNode):
             set_value_at_path(next_value, parse_field_path(cfg.field_path or ""), deepcopy(incoming_value))
             return next_value
 
-        operand = self._resolve_operand(cfg=cfg, data_store=data_store)
+        operand = self._resolve_operand(cfg=cfg, data_store=data_store, variables_by_name=variables_by_name)
         return self._apply_scalar_arithmetic(
             operation=operation,
             current_value=current_value,
             operand=operand,
+            value_kind=target_variable.value_kind,
         )
 
     @staticmethod
-    def _resolve_operand(*, cfg: DataWriterConfig, data_store: RuntimeDataStore) -> int | float | str:
-        if cfg.operand_mode == "container":
-            operand = data_store.read(cfg.operand_node_id or "")
+    def _resolve_operand(
+        *,
+        cfg: DataWriterConfig,
+        data_store: RuntimeDataStore,
+        variables_by_name: dict[str, GraphDataVariable],
+    ) -> int | float | str:
+        if cfg.operand_mode == "variable":
+            variable_name = cfg.operand_variable_name or ""
+            variable = variables_by_name.get(variable_name)
+            if not isinstance(variable, GraphDataVariable):
+                raise ValueError("operand_variable_name 指向的变量不存在")
+            operand = data_store.read(variable_name)
         else:
             operand = cfg.literal_value
         if not isinstance(operand, (int, float, str)) or isinstance(operand, bool):
@@ -229,22 +229,24 @@ class DataWriterNode(AsyncNode):
         return operand
 
     @staticmethod
-    def _apply_scalar_arithmetic(*, operation: str, current_value: Any, operand: int | float | str) -> Any:
-        if operation == "add":
-            if isinstance(current_value, str):
-                if not isinstance(operand, str):
-                    raise ValueError("字符串容器仅支持字符串拼接")
-                return current_value + operand
-            if isinstance(current_value, (int, float)) and not isinstance(current_value, bool):
-                if isinstance(operand, str):
-                    raise ValueError("数值容器不支持字符串拼接")
-                return current_value + operand
-            raise ValueError("add 仅支持数值或字符串容器")
+    def _apply_scalar_arithmetic(
+        *,
+        operation: str,
+        current_value: Any,
+        operand: int | float | str,
+        value_kind: str,
+    ) -> Any:
+        if operation == "add" and value_kind == "scalar.string":
+            if not isinstance(current_value, str) or not isinstance(operand, str):
+                raise ValueError("字符串变量仅支持字符串拼接")
+            return current_value + operand
 
         if not isinstance(current_value, (int, float)) or isinstance(current_value, bool):
-            raise ValueError(f"{operation} 仅支持数值容器")
+            raise ValueError(f"{operation} 仅支持数值变量")
         if isinstance(operand, str):
             raise ValueError(f"{operation} 仅支持数值操作数")
+        if operation == "add":
+            return current_value + operand
         if operation == "subtract":
             return current_value - operand
         if operation == "multiply":
@@ -256,54 +258,14 @@ class DataWriterNode(AsyncNode):
         raise ValueError(f"未知写入操作: {operation}")
 
 
-DATA_CONSTANT_SPEC = NodeSpec(
-    type_name="data.constant",
+DATA_REF_SPEC = NodeSpec(
+    type_name="data.ref",
     mode=NodeMode.PASSIVE,
     inputs=[],
     outputs=[PortSpec(name="value", frame_schema="any", required=True)],
-    description="Passive scalar constant container.",
-    config_schema=ScalarContainerConfig.model_json_schema(),
-    tags=["data_container"],
-)
-
-DATA_VARIABLE_SPEC = NodeSpec(
-    type_name="data.variable",
-    mode=NodeMode.PASSIVE,
-    inputs=[],
-    outputs=[PortSpec(name="value", frame_schema="any", required=True)],
-    description="Passive scalar variable container.",
-    config_schema=ScalarContainerConfig.model_json_schema(),
-    tags=["data_container"],
-)
-
-DATA_LIST_SPEC = NodeSpec(
-    type_name="data.list",
-    mode=NodeMode.PASSIVE,
-    inputs=[],
-    outputs=[PortSpec(name="value", frame_schema="json.list", required=True)],
-    description="Passive list container.",
-    config_schema=JsonContainerConfig.model_json_schema(),
-    tags=["data_container"],
-)
-
-DATA_DICT_SPEC = NodeSpec(
-    type_name="data.dict",
-    mode=NodeMode.PASSIVE,
-    inputs=[],
-    outputs=[PortSpec(name="value", frame_schema="json.dict", required=True)],
-    description="Passive dictionary container.",
-    config_schema=JsonContainerConfig.model_json_schema(),
-    tags=["data_container"],
-)
-
-DATA_STAGING_SPEC = NodeSpec(
-    type_name="data.staging",
-    mode=NodeMode.PASSIVE,
-    inputs=[],
-    outputs=[PortSpec(name="value", frame_schema="json.any", required=True)],
-    description="Passive staging container for any JSON-like value.",
-    config_schema=JsonContainerConfig.model_json_schema(),
-    tags=["data_container"],
+    description="Passive data reference node bound to a graph variable.",
+    config_schema=DataReferenceConfig.model_json_schema(),
+    tags=["data_ref"],
 )
 
 DATA_REQUESTER_SPEC = NodeSpec(
@@ -315,7 +277,7 @@ DATA_REQUESTER_SPEC = NodeSpec(
             frame_schema="any",
             required=True,
             input_behavior=InputBehavior.REFERENCE,
-            description="Reference binding to the source data container.",
+            description="Reference binding to the source data node.",
         ),
         PortSpec(
             name="trigger",
@@ -334,7 +296,7 @@ DATA_REQUESTER_SPEC = NodeSpec(
             description="Current container value.",
         )
     ],
-    description="Request current data from a passive container when triggered.",
+    description="Request current data from a passive data reference node when triggered.",
     config_schema=DataRequesterConfig.model_json_schema(),
     tags=["data_requester"],
 )
@@ -360,29 +322,9 @@ DATA_WRITER_SPEC = NodeSpec(
 
 NODE_DEFINITIONS = [
     NodeDefinition(
-        spec=DATA_CONSTANT_SPEC,
-        impl_cls=PassiveDataContainerNode,
-        config_model=ScalarContainerConfig,
-    ),
-    NodeDefinition(
-        spec=DATA_VARIABLE_SPEC,
-        impl_cls=PassiveDataContainerNode,
-        config_model=ScalarContainerConfig,
-    ),
-    NodeDefinition(
-        spec=DATA_LIST_SPEC,
-        impl_cls=PassiveDataContainerNode,
-        config_model=JsonContainerConfig,
-    ),
-    NodeDefinition(
-        spec=DATA_DICT_SPEC,
-        impl_cls=PassiveDataContainerNode,
-        config_model=JsonContainerConfig,
-    ),
-    NodeDefinition(
-        spec=DATA_STAGING_SPEC,
-        impl_cls=PassiveDataContainerNode,
-        config_model=JsonContainerConfig,
+        spec=DATA_REF_SPEC,
+        impl_cls=PassiveDataReferenceNode,
+        config_model=DataReferenceConfig,
     ),
     NodeDefinition(
         spec=DATA_REQUESTER_SPEC,

@@ -13,6 +13,15 @@ from dataclasses import dataclass
 from typing import Callable
 
 from .config_validation import validate_node_config
+from .data_registry import (
+    DICT_LIKE_VALUE_KINDS,
+    LIST_LIKE_VALUE_KINDS,
+    PATH_VALUE_KINDS,
+    SCALAR_VALUE_KINDS,
+    GraphDataVariable,
+    build_variable_index,
+    try_parse_data_registry,
+)
 from .registry import NodeTypeRegistry
 from .spec import (
     EdgeSpec,
@@ -58,7 +67,9 @@ class CompiledGraph:
     - sync_group_participants: 同步组参与者（仅 executor）。
     - runtime_edges: 参与真实运行转发的边（不含 reference 输入边）。
     - reference_bindings: 节点引用输入绑定到的上游节点。
-    - writer_targets: 写入节点 -> 目标容器节点。
+    - writer_targets: 写入节点 -> 目标真实变量名。
+    - data_node_bindings: 数据引用节点 -> 绑定真实变量名。
+    - variables_by_name: 图级真实变量索引。
     """
 
     graph: GraphSpec
@@ -72,6 +83,8 @@ class CompiledGraph:
     runtime_edges: list[EdgeSpec]
     reference_bindings: dict[str, dict[str, str]]
     writer_targets: dict[str, str]
+    data_node_bindings: dict[str, str | None]
+    variables_by_name: dict[str, GraphDataVariable]
 
 
 class GraphBuilder:
@@ -115,10 +128,25 @@ class GraphBuilder:
 
         # 只有在节点类型成功解析后，才有意义做进一步校验。
         if node_specs:
+            variables_by_name = self._collect_variables_by_name(graph, issues)
+            data_node_bindings = self._build_data_node_bindings(
+                graph=graph,
+                node_specs=node_specs,
+                variables_by_name=variables_by_name,
+                issues=issues,
+            )
             self._validate_node_configs(graph, node_specs, issues)
             self._validate_required_inputs(node_specs, incoming, attempted_targets, issues)
             self._validate_sync_nodes(graph, node_specs, incoming, issues)
-            self._validate_data_nodes(graph, node_specs, incoming, outgoing, issues)
+            self._validate_data_nodes(
+                graph=graph,
+                node_specs=node_specs,
+                incoming=incoming,
+                outgoing=outgoing,
+                variables_by_name=variables_by_name,
+                data_node_bindings=data_node_bindings,
+                issues=issues,
+            )
             self._validate_acyclic(node_specs, outgoing, issues)
             if not any(issue.code == "graph.cycle_detected" for issue in issues):
                 resolved_inputs, resolved_outputs = self._resolve_port_schemas(
@@ -126,6 +154,8 @@ class GraphBuilder:
                     node_specs=node_specs,
                     incoming=incoming,
                     outgoing=outgoing,
+                    variables_by_name=variables_by_name,
+                    data_node_bindings=data_node_bindings,
                 )
                 self._validate_resolved_edge_schemas(
                     graph=graph,
@@ -158,11 +188,20 @@ class GraphBuilder:
             self._runtime_node_ids(node_specs),
             runtime_outgoing,
         )
+        variables_by_name = self._collect_variables_by_name(graph, [])
+        data_node_bindings = self._build_data_node_bindings(
+            graph=graph,
+            node_specs=node_specs,
+            variables_by_name=variables_by_name,
+            issues=[],
+        )
         resolved_inputs, resolved_outputs = self._resolve_port_schemas(
             graph=graph,
             node_specs=node_specs,
             incoming=incoming,
             outgoing=outgoing,
+            variables_by_name=variables_by_name,
+            data_node_bindings=data_node_bindings,
         )
         sync_group_participants = self._build_sync_group_participants(
             graph=graph,
@@ -183,6 +222,8 @@ class GraphBuilder:
             runtime_edges=runtime_edges,
             reference_bindings=reference_bindings,
             writer_targets=writer_targets,
+            data_node_bindings=data_node_bindings,
+            variables_by_name=variables_by_name,
         )
 
     def _collect_node_specs(
@@ -521,12 +562,14 @@ class GraphBuilder:
         node_specs: dict[str, NodeSpec],
         incoming: dict[str, list[EdgeSpec]],
         outgoing: dict[str, list[EdgeSpec]],
+        variables_by_name: dict[str, GraphDataVariable],
+        data_node_bindings: dict[str, str | None],
         issues: list[ValidationIssue],
     ) -> None:
         node_instances = {node.node_id: node for node in graph.nodes}
 
         for node_id, spec in node_specs.items():
-            if self._has_tag(spec, "data_container"):
+            if self._has_tag(spec, "data_ref"):
                 for edge in outgoing.get(node_id, []):
                     target_spec = node_specs.get(edge.target_node)
                     target_port = self._find_input_port(target_spec, edge.target_port) if target_spec else None
@@ -534,9 +577,9 @@ class GraphBuilder:
                         issues.append(
                             ValidationIssue(
                                 level="error",
-                                code="data.container_invalid_consumer",
+                                code="data.ref_invalid_consumer",
                                 message=(
-                                    f"数据容器 {node_id} 仅允许连接到引用输入端口，"
+                                    f"数据引用节点 {node_id} 仅允许连接到引用输入端口，"
                                     f"当前连接到 {edge.target_node}.{edge.target_port}"
                                 ),
                             )
@@ -556,19 +599,30 @@ class GraphBuilder:
                         ValidationIssue(
                             level="error",
                             code="data.requester_source_missing",
-                            message=f"数据请求器 {node_id} 必须绑定一个 source 容器",
+                            message=f"数据请求器 {node_id} 必须绑定一个 source 数据节点",
                         )
                     )
                 else:
                     source_spec = node_specs.get(source_edges[0].source_node)
-                    if source_spec is None or not self._has_tag(source_spec, "data_container"):
+                    if source_spec is None or not self._has_tag(source_spec, "data_ref"):
                         issues.append(
                             ValidationIssue(
                                 level="error",
-                                code="data.requester_source_not_container",
+                                code="data.requester_source_not_data_ref",
                                 message=(
-                                    f"数据请求器 {node_id} 的 source 必须连接数据容器，"
+                                    f"数据请求器 {node_id} 的 source 必须连接 data.ref，"
                                     f"当前为 {source_edges[0].source_node}"
+                                ),
+                            )
+                        )
+                    elif not isinstance(data_node_bindings.get(source_edges[0].source_node), str):
+                        issues.append(
+                            ValidationIssue(
+                                level="error",
+                                code="data.requester_source_unbound",
+                                message=(
+                                    f"数据请求器 {node_id} 的 source 数据节点未绑定真实变量: "
+                                    f"{source_edges[0].source_node}"
                                 ),
                             )
                         )
@@ -583,25 +637,25 @@ class GraphBuilder:
 
             if self._has_tag(spec, "data_writer"):
                 writer_instance = node_instances.get(node_id)
-                target_node_id = writer_instance.config.get("target_node_id") if writer_instance else None
-                if not isinstance(target_node_id, str) or not target_node_id.strip():
+                target_variable_name = writer_instance.config.get("target_variable_name") if writer_instance else None
+                if not isinstance(target_variable_name, str) or not target_variable_name.strip():
                     issues.append(
                         ValidationIssue(
                             level="error",
                             code="data.writer_target_missing",
-                            message=f"数据写入器 {node_id} 缺少 target_node_id 配置",
+                            message=f"数据写入器 {node_id} 缺少 target_variable_name 配置",
                         )
                     )
                 else:
-                    target_spec = node_specs.get(target_node_id.strip())
-                    if target_spec is None or not self._has_tag(target_spec, "data_container"):
+                    target_variable = variables_by_name.get(target_variable_name.strip())
+                    if target_variable is None:
                         issues.append(
                             ValidationIssue(
                                 level="error",
-                                code="data.writer_target_not_container",
+                                code="data.writer_target_variable_missing",
                                 message=(
-                                    f"数据写入器 {node_id} 的 target_node_id 必须指向数据容器，"
-                                    f"当前为 {target_node_id}"
+                                    f"数据写入器 {node_id} 的 target_variable_name 必须指向真实变量，"
+                                    f"当前为 {target_variable_name}"
                                 ),
                             )
                         )
@@ -609,9 +663,8 @@ class GraphBuilder:
                         self._validate_writer_operation(
                             writer_node_id=node_id,
                             writer_config=writer_instance.config if writer_instance else {},
-                            target_node_id=target_node_id.strip(),
-                            target_spec=target_spec,
-                            node_specs=node_specs,
+                            target_variable=target_variable,
+                            variables_by_name=variables_by_name,
                             issues=issues,
                         )
 
@@ -709,6 +762,8 @@ class GraphBuilder:
         node_specs: dict[str, NodeSpec],
         incoming: dict[str, list[EdgeSpec]],
         outgoing: dict[str, list[EdgeSpec]],
+        variables_by_name: dict[str, GraphDataVariable],
+        data_node_bindings: dict[str, str | None],
     ) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]]]:
         """解析节点输入/输出端口在当前图中的真实 schema。"""
         topo_order = self._topological_sort(list(node_specs.keys()), outgoing)
@@ -751,6 +806,9 @@ class GraphBuilder:
                         spec=spec,
                         node_config=node_instances.get(node_id).config if node_id in node_instances else {},
                         output_port=output_port,
+                        variables_by_name=variables_by_name,
+                        data_node_bindings=data_node_bindings,
+                        node_id=node_id,
                     )
                     continue
                 source_input = dynamic_input_schemas.get(output_port.derived_from_input, "any")
@@ -772,6 +830,9 @@ class GraphBuilder:
                     spec=spec,
                     node_config=node_instances.get(node_id).config if node_id in node_instances else {},
                     output_port=port,
+                    variables_by_name=variables_by_name,
+                    data_node_bindings=data_node_bindings,
+                    node_id=node_id,
                 )
                 for port in spec.outputs
             }
@@ -921,15 +982,18 @@ class GraphBuilder:
         spec: NodeSpec,
         node_config: dict[str, object],
         output_port: PortSpec,
+        variables_by_name: dict[str, GraphDataVariable],
+        data_node_bindings: dict[str, str | None],
+        node_id: str,
     ) -> str:
-        if self._has_tag(spec, "data_container") and output_port.name == "value":
-            if spec.type_name in {"data.constant", "data.variable"}:
-                value_type = node_config.get("value_type")
-                if value_type == "float":
-                    return "scalar.float"
-                if value_type == "string":
-                    return "scalar.string"
-                return "scalar.int"
+        _ = node_config
+        if self._has_tag(spec, "data_ref") and output_port.name == "value":
+            variable_name = data_node_bindings.get(node_id)
+            if isinstance(variable_name, str):
+                variable = variables_by_name.get(variable_name)
+                if variable is not None:
+                    return variable.value_kind
+            return "any"
         return normalize_schema(output_port.frame_schema)
 
     @staticmethod
@@ -983,10 +1047,69 @@ class GraphBuilder:
             spec = node_specs.get(node.node_id)
             if spec is None or not self._has_tag(spec, "data_writer"):
                 continue
-            raw_target = node.config.get("target_node_id")
+            raw_target = node.config.get("target_variable_name")
             if isinstance(raw_target, str) and raw_target.strip():
                 targets[node.node_id] = raw_target.strip()
         return targets
+
+    def _collect_variables_by_name(
+        self,
+        graph: GraphSpec,
+        issues: list[ValidationIssue],
+    ) -> dict[str, GraphDataVariable]:
+        registry, error = try_parse_data_registry(graph.metadata)
+        if error is not None:
+            issues.append(
+                ValidationIssue(
+                    level="error",
+                    code="data.registry_invalid",
+                    message=f"data_registry 非法: {error.errors()[0]['msg']}",
+                )
+            )
+            return {}
+        assert registry is not None
+        return build_variable_index(registry.variables)
+
+    def _build_data_node_bindings(
+        self,
+        *,
+        graph: GraphSpec,
+        node_specs: dict[str, NodeSpec],
+        variables_by_name: dict[str, GraphDataVariable],
+        issues: list[ValidationIssue],
+    ) -> dict[str, str | None]:
+        bindings: dict[str, str | None] = {}
+        for node in graph.nodes:
+            spec = node_specs.get(node.node_id)
+            if spec is None or not self._has_tag(spec, "data_ref"):
+                continue
+            raw_variable_name = node.config.get("variable_name")
+            if raw_variable_name is None or raw_variable_name == "":
+                bindings[node.node_id] = None
+                continue
+            if not isinstance(raw_variable_name, str) or not raw_variable_name.strip():
+                issues.append(
+                    ValidationIssue(
+                        level="error",
+                        code="data.ref_variable_invalid",
+                        message=f"数据引用节点 {node.node_id} 的 variable_name 非法",
+                    )
+                )
+                bindings[node.node_id] = None
+                continue
+            variable_name = raw_variable_name.strip()
+            if variable_name not in variables_by_name:
+                issues.append(
+                    ValidationIssue(
+                        level="error",
+                        code="data.ref_variable_missing",
+                        message=f"数据引用节点 {node.node_id} 绑定了不存在的变量: {variable_name}",
+                    )
+                )
+                bindings[node.node_id] = None
+                continue
+            bindings[node.node_id] = variable_name
+        return bindings
 
     def _is_reference_edge(self, *, edge: EdgeSpec, node_specs: dict[str, NodeSpec]) -> bool:
         target_spec = node_specs.get(edge.target_node)
@@ -1006,9 +1129,8 @@ class GraphBuilder:
         *,
         writer_node_id: str,
         writer_config: dict[str, object],
-        target_node_id: str,
-        target_spec: NodeSpec,
-        node_specs: dict[str, NodeSpec],
+        target_variable: GraphDataVariable,
+        variables_by_name: dict[str, GraphDataVariable],
         issues: list[ValidationIssue],
     ) -> None:
         operation = writer_config.get("operation")
@@ -1022,81 +1144,77 @@ class GraphBuilder:
             )
             return
         operation = operation.strip()
-        scalar_targets = {"data.constant", "data.variable"}
-        list_targets = {"data.list", "data.staging"}
-        dict_targets = {"data.dict", "data.staging"}
-        path_targets = {"data.list", "data.dict", "data.staging"}
 
-        if operation in {"add", "subtract", "multiply", "divide"} and target_spec.type_name not in scalar_targets:
+        if operation in {"add", "subtract", "multiply", "divide"} and target_variable.value_kind not in SCALAR_VALUE_KINDS:
             issues.append(
                 ValidationIssue(
                     level="error",
                     code="data.writer_scalar_target_invalid",
                     message=(
-                        f"数据写入器 {writer_node_id} 的算术操作仅允许标量容器，"
-                        f"当前目标 {target_node_id} 为 {target_spec.type_name}"
+                        f"数据写入器 {writer_node_id} 的算术操作仅允许标量变量，"
+                        f"当前目标变量类型为 {target_variable.value_kind}"
                     ),
                 )
             )
 
-        if operation in {"append_from_input", "extend_from_input"} and target_spec.type_name not in list_targets:
+        if operation in {"append_from_input", "extend_from_input"} and target_variable.value_kind not in LIST_LIKE_VALUE_KINDS:
             issues.append(
                 ValidationIssue(
                     level="error",
                     code="data.writer_list_target_invalid",
                     message=(
-                        f"数据写入器 {writer_node_id} 的 {operation} 仅允许列表/暂存容器，"
-                        f"当前目标 {target_node_id} 为 {target_spec.type_name}"
+                        f"数据写入器 {writer_node_id} 的 {operation} 仅允许列表变量，"
+                        f"当前目标变量类型为 {target_variable.value_kind}"
                     ),
                 )
             )
 
-        if operation == "merge_from_input" and target_spec.type_name not in dict_targets:
+        if operation == "merge_from_input" and target_variable.value_kind not in DICT_LIKE_VALUE_KINDS:
             issues.append(
                 ValidationIssue(
                     level="error",
                     code="data.writer_dict_target_invalid",
                     message=(
-                        f"数据写入器 {writer_node_id} 的 merge_from_input 仅允许字典/暂存容器，"
-                        f"当前目标 {target_node_id} 为 {target_spec.type_name}"
+                        f"数据写入器 {writer_node_id} 的 merge_from_input 仅允许字典变量，"
+                        f"当前目标变量类型为 {target_variable.value_kind}"
                     ),
                 )
             )
 
-        if operation == "set_path_from_input" and target_spec.type_name not in path_targets:
+        if operation == "set_path_from_input" and target_variable.value_kind not in PATH_VALUE_KINDS:
             issues.append(
                 ValidationIssue(
                     level="error",
                     code="data.writer_path_target_invalid",
                     message=(
-                        f"数据写入器 {writer_node_id} 的 set_path_from_input 仅允许列表/字典/暂存容器，"
-                        f"当前目标 {target_node_id} 为 {target_spec.type_name}"
+                        f"数据写入器 {writer_node_id} 的 set_path_from_input 仅允许列表/字典变量，"
+                        f"当前目标变量类型为 {target_variable.value_kind}"
                     ),
                 )
             )
 
         if operation in {"add", "subtract", "multiply", "divide"}:
             operand_mode = writer_config.get("operand_mode")
-            if operand_mode == "container":
-                operand_node_id = writer_config.get("operand_node_id")
-                if not isinstance(operand_node_id, str) or not operand_node_id.strip():
+            if operand_mode == "variable":
+                operand_variable_name = writer_config.get("operand_variable_name")
+                if not isinstance(operand_variable_name, str) or not operand_variable_name.strip():
                     issues.append(
                         ValidationIssue(
                             level="error",
-                            code="data.writer_operand_container_missing",
-                            message=f"数据写入器 {writer_node_id} 缺少 operand_node_id 配置",
+                            code="data.writer_operand_variable_missing",
+                            message=f"数据写入器 {writer_node_id} 缺少 operand_variable_name 配置",
                         )
                     )
                 else:
-                    operand_spec = node_specs.get(operand_node_id.strip())
-                    if operand_spec is None or operand_spec.type_name not in scalar_targets:
+                    operand_variable = variables_by_name.get(operand_variable_name.strip())
+                    if operand_variable is None or operand_variable.value_kind not in SCALAR_VALUE_KINDS:
                         issues.append(
                             ValidationIssue(
                                 level="error",
-                                code="data.writer_operand_container_invalid",
+                                code="data.writer_operand_variable_invalid",
                                 message=(
-                                    f"数据写入器 {writer_node_id} 的 operand_node_id 必须指向标量容器，"
-                                    f"当前为 {operand_node_id}"
+                                    f"数据写入器 {writer_node_id} 的 operand_variable_name 必须指向标量变量，"
+                                    f"当前为 {operand_variable_name}"
                                 ),
                             )
                         )

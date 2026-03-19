@@ -359,16 +359,16 @@ describe('graph-editor utils', () => {
         expect(resolved.inputs.n3?.in).toBe('audio.full.sync');
     });
 
-    it('resolves passive data container schema and requester passthrough output schema', () => {
+    it('resolves passive data ref schema and requester passthrough output schema', () => {
         const graph = {
             graph_id: 'g_data_request',
             version: '0.1.0',
             nodes: [
                 {
                     node_id: 'v1',
-                    type_name: 'data.variable',
-                    title: 'var',
-                    config: {value_type: 'float', initial_value: 1.5},
+                    type_name: 'data.ref',
+                    title: 'ref',
+                    config: {variable_name: 'balance'},
                 },
                 {
                     node_id: 'r1',
@@ -386,13 +386,23 @@ describe('graph-editor utils', () => {
                     queue_maxsize: 0,
                 },
             ],
-            metadata: {},
+            metadata: {
+                data_registry: {
+                    variables: [
+                        {
+                            name: 'balance',
+                            value_kind: 'scalar.float',
+                            initial_value: 1.5,
+                        },
+                    ],
+                },
+            },
         };
         const catalogByType = new Map([
             [
-                'data.variable',
+                'data.ref',
                 {
-                    type_name: 'data.variable',
+                    type_name: 'data.ref',
                     version: '0.1.0',
                     mode: 'passive',
                     inputs: [],
@@ -400,7 +410,7 @@ describe('graph-editor utils', () => {
                     sync_config: null,
                     config_schema: {},
                     description: '',
-                    tags: ['data_container'],
+                    tags: ['data_ref'],
                 },
             ],
             [

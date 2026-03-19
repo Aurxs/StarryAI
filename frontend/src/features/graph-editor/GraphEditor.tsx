@@ -43,6 +43,12 @@ import type {EdgeSpec, NodeInstanceSpec, NodeSpec, PortSpec} from '../../entitie
 import {apiClient} from '../../shared/api/client';
 import {changeAppLanguage, normalizeLanguage} from '../../shared/i18n/i18n';
 import {translateNodeTypeDescription, translatePortDescription} from '../../shared/i18n/label-mappers';
+import {
+    getNodeBoundVariable,
+    getValueKindLabel,
+    isGenericDataNodeType,
+    isVisibleDataLibraryType,
+} from '../../shared/data-registry';
 import {useGraphStore} from '../../shared/state/graph-store';
 import {notifyUser} from '../../shared/state/global-info-store';
 import {useUiStore} from '../../shared/state/ui-store';
@@ -72,6 +78,8 @@ interface WorkflowNodeData {
     title: string;
     config: Record<string, unknown>;
     spec: NodeSpec;
+    boundVariableLabel: string | null;
+    boundVariableKindLabel: string | null;
     isEditing: boolean;
     isValidationError: boolean;
     resolvedInputSchemas: Record<string, string>;
@@ -528,25 +536,20 @@ const nodeHeaderStyle: CSSProperties = {
     paddingRight: NODE_TITLE_INSET,
 };
 
-const isPassiveDataTypeNode = (spec: NodeSpec): boolean => {
-    const tags = Array.isArray(spec.tags) ? spec.tags : [];
-    return spec.mode === 'passive' && (tags.includes('data_container') || spec.type_name.startsWith('data.'));
-};
+const isPassiveDataTypeNode = (spec: NodeSpec): boolean => spec.mode === 'passive' && isGenericDataNodeType(spec.type_name);
 
 const resolveDataTypeNodeSubtitle = (
     t: ReturnType<typeof useTranslation>['t'],
-    data: Pick<WorkflowNodeData, 'config' | 'spec' | 'resolvedOutputSchemas'>,
+    data: Pick<WorkflowNodeData, 'boundVariableKindLabel' | 'boundVariableLabel' | 'config' | 'spec' | 'resolvedOutputSchemas'>,
 ): string => {
-    const configuredValueType = typeof data.config.value_type === 'string' ? data.config.value_type : '';
-    switch (configuredValueType) {
-        case 'integer':
-            return 'int';
-        case 'float':
-            return 'float';
-        case 'string':
-            return 'text';
-        default:
-            break;
+    if (data.boundVariableLabel && data.boundVariableKindLabel) {
+        return `${data.boundVariableLabel} · ${data.boundVariableKindLabel}`;
+    }
+    if (data.boundVariableKindLabel) {
+        return data.boundVariableKindLabel;
+    }
+    if (isGenericDataNodeType(data.spec.type_name)) {
+        return t('graphEditor.nodeTypeBadges.dataRefUnbound', {defaultValue: '未绑定'});
     }
 
     const valuePort = data.spec.outputs?.find((port) => port.name === 'value');
@@ -574,7 +577,7 @@ const resolveNodeNamespaceSubtitle = (
 
 const resolveWorkflowNodeSubtitle = (
     t: ReturnType<typeof useTranslation>['t'],
-    data: Pick<WorkflowNodeData, 'config' | 'spec' | 'resolvedOutputSchemas'>,
+    data: Pick<WorkflowNodeData, 'boundVariableKindLabel' | 'boundVariableLabel' | 'config' | 'spec' | 'resolvedOutputSchemas'>,
 ): string => {
     if (isPassiveDataTypeNode(data.spec)) {
         return resolveDataTypeNodeSubtitle(t, data);
@@ -1050,18 +1053,11 @@ const GraphEditorInner = () => {
                     return buildInitiatorDefaultConfig(graph.nodes);
                 }
                 switch (spec.type_name) {
-                    case 'data.constant':
-                    case 'data.variable':
-                        return {value_type: 'integer', initial_value: 0};
-                    case 'data.list':
-                        return {initial_value: []};
-                    case 'data.dict':
-                        return {initial_value: {}};
-                    case 'data.staging':
-                        return {initial_value: null};
+                    case 'data.ref':
+                        return {variable_name: ''};
                     case 'data.writer':
                         return {
-                            target_node_id: '',
+                            target_variable_name: '',
                             operation: 'set_from_input',
                             operand_mode: 'literal',
                             literal_value: 0,
@@ -1123,6 +1119,11 @@ const GraphEditorInner = () => {
                         title: node.title || node.type_name,
                         config: node.config ?? {},
                         spec,
+                        boundVariableLabel: getNodeBoundVariable(graph.metadata, node)?.name ?? null,
+                        boundVariableKindLabel: (() => {
+                            const variable = getNodeBoundVariable(graph.metadata, node);
+                            return variable ? getValueKindLabel(variable.value_kind) : null;
+                        })(),
                         isEditing: node.node_id === selectedNodeId,
                         isValidationError: highlighted,
                         resolvedInputSchemas: resolvedPortSchemas.inputs[node.node_id] ?? {},
@@ -1260,11 +1261,7 @@ const GraphEditorInner = () => {
 
     const nodeLibraryGroups = useMemo(() => {
         const isDataNode = (nodeType: NodeSpec): boolean => {
-            const tags = Array.isArray(nodeType.tags) ? nodeType.tags : [];
-            return tags.includes('data_container')
-                || tags.includes('data_requester')
-                || tags.includes('data_writer')
-                || nodeType.type_name.startsWith('data.');
+            return isVisibleDataLibraryType(nodeType.type_name);
         };
         const dataNodes = catalog.filter(isDataNode);
         const otherNodes = catalog.filter((nodeType) => !isDataNode(nodeType));

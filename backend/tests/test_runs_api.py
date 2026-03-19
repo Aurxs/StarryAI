@@ -336,18 +336,29 @@ def _data_variable_graph_payload() -> dict[str, Any]:
     return {
         "graph": {
             "graph_id": "g_api_data_variable",
+            "metadata": {
+                "data_registry": {
+                    "variables": [
+                        {
+                            "name": "counter",
+                            "value_kind": "scalar.int",
+                            "initial_value": 1,
+                        }
+                    ]
+                }
+            },
             "nodes": [
                 {"node_id": "n1", "type_name": "mock.input", "config": {"content": "tick"}},
                 {
                     "node_id": "n2",
-                    "type_name": "data.variable",
-                    "config": {"value_type": "integer", "initial_value": 1},
+                    "type_name": "data.ref",
+                    "config": {"variable_name": "counter"},
                 },
                 {
                     "node_id": "n3",
                     "type_name": "data.writer",
                     "config": {
-                        "target_node_id": "n2",
+                        "target_variable_name": "counter",
                         "operation": "add",
                         "operand_mode": "literal",
                         "literal_value": 2,
@@ -391,19 +402,30 @@ def _data_staging_graph_payload() -> dict[str, Any]:
     return {
         "graph": {
             "graph_id": "g_api_data_staging",
+            "metadata": {
+                "data_registry": {
+                    "variables": [
+                        {
+                            "name": "motion_buffer",
+                            "value_kind": "json.any",
+                            "initial_value": None,
+                        }
+                    ]
+                }
+            },
             "nodes": [
                 {"node_id": "n1", "type_name": "mock.input", "config": {"content": "wave to audience"}},
                 {"node_id": "n2", "type_name": "mock.motion"},
                 {
                     "node_id": "n3",
-                    "type_name": "data.staging",
-                    "config": {"initial_value": None},
+                    "type_name": "data.ref",
+                    "config": {"variable_name": "motion_buffer"},
                 },
                 {
                     "node_id": "n4",
                     "type_name": "data.writer",
                     "config": {
-                        "target_node_id": "n3",
+                        "target_variable_name": "motion_buffer",
                         "operation": "set_from_input",
                         "operand_mode": "literal",
                         "literal_value": 0,

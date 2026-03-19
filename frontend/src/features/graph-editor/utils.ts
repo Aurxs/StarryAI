@@ -9,6 +9,7 @@ import type {
     PortSpec,
     ValidationIssue,
 } from '../../entities/workbench/types';
+import {getVariableSchema, isGenericDataNodeType, readDataRegistry} from '../../shared/data-registry';
 
 export const SOURCE_HANDLE_PREFIX = 'out:';
 export const TARGET_HANDLE_PREFIX = 'in:';
@@ -87,21 +88,17 @@ const toSyncSchema = (schema: string): string => {
 };
 
 const resolveDataContainerOutputSchema = (
+    graph: GraphSpec,
     node: NodeInstanceSpec,
     outputPort: PortSpec,
 ): string => {
     if (outputPort.name !== 'value') {
         return normalizeSchema(outputPort.frame_schema);
     }
-    if (node.type_name === 'data.constant' || node.type_name === 'data.variable') {
-        const valueType = typeof node.config.value_type === 'string' ? node.config.value_type.trim().toLowerCase() : '';
-        if (valueType === 'float') {
-            return 'scalar.float';
-        }
-        if (valueType === 'string') {
-            return 'scalar.string';
-        }
-        return 'scalar.int';
+    if (isGenericDataNodeType(node.type_name)) {
+        const variableName = typeof node.config.variable_name === 'string' ? node.config.variable_name : '';
+        const variable = readDataRegistry(graph.metadata).variables.find((item) => item.name === variableName);
+        return getVariableSchema(variable?.value_kind);
     }
     return normalizeSchema(outputPort.frame_schema);
 };
@@ -245,12 +242,13 @@ const buildTopologicalOrder = (graph: GraphSpec, outgoing: Record<string, EdgeSp
 };
 
 const resolveDynamicOutputSchema = (
+    graph: GraphSpec,
     node: NodeInstanceSpec,
     outputPort: PortSpec,
     dynamicInputSchemas: Record<string, string>,
 ): string => {
     if (!outputPort.derived_from_input) {
-        return resolveDataContainerOutputSchema(node, outputPort);
+        return resolveDataContainerOutputSchema(graph, node, outputPort);
     }
     const sourceInputSchema = dynamicInputSchemas[outputPort.derived_from_input] ?? 'any';
     if (isSyncSchema(outputPort.frame_schema)) {
@@ -300,7 +298,12 @@ export const resolveGraphPortSchemas = (
 
         const outputSchemas: Record<string, string> = {};
         for (const outputPort of outputPorts) {
-            outputSchemas[outputPort.name] = resolveDynamicOutputSchema(node, outputPort, dynamicInputSchemas);
+            outputSchemas[outputPort.name] = resolveDynamicOutputSchema(
+                graph,
+                node,
+                outputPort,
+                dynamicInputSchemas,
+            );
         }
         outputs[nodeId] = outputSchemas;
     }
@@ -321,7 +324,7 @@ export const resolveGraphPortSchemas = (
             inputPorts.map((port) => [port.name, normalizeSchema(port.frame_schema)]),
         );
         outputs[node.node_id] = Object.fromEntries(
-            outputPorts.map((port) => [port.name, resolveDataContainerOutputSchema(node, port)]),
+            outputPorts.map((port) => [port.name, resolveDataContainerOutputSchema(graph, node, port)]),
         );
     }
 

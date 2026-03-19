@@ -279,18 +279,29 @@ def test_scheduler_data_writer_completes_before_requester_reads_same_container()
         CAPTURED_VALUES.clear()
         graph = GraphSpec(
             graph_id="g_scheduler_data_writer_requester",
+            metadata={
+                "data_registry": {
+                    "variables": [
+                        {
+                            "name": "counter",
+                            "value_kind": "scalar.int",
+                            "initial_value": 1,
+                        }
+                    ]
+                }
+            },
             nodes=[
                 NodeInstanceSpec(node_id="n1", type_name="mock.input"),
                 NodeInstanceSpec(
                     node_id="v1",
-                    type_name="data.variable",
-                    config={"value_type": "integer", "initial_value": 1},
+                    type_name="data.ref",
+                    config={"variable_name": "counter"},
                 ),
                 NodeInstanceSpec(
                     node_id="n2",
                     type_name="data.writer",
                     config={
-                        "target_node_id": "v1",
+                        "target_variable_name": "counter",
                         "operation": "add",
                         "operand_mode": "literal",
                         "literal_value": 2,

@@ -65,7 +65,11 @@ const createDefaultGraph = (graphId = DEFAULT_GRAPH_ID): GraphSpec => ({
     version: '0.1.0',
     nodes: [],
     edges: [],
-    metadata: {},
+    metadata: {
+        data_registry: {
+            variables: [],
+        },
+    },
 });
 
 const createInitialState = (): Pick<GraphState, 'graph' | 'selectedNodeId' | 'isDirty'> => ({

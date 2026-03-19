@@ -1,8 +1,18 @@
 import {useEffect, useMemo, useState, type CSSProperties} from 'react';
 import {useTranslation} from 'react-i18next';
 
-import type {NodeSpec} from '../../entities/workbench/types';
+import type {GraphVariableSpec, GraphVariableValueKind, NodeSpec} from '../../entities/workbench/types';
 import {apiClient, ApiClientError} from '../../shared/api/client';
+import {
+    GRAPH_VARIABLE_VALUE_KINDS,
+    findGraphVariable,
+    getValueKindLabel,
+    isDuplicateGraphVariableName,
+    isDataWriterType,
+    isGenericDataNodeType,
+    readDataRegistry,
+    upsertGraphVariable,
+} from '../../shared/data-registry';
 import {SchemaForm} from '../../shared/schema-form/SchemaForm';
 import {applySchemaDefaults, findPlaintextSecretPaths} from '../../shared/schema-form/normalize-schema';
 import {useGraphStore} from '../../shared/state/graph-store';
@@ -42,6 +52,12 @@ const inputStyle: CSSProperties = {
     marginTop: 4,
     color: '#0f172a',
     background: '#ffffff',
+};
+
+const invalidInputStyle: CSSProperties = {
+    ...inputStyle,
+    border: '1px solid #dc2626',
+    boxShadow: '0 0 0 1px rgba(220, 38, 38, 0.12)',
 };
 
 const textareaStyle: CSSProperties = {
@@ -114,18 +130,87 @@ const formatReadonlyValue = (value: string): string => {
     return value;
 };
 
-const isScalarContainerType = (typeName: string): boolean =>
-    typeName === 'data.constant' || typeName === 'data.variable';
-
-const isJsonContainerType = (typeName: string): boolean =>
-    typeName === 'data.list' || typeName === 'data.dict' || typeName === 'data.staging';
-
-const isDataWriterType = (typeName: string): boolean => typeName === 'data.writer';
-
 const isDataNodeType = (typeName: string): boolean =>
-    isScalarContainerType(typeName) || isJsonContainerType(typeName) || isDataWriterType(typeName);
+    isGenericDataNodeType(typeName) || isDataWriterType(typeName);
 
 const parseJsonValue = (text: string): unknown => JSON.parse(text) as unknown;
+
+const parseFloatValue = (value: string): number | null => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+        return null;
+    }
+    const parsed = Number.parseFloat(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+};
+
+const parseVariableInitialValue = (
+    valueKind: GraphVariableValueKind,
+    scalarText: string,
+    jsonText: string,
+): unknown => {
+    switch (valueKind) {
+        case 'scalar.int': {
+            const parsed = parseInteger(scalarText);
+            if (parsed === null) {
+                throw new Error('integer 初始值非法');
+            }
+            return parsed;
+        }
+        case 'scalar.float': {
+            const parsed = parseFloatValue(scalarText);
+            if (parsed === null) {
+                throw new Error('float 初始值非法');
+            }
+            return parsed;
+        }
+        case 'scalar.string':
+            return scalarText;
+        case 'json.list': {
+            const parsed = parseJsonValue(jsonText);
+            if (!Array.isArray(parsed)) {
+                throw new Error('json.list 初始值必须是数组');
+            }
+            return parsed;
+        }
+        case 'json.dict': {
+            const parsed = parseJsonValue(jsonText);
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                throw new Error('json.dict 初始值必须是对象');
+            }
+            return parsed;
+        }
+        case 'json.any':
+            return parseJsonValue(jsonText);
+    }
+};
+
+const formatVariableInitialValue = (variable: GraphVariableSpec | null): {scalar: string; json: string} => {
+    if (!variable) {
+        return {scalar: '', json: 'null'};
+    }
+    if (variable.value_kind === 'scalar.string') {
+        return {scalar: typeof variable.initial_value === 'string' ? variable.initial_value : '', json: '" "'};
+    }
+    if (variable.value_kind === 'scalar.int' || variable.value_kind === 'scalar.float') {
+        return {scalar: variable.initial_value === undefined || variable.initial_value === null ? '' : String(variable.initial_value), json: 'null'};
+    }
+    return {scalar: '', json: formatJsonValue(variable.initial_value)};
+};
+
+interface VariableDraft {
+    name: string;
+    valueKind: GraphVariableValueKind;
+    scalarInitialValue: string;
+    jsonInitialValue: string;
+}
+
+const createDefaultVariableDraft = (): VariableDraft => ({
+    name: '',
+    valueKind: 'scalar.int',
+    scalarInitialValue: '0',
+    jsonInitialValue: 'null',
+});
 
 type SyncPanelRole = 'none' | 'initiator' | 'executor';
 
@@ -197,7 +282,9 @@ export function NodeConfigPanel() {
     const {t} = useTranslation();
     const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
     const nodes = useGraphStore((state) => state.graph.nodes);
+    const graphMetadata = useGraphStore((state) => state.graph.metadata);
     const patchNode = useGraphStore((state) => state.patchNode);
+    const setMetadata = useGraphStore((state) => state.setMetadata);
 
     const secrets = useSecretStore((state) => state.items);
     const loadSecrets = useSecretStore((state) => state.loadSecrets);
@@ -208,9 +295,9 @@ export function NodeConfigPanel() {
     const [runtimeConfigDraft, setRuntimeConfigDraft] = useState<Record<string, unknown>>({});
     const [configDraftText, setConfigDraftText] = useState('{}');
     const [syncFieldDraft, setSyncFieldDraft] = useState<SyncFieldDraft>(createDefaultSyncFieldDraft());
-    const [dataScalarValueDraft, setDataScalarValueDraft] = useState('0');
-    const [dataJsonValueDraft, setDataJsonValueDraft] = useState('null');
     const [dataWriterLiteralDraft, setDataWriterLiteralDraft] = useState('0');
+    const [showCreateVariable, setShowCreateVariable] = useState(false);
+    const [variableDraft, setVariableDraft] = useState<VariableDraft>(createDefaultVariableDraft());
     const [showAdvancedJson, setShowAdvancedJson] = useState(false);
     const [jsonDraftError, setJsonDraftError] = useState<string | null>(null);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -253,17 +340,15 @@ export function NodeConfigPanel() {
         [selectedSpec],
     );
     const isDataNode = selectedNode ? isDataNodeType(selectedNode.type_name) : false;
-    const isScalarContainer = selectedNode ? isScalarContainerType(selectedNode.type_name) : false;
-    const isJsonContainer = selectedNode ? isJsonContainerType(selectedNode.type_name) : false;
+    const isDataRef = selectedNode ? isGenericDataNodeType(selectedNode.type_name) : false;
     const isDataWriter = selectedNode ? isDataWriterType(selectedNode.type_name) : false;
-    const dataContainerNodes = useMemo(
-        () =>
-            nodes.filter(
-                (node) =>
-                    isScalarContainerType(node.type_name)
-                    || isJsonContainerType(node.type_name),
-            ),
-        [nodes],
+    const graphVariables = useMemo(() => readDataRegistry(graphMetadata).variables, [graphMetadata]);
+    const duplicateVariableName = useMemo(
+        () => {
+            const trimmedName = variableDraft.name.trim();
+            return trimmedName ? isDuplicateGraphVariableName(graphMetadata, trimmedName) : false;
+        },
+        [graphMetadata, variableDraft.name],
     );
 
     useEffect(() => {
@@ -300,9 +385,9 @@ export function NodeConfigPanel() {
             setRuntimeConfigDraft({});
             setConfigDraftText('{}');
             setSyncFieldDraft(createDefaultSyncFieldDraft());
-            setDataScalarValueDraft('0');
-            setDataJsonValueDraft('null');
             setDataWriterLiteralDraft('0');
+            setShowCreateVariable(false);
+            setVariableDraft(createDefaultVariableDraft());
             setShowAdvancedJson(false);
             setJsonDraftError(null);
             setErrorMessage(null);
@@ -314,19 +399,26 @@ export function NodeConfigPanel() {
         setRuntimeConfigDraft(runtimeConfig);
         setConfigDraftText(formatJson(runtimeConfig));
         setSyncFieldDraft(buildSyncFieldDraft(selectedNode.config));
-        const scalarInitial = runtimeConfig.initial_value;
-        setDataScalarValueDraft(
-            scalarInitial === undefined || scalarInitial === null ? '' : String(scalarInitial),
-        );
-        setDataJsonValueDraft(formatJsonValue(runtimeConfig.initial_value));
         const literalValue = runtimeConfig.literal_value;
         setDataWriterLiteralDraft(
             literalValue === undefined || literalValue === null ? '' : String(literalValue),
         );
+        setShowCreateVariable(false);
+        const selectedVariable = findGraphVariable(
+            graphMetadata,
+            typeof runtimeConfig.variable_name === 'string' ? runtimeConfig.variable_name : null,
+        );
+        const formattedInitial = formatVariableInitialValue(selectedVariable);
+        setVariableDraft({
+            name: '',
+            valueKind: selectedVariable?.value_kind ?? 'scalar.int',
+            scalarInitialValue: formattedInitial.scalar || '0',
+            jsonInitialValue: formattedInitial.json,
+        });
         setJsonDraftError(null);
         setErrorMessage(null);
         setSuccessMessage(null);
-    }, [selectedNode, syncRole, selectedSpec, runtimeSchema]);
+    }, [graphMetadata, selectedNode, syncRole, selectedSpec, runtimeSchema]);
 
     if (!selectedNode) {
         return (
@@ -341,13 +433,31 @@ export function NodeConfigPanel() {
 
     const onSave = (): void => {
         const nextTitle = titleDraft.trim() || selectedNode.type_name;
-        if (isJsonContainer) {
+        let nextMetadata = graphMetadata;
+        let runtimeConfigForSave = runtimeConfigDraft;
+        if (isDataRef && showCreateVariable) {
             try {
-                const parsed = parseJsonValue(dataJsonValueDraft);
-                updateRuntimeConfigDraft({
-                    ...runtimeConfigDraft,
-                    initial_value: parsed,
+                const name = variableDraft.name.trim();
+                if (!name) {
+                    throw new Error('变量名称不能为空');
+                }
+                if (isDuplicateGraphVariableName(graphMetadata, name)) {
+                    throw new Error(`变量名称已存在: ${name}`);
+                }
+                const initialValue = parseVariableInitialValue(
+                    variableDraft.valueKind,
+                    variableDraft.scalarInitialValue,
+                    variableDraft.jsonInitialValue,
+                );
+                nextMetadata = upsertGraphVariable(graphMetadata, {
+                    name,
+                    value_kind: variableDraft.valueKind,
+                    initial_value: initialValue,
                 });
+                runtimeConfigForSave = {
+                    ...runtimeConfigDraft,
+                    variable_name: name,
+                };
             } catch (error) {
                 setErrorMessage(error instanceof Error ? error.message : String(error));
                 setSuccessMessage(null);
@@ -356,15 +466,13 @@ export function NodeConfigPanel() {
         }
         let parsedRuntimeConfig: Record<string, unknown>;
         try {
-            parsedRuntimeConfig = parseRuntimeConfigText(
-                isJsonContainer
-                    ? formatJson({
-                        ...runtimeConfigDraft,
-                        initial_value: parseJsonValue(dataJsonValueDraft),
-                    })
-                    : configDraftText,
-                t,
-            );
+            parsedRuntimeConfig = parseRuntimeConfigText(configDraftText, t);
+            if (runtimeConfigForSave !== runtimeConfigDraft) {
+                parsedRuntimeConfig = {
+                    ...parsedRuntimeConfig,
+                    ...runtimeConfigForSave,
+                };
+            }
             assertNoPlaintextSecrets(parsedRuntimeConfig, runtimeSchema, t);
         } catch (error) {
             setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -413,6 +521,9 @@ export function NodeConfigPanel() {
             }
         }
 
+        if (nextMetadata !== graphMetadata) {
+            setMetadata(nextMetadata);
+        }
         patchNode(selectedNode.node_id, {
             title: nextTitle,
             config: parsedConfig,
@@ -431,17 +542,13 @@ export function NodeConfigPanel() {
         setRuntimeConfigDraft(nextRuntimeConfig);
         setConfigDraftText(formatJson(nextRuntimeConfig));
         setSyncFieldDraft(buildSyncFieldDraft(selectedNode.config));
-        setDataScalarValueDraft(
-            nextRuntimeConfig.initial_value === undefined || nextRuntimeConfig.initial_value === null
-                ? ''
-                : String(nextRuntimeConfig.initial_value),
-        );
-        setDataJsonValueDraft(formatJsonValue(nextRuntimeConfig.initial_value));
         setDataWriterLiteralDraft(
             nextRuntimeConfig.literal_value === undefined || nextRuntimeConfig.literal_value === null
                 ? ''
                 : String(nextRuntimeConfig.literal_value),
         );
+        setShowCreateVariable(false);
+        setVariableDraft(createDefaultVariableDraft());
         setJsonDraftError(null);
         setErrorMessage(null);
         setSuccessMessage(null);
@@ -495,99 +602,139 @@ export function NodeConfigPanel() {
         setSuccessMessage(null);
     };
 
-    const selectedWriterTarget = isDataWriter
-        ? dataContainerNodes.find((node) => node.node_id === runtimeConfigDraft.target_node_id)
+    const selectedDataRefVariable = isDataRef
+        ? findGraphVariable(
+            graphMetadata,
+            typeof runtimeConfigDraft.variable_name === 'string' ? runtimeConfigDraft.variable_name : null,
+        )
         : null;
-    const selectedWriterTargetType = typeof selectedWriterTarget?.type_name === 'string'
-        ? selectedWriterTarget.type_name
+    const selectedWriterTargetVariable = isDataWriter
+        ? findGraphVariable(
+            graphMetadata,
+            typeof runtimeConfigDraft.target_variable_name === 'string' ? runtimeConfigDraft.target_variable_name : null,
+        )
         : null;
-    const selectedWriterScalarType = isScalarContainerType(selectedWriterTargetType ?? '')
-        ? String(selectedWriterTarget?.config.value_type ?? 'integer')
-        : null;
+    const selectedWriterScalarKind = selectedWriterTargetVariable?.value_kind ?? null;
 
     const renderDataControls = (): JSX.Element | null => {
         if (!selectedNode) {
             return null;
         }
-        if (isScalarContainer) {
-            const valueType = typeof runtimeConfigDraft.value_type === 'string'
-                ? runtimeConfigDraft.value_type
-                : 'integer';
+        if (isDataRef) {
+            const usesJsonEditor = variableDraft.valueKind.startsWith('json.');
             return (
-                <section style={{display: 'grid', gap: 10}} data-testid="node-config-data-scalar">
+                <section style={{display: 'grid', gap: 10}} data-testid="node-config-data-ref">
                     <label style={labelStyle}>
-                        {t('nodeConfig.data.scalarType', {defaultValue: '数值类型'})}
+                        {t('nodeConfig.data.ref.variable', {defaultValue: '绑定变量'})}
                         <select
-                            value={valueType}
+                            value={typeof runtimeConfigDraft.variable_name === 'string' ? runtimeConfigDraft.variable_name : ''}
                             style={inputStyle}
                             onChange={(event) => {
-                                const nextType = event.target.value;
-                                const nextValue = nextType === 'string' ? '' : 0;
-                                setDataScalarValueDraft(String(nextValue));
                                 updateRuntimeConfigDraft({
                                     ...runtimeConfigDraft,
-                                    value_type: nextType,
-                                    initial_value: nextValue,
+                                    variable_name: event.target.value,
                                 });
                             }}
                         >
-                            <option value="integer">{t('nodeConfig.data.scalarTypes.integer', {defaultValue: 'integer'})}</option>
-                            <option value="float">{t('nodeConfig.data.scalarTypes.float', {defaultValue: 'float'})}</option>
-                            <option value="string">{t('nodeConfig.data.scalarTypes.string', {defaultValue: 'string'})}</option>
+                            <option value="">{t('nodeConfig.form.emptyValue')}</option>
+                            {graphVariables.map((variable) => (
+                                <option key={variable.name} value={variable.name}>
+                                    {variable.name} ({getValueKindLabel(variable.value_kind)})
+                                </option>
+                            ))}
                         </select>
                     </label>
-                    <label style={labelStyle}>
-                        {t('nodeConfig.data.initialValue', {defaultValue: '初始值'})}
-                        <input
-                            value={dataScalarValueDraft}
-                            style={inputStyle}
-                            onChange={(event) => {
-                                const nextDraft = event.target.value;
-                                setDataScalarValueDraft(nextDraft);
-                                let parsedValue: unknown = nextDraft;
-                                if (valueType === 'integer') {
-                                    const parsed = Number.parseInt(nextDraft, 10);
-                                    parsedValue = Number.isFinite(parsed) ? parsed : nextDraft;
-                                } else if (valueType === 'float') {
-                                    const parsed = Number.parseFloat(nextDraft);
-                                    parsedValue = Number.isFinite(parsed) ? parsed : nextDraft;
-                                }
-                                updateRuntimeConfigDraft({
-                                    ...runtimeConfigDraft,
-                                    value_type: valueType,
-                                    initial_value: parsedValue,
-                                });
-                            }}
-                        />
-                    </label>
-                </section>
-            );
-        }
-        if (isJsonContainer) {
-            return (
-                <section style={{display: 'grid', gap: 10}} data-testid="node-config-data-json">
-                    <label style={labelStyle}>
-                        {t('nodeConfig.data.initialValueJson', {defaultValue: '初始值 JSON'})}
-                        <textarea
-                            value={dataJsonValueDraft}
-                            style={textareaStyle}
-                            onChange={(event) => {
-                                const nextDraft = event.target.value;
-                                setDataJsonValueDraft(nextDraft);
-                                try {
-                                    const parsed = parseJsonValue(nextDraft);
-                                    updateRuntimeConfigDraft({
-                                        ...runtimeConfigDraft,
-                                        initial_value: parsed,
-                                    });
-                                } catch (error) {
-                                    setJsonDraftError(error instanceof Error ? error.message : String(error));
-                                    setErrorMessage(null);
-                                    setSuccessMessage(null);
-                                }
-                            }}
-                        />
-                    </label>
+                    {selectedDataRefVariable && (
+                        <div style={{fontSize: 12, color: '#475569'}} data-testid="node-config-bound-variable-summary">
+                            {`${selectedDataRefVariable.name} · ${getValueKindLabel(selectedDataRefVariable.value_kind)}`}
+                        </div>
+                    )}
+                    <div style={{display: 'flex', justifyContent: 'flex-start'}}>
+                        <button
+                            type="button"
+                            style={buttonStyle}
+                            onClick={() => setShowCreateVariable((current) => !current)}
+                        >
+                            {showCreateVariable
+                                ? t('nodeConfig.data.ref.hideCreate', {defaultValue: '收起新变量'})
+                                : t('nodeConfig.data.ref.showCreate', {defaultValue: '新建变量'})}
+                        </button>
+                    </div>
+                    {showCreateVariable && (
+                        <section style={{display: 'grid', gap: 10, padding: 10, border: '1px solid rgba(148, 163, 184, 0.28)', borderRadius: 10}}>
+                            <label style={labelStyle}>
+                                {t('nodeConfig.data.ref.variableName', {defaultValue: '变量名称'})}
+                                <input
+                                    value={variableDraft.name}
+                                    style={duplicateVariableName ? invalidInputStyle : inputStyle}
+                                    onChange={(event) => {
+                                        setVariableDraft((current) => ({...current, name: event.target.value}));
+                                        setSuccessMessage(null);
+                                    }}
+                                    data-testid="node-config-variable-name-input"
+                                />
+                                {duplicateVariableName && (
+                                    <div style={{fontSize: 11, color: '#dc2626'}}>
+                                        {t('nodeConfig.data.ref.duplicateName', {defaultValue: '变量名称重复，请使用唯一名称'})}
+                                    </div>
+                                )}
+                            </label>
+                            <label style={labelStyle}>
+                                {t('nodeConfig.data.ref.valueKind', {defaultValue: '变量类型'})}
+                                <select
+                                    value={variableDraft.valueKind}
+                                    style={inputStyle}
+                                    onChange={(event) => {
+                                        const nextValueKind = event.target.value as GraphVariableValueKind;
+                                        setVariableDraft((current) => ({
+                                            ...current,
+                                            valueKind: nextValueKind,
+                                            scalarInitialValue:
+                                                nextValueKind === 'scalar.string' ? '' : current.scalarInitialValue,
+                                        }));
+                                        setSuccessMessage(null);
+                                    }}
+                                >
+                                    {GRAPH_VARIABLE_VALUE_KINDS.map((valueKind) => (
+                                        <option key={valueKind} value={valueKind}>
+                                            {getValueKindLabel(valueKind)}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                            {usesJsonEditor ? (
+                                <label style={labelStyle}>
+                                    {t('nodeConfig.data.ref.initialValueJson', {defaultValue: '初始值 JSON'})}
+                                    <textarea
+                                        value={variableDraft.jsonInitialValue}
+                                        style={textareaStyle}
+                                        onChange={(event) => {
+                                            setVariableDraft((current) => ({
+                                                ...current,
+                                                jsonInitialValue: event.target.value,
+                                            }));
+                                            setSuccessMessage(null);
+                                        }}
+                                    />
+                                </label>
+                            ) : (
+                                <label style={labelStyle}>
+                                    {t('nodeConfig.data.ref.initialValue', {defaultValue: '初始值'})}
+                                    <input
+                                        value={variableDraft.scalarInitialValue}
+                                        style={inputStyle}
+                                        onChange={(event) => {
+                                            setVariableDraft((current) => ({
+                                                ...current,
+                                                scalarInitialValue: event.target.value,
+                                            }));
+                                            setSuccessMessage(null);
+                                        }}
+                                    />
+                                </label>
+                            )}
+                        </section>
+                    )}
                 </section>
             );
         }
@@ -603,21 +750,21 @@ export function NodeConfigPanel() {
             return (
                 <section style={{display: 'grid', gap: 10}} data-testid="node-config-data-writer">
                     <label style={labelStyle}>
-                        {t('nodeConfig.data.writer.target', {defaultValue: '目标容器'})}
+                        {t('nodeConfig.data.writer.target', {defaultValue: '目标变量'})}
                         <select
-                            value={typeof runtimeConfigDraft.target_node_id === 'string' ? runtimeConfigDraft.target_node_id : ''}
+                            value={typeof runtimeConfigDraft.target_variable_name === 'string' ? runtimeConfigDraft.target_variable_name : ''}
                             style={inputStyle}
                             onChange={(event) => {
                                 updateRuntimeConfigDraft({
                                     ...runtimeConfigDraft,
-                                    target_node_id: event.target.value,
+                                    target_variable_name: event.target.value,
                                 });
                             }}
                         >
                             <option value="">{t('nodeConfig.form.emptyValue')}</option>
-                            {dataContainerNodes.map((node) => (
-                                <option key={node.node_id} value={node.node_id}>
-                                    {node.node_id} ({node.type_name})
+                            {graphVariables.map((variable) => (
+                                <option key={variable.name} value={variable.name}>
+                                    {variable.name} ({getValueKindLabel(variable.value_kind)})
                                 </option>
                             ))}
                         </select>
@@ -658,30 +805,30 @@ export function NodeConfigPanel() {
                                     <option value="literal">
                                         {t('nodeConfig.data.writer.operandModes.literal', {defaultValue: 'literal'})}
                                     </option>
-                                    <option value="container">
-                                        {t('nodeConfig.data.writer.operandModes.container', {defaultValue: 'container'})}
+                                    <option value="variable">
+                                        {t('nodeConfig.data.writer.operandModes.variable', {defaultValue: 'variable'})}
                                     </option>
                                 </select>
                             </label>
-                            {operandMode === 'container' ? (
+                            {operandMode === 'variable' ? (
                                 <label style={labelStyle}>
-                                    {t('nodeConfig.data.writer.operandContainer', {defaultValue: '操作数容器'})}
+                                    {t('nodeConfig.data.writer.operandVariable', {defaultValue: '操作数变量'})}
                                     <select
-                                        value={typeof runtimeConfigDraft.operand_node_id === 'string' ? runtimeConfigDraft.operand_node_id : ''}
+                                        value={typeof runtimeConfigDraft.operand_variable_name === 'string' ? runtimeConfigDraft.operand_variable_name : ''}
                                         style={inputStyle}
                                         onChange={(event) => {
                                             updateRuntimeConfigDraft({
                                                 ...runtimeConfigDraft,
-                                                operand_node_id: event.target.value,
+                                                operand_variable_name: event.target.value,
                                             });
                                         }}
                                     >
                                         <option value="">{t('nodeConfig.form.emptyValue')}</option>
-                                        {dataContainerNodes
-                                            .filter((node) => isScalarContainerType(node.type_name))
-                                            .map((node) => (
-                                                <option key={node.node_id} value={node.node_id}>
-                                                    {node.node_id} ({node.type_name})
+                                        {graphVariables
+                                            .filter((variable) => variable.value_kind.startsWith('scalar.'))
+                                            .map((variable) => (
+                                                <option key={variable.name} value={variable.name}>
+                                                    {variable.name} ({getValueKindLabel(variable.value_kind)})
                                                 </option>
                                             ))}
                                     </select>
@@ -696,10 +843,10 @@ export function NodeConfigPanel() {
                                             const nextDraft = event.target.value;
                                             setDataWriterLiteralDraft(nextDraft);
                                             let nextValue: unknown = nextDraft;
-                                            if (selectedWriterScalarType === 'integer') {
+                                            if (selectedWriterScalarKind === 'scalar.int') {
                                                 const parsed = Number.parseInt(nextDraft, 10);
                                                 nextValue = Number.isFinite(parsed) ? parsed : nextDraft;
-                                            } else if (selectedWriterScalarType === 'float') {
+                                            } else if (selectedWriterScalarKind === 'scalar.float') {
                                                 const parsed = Number.parseFloat(nextDraft);
                                                 nextValue = Number.isFinite(parsed) ? parsed : nextDraft;
                                             }
