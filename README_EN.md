@@ -1,125 +1,142 @@
 # StarryAI
 
-StarryAI is a modular, node-based AI virtual human workflow engine (Backend + Workbench).
+StarryAI is a node-based AI workflow workbench for local development and experimentation, with visual orchestration, run control, and runtime inspection capabilities.
 
-## Current Scope
+## Overview
 
-- Backend stage: `Phase D` (observability and stability).
-- Frontend scope: desktop-only (Desktop Web).
-- Out of scope: mobile adaptation, real model inference, external network calls.
+StarryAI uses a separated frontend/backend architecture. The backend is responsible for graph validation, run scheduling, and event and metrics output, while the frontend provides a visual workbench for editing graphs, configuring nodes, saving workflows, and starting runs.
 
-## Recent Fixes (2026-02-28)
+It is well suited for building and validating AI workflow prototypes, especially when you need to:
 
-- UI layout upgrade:
-  - full-screen canvas as the base layer;
-  - left/right/bottom panels as floating overlays;
-  - all three panels are collapsible.
-- Graph editing update: each node now has a delete button.
-- Graph validation request fix: backend CORS support added to resolve frontend `NetworkError` and backend
-  `405 (OPTIONS)`.
-- Local dev compatibility fix: backend CORS now allows dynamic localhost/127.0.0.1 ports, preventing saved-graph list load failures when Vite auto-switches ports.
-- Runtime path fix: launcher now injects `VITE_API_BASE_URL` for frontend so backend auto-port switching does not break run requests.
-- Frontend API client now has request timeout (default 10s) to avoid indefinite "running" UI when backend endpoint is unreachable or hangs.
-- Frontend i18n: UI strings moved from hardcoded component text to language packs (`zh-CN`/`en-US`) with
-  persisted language switching.
+- Organize nodes and connections on a canvas instead of writing flow definitions by hand
+- Check whether graph structure and node configuration are valid before running
+- Inspect status, events, metrics, and diagnostics during execution
+- Manage sensitive configuration through Secrets instead of storing plaintext in graphs
+- Save and reuse local workflow graphs
 
 ## Core Capabilities
 
-- Graph contracts and validation: `NodeSpec/GraphSpec`, `GraphBuilder`.
-- Runtime loop: `GraphScheduler` + `RunService` + runs REST/WS.
-- Runtime guardrails: event retention window and concurrent-run limit controls.
-- Ops metrics endpoint: `GET /metrics` in Prometheus text format.
-- Metrics enrichment: labeled `starryai_runs_status{status=...}`, capacity/event ratio gauges, and suggested warning-threshold gauges.
-- Sync orchestration (refactor in progress): `sync.initiator.dual` + `SyncCoordinator` + `*.sync` executors.
-- Structured events: `event_id/event_seq/severity/component/error_code`.
-- Observability endpoints: `/runs/{id}/metrics`, `/runs/{id}/diagnostics`.
-- Frontend workbench: graph editing, node config, validation, run control, runtime console, insights panel.
-- Phase F tooling (initial): baseline performance runner and JSON report pipeline.
+- Visual graph editing: create nodes on a canvas, connect them, adjust layouts, and maintain workflow structure
+- Node configuration panel: edit node parameters through forms or structured configuration
+- Graph validation: verify graph structure, port connections, and configuration before saving or running
+- Run control: start, stop, and track a workflow run directly from the workbench
+- Runtime inspection: review event streams, runtime metrics, and diagnostics to help troubleshoot issues
+- Secret management: manage sensitive configuration centrally and reference it from node settings
+- Graph persistence: save, load, and delete local workflow graphs for reuse and iteration
 
-## Project Phases (A-F)
+## Architecture
 
-- Phase A (done): protocol and graph model, static validation and compilation.
-- Phase B (done): minimal runnable scheduler loop (run/stop/status/events).
-- Phase C (done): sync orchestration v1 and sync event enrichment.
-- Phase D (done): structured events, error governance, retry/timeout, observability APIs.
-- Phase E (done): frontend workbench closed loop with backend integration and E2E baseline.
-- Phase F (in progress): performance, stability, testing matrix, and engineering hardening.
+StarryAI has two main parts:
 
-## Stack
+- Backend: Python 3.12 + FastAPI, responsible for graph validation, run scheduling, REST/WS APIs, and runtime data output
+- Frontend: React + TypeScript + Vite, using React Flow and Zustand to provide the workbench experience
 
-- Backend: Python 3.12 + FastAPI + asyncio + Pydantic
-- Frontend: React + TypeScript + Vite + React Flow + Zustand
+The system runs locally by starting both the backend service and the frontend workbench, with HTTP and WebSocket used for graph configuration, run control, and runtime data synchronization.
+
+## Use Cases
+
+- AI workflow prototype design and validation
+- A local experimentation environment for node-based orchestration tools
+- Early-stage internal tools that need visual editing and runtime inspection
+- Local projects that need to separate sensitive configuration from workflow definitions
 
 ## Quick Start
 
-1. Install dependencies (repo root)
+### Requirements
+
+- Python `3.12`
+- Node.js and `npm`
+
+### Recommended: one-command startup
+
+Run this from the repository root:
+
+```bash
+python main.py
+```
+
+This starts both the backend and frontend development environment together. By default:
+
+- Backend: `http://127.0.0.1:8000`
+- Frontend: `http://127.0.0.1:5173`
+
+If a default port is already in use, the launcher automatically switches to an available one and prints the actual addresses in the terminal.
+
+The launcher will also try to install missing base dependencies when needed:
+
+- Python runtime dependencies via `requirements.txt`
+- Frontend dependencies via `frontend/package.json`
+
+You can view the available options with:
+
+```bash
+python main.py --help
+```
+
+## Manual Startup
+
+If you want to control the backend and frontend processes separately, use the steps below.
+
+### 1. Install dependencies
+
+Install Python dependencies from the repository root:
 
 ```bash
 python3.12 -m pip install -r requirements.txt
 ```
 
-2. Run backend
+Install frontend dependencies:
+
+```bash
+cd frontend
+npm install
+```
+
+### 2. Start the backend
 
 ```bash
 cd backend
 python3.12 -m uvicorn app.main:app --reload
 ```
 
-3. Run frontend
+Default backend address:
+
+```text
+http://127.0.0.1:8000
+```
+
+### 3. Start the frontend
+
+In a new terminal, run:
 
 ```bash
 cd frontend
-npm install
 npm run dev
 ```
 
-4. Run Phase F perf baseline (optional)
+Default frontend address:
 
-```bash
-python backend/scripts/run_perf_baseline.py --runs-per-scenario 10 --concurrency 4
+```text
+http://127.0.0.1:5173
 ```
 
-## Main Endpoints
+## Project Structure
 
-- `GET /`
-- `GET /health`
-- `GET /metrics`
-- `GET /api/v1/node-types`
-- `POST /api/v1/graphs/validate`
-- `POST /api/v1/runs`
-- `POST /api/v1/runs/{run_id}/stop`
-- `GET /api/v1/runs/{run_id}`
-- `GET /api/v1/runs/{run_id}/events`
-- `GET /api/v1/runs/{run_id}/metrics`
-- `GET /api/v1/runs/{run_id}/diagnostics`
-- `WS /api/v1/runs/{run_id}/events`
-
-## Tests (Baseline)
-
-```bash
-python -m pytest -q backend/tests
-python -m ruff check backend/app backend/tests backend/scripts
-python -m mypy backend/app
+```text
+StarryAI/
+├── backend/        # FastAPI backend and workflow runtime core
+├── frontend/       # React workbench frontend
+├── saved_graphs/   # Locally saved workflow graphs
+├── scripts/        # Helper scripts
+├── main.py         # One-command launcher
+├── requirements.txt
+└── README.md
 ```
 
-Local CI-aligned gate:
+## Notes
 
-```bash
-bash scripts/ci_local.sh --backend-only
-# or full gate (including frontend + e2e)
-bash scripts/ci_local.sh
-```
+- `README_EN.md` is intended for external readers and focuses on project positioning and startup instructions
+- Graph data is stored under the `saved_graphs/` directory by default
+- The current workbench experience is mainly intended for local desktop browsers
+- The Chinese document is also available at [`README.md`](./README.md)
 
-Phase F perf baseline (on demand):
-
-```bash
-python backend/scripts/run_perf_baseline.py --runs-per-scenario 10 --concurrency 4
-```
-
-## Docs
-
-- Chinese doc: `README.md`
-- Development plan: `Plan.md`
-- Structure notes: `description.md`
-- Test baseline: `test.md`
-- CI workflow: `.github/workflows/ci.yml`
