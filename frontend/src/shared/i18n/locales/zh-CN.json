@@ -424,6 +424,9 @@
       "kindRequired": "密钥类型不能为空。",
       "valueRequired": "密钥值不能为空。",
       "missingItem": "当前密钥不存在，请刷新后重试。"
+    },
+    "security": {
+      "providerUnavailable": "当前环境未配置安全的 Secret 存储。请启用系统 keyring，或显式设置 STARRYAI_SECRET_PROVIDER=encrypted_file 并提供 STARRYAI_SECRET_MASTER_KEY。创建和轮换操作已禁用。"
     }
   },
   "nodeTypeDescriptions": {

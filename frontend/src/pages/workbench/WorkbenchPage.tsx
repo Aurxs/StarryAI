@@ -382,6 +382,9 @@ export function WorkbenchPage() {
 
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
+            if (isEditableElement(event.target)) {
+                return;
+            }
             const commandPressed = event.metaKey || event.ctrlKey;
             if (!commandPressed) {
                 return;

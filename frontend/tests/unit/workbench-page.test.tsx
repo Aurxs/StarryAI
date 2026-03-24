@@ -230,6 +230,43 @@ describe('WorkbenchPage shell', () => {
         });
     });
 
+    it('does not trigger graph undo while editing the project name input', async () => {
+        render(<WorkbenchPage/>);
+
+        useGraphStore.getState().upsertNode({
+            node_id: 'n1',
+            type_name: 'mock.input',
+            title: 'Input',
+            config: {},
+        });
+
+        await waitFor(() => {
+            expect(useGraphStore.getState().graph.nodes).toHaveLength(1);
+        });
+        fireEvent.click(screen.getByTestId('project-name-display'));
+        const input = screen.getByLabelText('project-name-input');
+        fireEvent.keyDown(input, {key: 'z', ctrlKey: true});
+
+        expect(useGraphStore.getState().graph.nodes).toHaveLength(1);
+    });
+
+    it('does not trigger graph undo while editing node config json', async () => {
+        useGraphStore.getState().upsertNode({
+            node_id: 'n_json',
+            type_name: 'mock.output',
+            title: 'Output',
+            config: {enabled: true},
+        });
+        useGraphStore.getState().selectNode('n_json');
+
+        render(<WorkbenchPage/>);
+        const jsonInput = await screen.findByTestId('node-config-json-input');
+        fireEvent.keyDown(jsonInput, {key: 'z', ctrlKey: true});
+
+        expect(useGraphStore.getState().graph.nodes).toHaveLength(1);
+        expect(useGraphStore.getState().selectedNodeId).toBe('n_json');
+    });
+
     it('creates a new graph from persistence panel', async () => {
         vi.spyOn(window, 'confirm').mockReturnValue(true);
 

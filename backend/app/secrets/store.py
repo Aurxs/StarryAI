@@ -12,6 +12,7 @@ from keyring.errors import KeyringError, NoKeyringError
 
 SECRET_STORE_DIR_ENV = 'STARRYAI_SECRET_STORE_DIR'
 SECRET_PROVIDER_ENV = 'STARRYAI_SECRET_PROVIDER'
+SECRET_MASTER_KEY_ENV = 'STARRYAI_SECRET_MASTER_KEY'
 SECRET_KEYRING_SERVICE_NAME = 'starryai'
 
 
@@ -33,6 +34,30 @@ class SecretInUseError(SecretStoreError):
 
 class SecretProviderUnavailableError(SecretStoreError):
     """Requested provider is unavailable."""
+
+
+class UnavailableSecretValueProvider:
+    name = 'unavailable'
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+
+    def _raise(self) -> None:
+        raise SecretProviderUnavailableError(self.reason)
+
+    def set_value(self, secret_id: str, value: str) -> None:
+        _ = secret_id
+        _ = value
+        self._raise()
+
+    def get_value(self, secret_id: str) -> str:
+        _ = secret_id
+        self._raise()
+        raise AssertionError('unreachable')
+
+    def delete_value(self, secret_id: str) -> None:
+        _ = secret_id
+        self._raise()
 
 
 class SecretValueProvider(Protocol):
@@ -112,26 +137,16 @@ class EncryptedFileSecretValueProvider:
     def __init__(self, store_dir: Path) -> None:
         self.store_dir = store_dir
         self.values_dir = self.store_dir / 'values'
-        self.key_path = self.store_dir / 'master.key'
         self.values_dir.mkdir(parents=True, exist_ok=True)
-        self._fernet = Fernet(self._load_or_create_key())
+        self._fernet = Fernet(self._load_master_key())
 
-    def _load_or_create_key(self) -> bytes:
-        env_value = os.getenv('STARRYAI_SECRET_MASTER_KEY', '').strip()
+    def _load_master_key(self) -> bytes:
+        env_value = os.getenv(SECRET_MASTER_KEY_ENV, '').strip()
         if env_value:
             return env_value.encode('utf-8')
-
-        if self.key_path.exists():
-            return self.key_path.read_bytes().strip()
-
-        key = Fernet.generate_key()
-        self.key_path.parent.mkdir(parents=True, exist_ok=True)
-        self.key_path.write_bytes(key + b'\n')
-        try:
-            os.chmod(self.key_path, 0o600)
-        except OSError:
-            pass
-        return key
+        raise SecretProviderUnavailableError(
+            f'encrypted_file provider 需要设置 {SECRET_MASTER_KEY_ENV}'
+        )
 
     def _value_path(self, secret_id: str) -> Path:
         return self.values_dir / f'{secret_id}.bin'
@@ -202,12 +217,16 @@ def resolve_default_secret_store_dir() -> Path:
 
 def build_default_secret_value_provider(store_dir: Path) -> SecretValueProvider:
     provider_name = os.getenv(SECRET_PROVIDER_ENV, 'auto').strip().lower() or 'auto'
+    unavailable_message = (
+        '未检测到可用的安全 Secret provider。请启用系统 keyring，'
+        f'或显式设置 {SECRET_PROVIDER_ENV}=encrypted_file 并提供 {SECRET_MASTER_KEY_ENV}。'
+    )
 
     if provider_name == 'memory':
         return InMemorySecretValueProvider()
     if provider_name == 'keyring':
         if not KeyringSecretValueProvider.is_available():
-            raise SecretProviderUnavailableError('keyring provider 不可用')
+            return UnavailableSecretValueProvider('keyring provider 不可用')
         return KeyringSecretValueProvider()
     if provider_name in {'encrypted', 'encrypted_file', 'file'}:
         return EncryptedFileSecretValueProvider(store_dir)
@@ -216,7 +235,7 @@ def build_default_secret_value_provider(store_dir: Path) -> SecretValueProvider:
 
     if KeyringSecretValueProvider.is_available():
         return KeyringSecretValueProvider()
-    return EncryptedFileSecretValueProvider(store_dir)
+    return UnavailableSecretValueProvider(unavailable_message)
 
 
 __all__ = [
@@ -224,6 +243,7 @@ __all__ = [
     'InMemorySecretValueProvider',
     'JsonSecretMetadataStore',
     'KeyringSecretValueProvider',
+    'SECRET_MASTER_KEY_ENV',
     'SECRET_PROVIDER_ENV',
     'SECRET_STORE_DIR_ENV',
     'SecretAlreadyExistsError',
@@ -232,6 +252,7 @@ __all__ = [
     'SecretProviderUnavailableError',
     'SecretStoreError',
     'SecretValueProvider',
+    'UnavailableSecretValueProvider',
     'build_default_secret_value_provider',
     'resolve_default_secret_store_dir',
 ]

@@ -153,52 +153,58 @@ export function SecretEditorDialog({
 
     const handleSubmit = async (): Promise<void> => {
         setLocalError(null);
-        if (mode === 'rotate') {
+        try {
+            if (mode === 'rotate') {
+                if (!item) {
+                    setLocalError(t('secretManager.errors.missingItem'));
+                    return;
+                }
+                if (!value) {
+                    setLocalError(t('secretManager.errors.valueRequired'));
+                    return;
+                }
+                await onRotate(item.secret_id, value);
+                return;
+            }
+
+            if (!label.trim()) {
+                setLocalError(t('secretManager.errors.labelRequired'));
+                return;
+            }
+            if (!kind.trim()) {
+                setLocalError(t('secretManager.errors.kindRequired'));
+                return;
+            }
+
+            if (mode === 'create') {
+                if (!value) {
+                    setLocalError(t('secretManager.errors.valueRequired'));
+                    return;
+                }
+                await onCreate({
+                    label: label.trim(),
+                    value,
+                    kind: kind.trim(),
+                    description: description.trim(),
+                    secret_id: secretId.trim() || null,
+                });
+                return;
+            }
+
             if (!item) {
                 setLocalError(t('secretManager.errors.missingItem'));
                 return;
             }
-            if (!value) {
-                setLocalError(t('secretManager.errors.valueRequired'));
-                return;
-            }
-            await onRotate(item.secret_id, value);
-            return;
-        }
-
-        if (!label.trim()) {
-            setLocalError(t('secretManager.errors.labelRequired'));
-            return;
-        }
-        if (!kind.trim()) {
-            setLocalError(t('secretManager.errors.kindRequired'));
-            return;
-        }
-
-        if (mode === 'create') {
-            if (!value) {
-                setLocalError(t('secretManager.errors.valueRequired'));
-                return;
-            }
-            await onCreate({
+            await onUpdate(item.secret_id, {
                 label: label.trim(),
-                value,
                 kind: kind.trim(),
                 description: description.trim(),
-                secret_id: secretId.trim() || null,
             });
-            return;
+        } catch (error) {
+            if (!errorMessage) {
+                setLocalError(error instanceof Error ? error.message : String(error));
+            }
         }
-
-        if (!item) {
-            setLocalError(t('secretManager.errors.missingItem'));
-            return;
-        }
-        await onUpdate(item.secret_id, {
-            label: label.trim(),
-            kind: kind.trim(),
-            description: description.trim(),
-        });
     };
 
     return (

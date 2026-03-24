@@ -730,6 +730,133 @@ describe('NodeConfigPanel', () => {
         expect(state.graph.nodes[0]?.config.variable_name).toBe('api_key');
     });
 
+    it('does not roll back graph metadata changes made outside the panel when resetting', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'data.ref',
+                            version: '0.1.0',
+                            mode: 'passive',
+                            inputs: [],
+                            outputs: [{name: 'value', frame_schema: 'any', is_stream: false, required: true, description: ''}],
+                            sync_config: null,
+                            config_schema: {},
+                            description: '',
+                            tags: ['data_ref'],
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        useGraphStore.getState().createVariable({
+            name: 'counter',
+            value_kind: 'scalar.int',
+            initial_value: 1,
+        });
+        useGraphStore.getState().upsertNode({
+            node_id: 'v_reset_meta',
+            type_name: 'data.ref',
+            title: 'Variable',
+            config: {
+                variable_name: 'counter',
+            },
+        });
+        useGraphStore.getState().selectNode('v_reset_meta');
+
+        render(<NodeConfigPanel/>);
+        await screen.findByTestId('node-config-data-ref');
+
+        useGraphStore.getState().createVariable({
+            name: 'fresh',
+            value_kind: 'scalar.string',
+            initial_value: 'hello',
+        });
+
+        fireEvent.click(screen.getByRole('button', {name: '重置'}));
+
+        const variables = useGraphStore.getState().graph.metadata.data_registry?.variables ?? [];
+        expect(variables).toEqual([
+            {
+                name: 'counter',
+                value_kind: 'scalar.int',
+                initial_value: 1,
+            },
+            {
+                name: 'fresh',
+                value_kind: 'scalar.string',
+                initial_value: 'hello',
+            },
+        ]);
+    });
+
+    it('keeps inline-created variable after reset and only restores the original node binding', async () => {
+        server.use(
+            http.get('*/api/v1/node-types', () =>
+                HttpResponse.json({
+                    count: 1,
+                    items: [
+                        {
+                            type_name: 'data.ref',
+                            version: '0.1.0',
+                            mode: 'passive',
+                            inputs: [],
+                            outputs: [{name: 'value', frame_schema: 'any', is_stream: false, required: true, description: ''}],
+                            sync_config: null,
+                            config_schema: {},
+                            description: '',
+                            tags: ['data_ref'],
+                        },
+                    ],
+                }),
+            ),
+        );
+
+        useGraphStore.getState().upsertNode({
+            node_id: 'v_reset_inline',
+            type_name: 'data.ref',
+            title: 'Variable',
+            config: {
+                variable_name: '',
+            },
+        });
+        useGraphStore.getState().selectNode('v_reset_inline');
+
+        render(<NodeConfigPanel/>);
+
+        const panel = await screen.findByTestId('node-config-data-ref');
+        fireEvent.click(within(panel).getByRole('button', {name: '新建变量/常量'}));
+        fireEvent.change(screen.getByTestId('node-config-variable-name-input'), {
+            target: {value: 'api_key_reset'},
+        });
+        fireEvent.change(screen.getByTestId('node-config-variable-kind-select'), {
+            target: {value: 'constant'},
+        });
+        fireEvent.change(screen.getByRole('combobox', {name: '变量类型'}), {
+            target: {value: 'scalar.string'},
+        });
+        fireEvent.change(screen.getByRole('textbox', {name: '初始值'}), {
+            target: {value: 'token-reset'},
+        });
+        fireEvent.click(screen.getByRole('button', {name: '创建并绑定'}));
+
+        fireEvent.click(screen.getByRole('button', {name: '重置'}));
+
+        const state = useGraphStore.getState();
+        expect(state.graph.metadata.data_registry?.variables).toEqual([
+            {
+                name: 'api_key_reset',
+                value_kind: 'scalar.string',
+                initial_value: 'token-reset',
+                is_constant: true,
+            },
+        ]);
+        expect(state.graph.nodes[0]?.config.variable_name).toBe('');
+    });
+
     it('renders custom data writer controls and hot-updates specialized config', async () => {
         server.use(
             http.get('*/api/v1/node-types', () =>

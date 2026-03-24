@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+import app.services.run_service as run_service_module
 from app.core.errors import ErrorCode
 from app.core.frame import RuntimeEventType
 from app.core.node_async import AsyncNode
@@ -540,6 +541,62 @@ def test_run_service_prunes_completed_runs_when_over_limit() -> None:
             service.get_run(run1.run_id)
         assert service.get_run(run2.run_id).run_id == run2.run_id
         assert service.get_run(run3.run_id).run_id == run3.run_id
+
+    asyncio.run(_run())
+
+
+def test_run_service_prunes_expired_completed_runs_on_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """终态运行在后续读取时也应按 TTL 被清理。"""
+
+    async def _run() -> None:
+        service = RunService(retention_ttl_s=10.0)
+        record = await service.create_run(_basic_graph("g_prune_expired_on_read"))
+        await record.task
+        assert record.scheduler.runtime_state is not None
+        record.scheduler.runtime_state.ended_at = 100.0
+        monkeypatch.setattr(run_service_module.time, "time", lambda: 120.0)
+
+        snapshot = service.get_service_metrics_snapshot()
+        assert snapshot["runs_retained"] == 0
+        with pytest.raises(RunNotFoundError):
+            service.get_run(record.run_id)
+
+    asyncio.run(_run())
+
+
+def test_run_service_does_not_prune_active_runs_on_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """活跃运行在读取路径中不应被 TTL 清理。"""
+
+    async def _run() -> None:
+        service = _build_service_with_slow_node()
+        service.retention_ttl_s = 0.0
+        record = await service.create_run(_slow_graph("g_prune_active_read"))
+
+        monkeypatch.setattr(run_service_module.time, "time", lambda: 1_000_000.0)
+        snapshot = service.get_service_metrics_snapshot()
+        assert snapshot["runs_active"] == 1
+        assert service.get_run(record.run_id).run_id == record.run_id
+
+        await service.stop_run(record.run_id)
+
+    asyncio.run(_run())
+
+
+def test_run_service_ttl_prefers_runtime_ended_at_over_created_at(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """长时间运行的任务应按 ended_at 而非 created_at 计算 TTL。"""
+
+    async def _run() -> None:
+        service = RunService(retention_ttl_s=10.0)
+        record = await service.create_run(_basic_graph("g_prune_terminal_time"))
+        await record.task
+        assert record.scheduler.runtime_state is not None
+        record.created_at = 0.0
+        record.scheduler.runtime_state.ended_at = 95.0
+
+        monkeypatch.setattr(run_service_module.time, "time", lambda: 100.0)
+        assert service.get_run(record.run_id).run_id == record.run_id
 
     asyncio.run(_run())
 

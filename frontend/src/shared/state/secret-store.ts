@@ -44,7 +44,10 @@ export const useSecretStore = create<SecretState>((set, get) => ({
             const payload = await apiClient.listSecrets();
             set(() => ({items: sortSecrets(payload.items), loading: false}));
         } catch (error) {
-            set(() => ({loading: false, error: String(error)}));
+            set(() => ({
+                loading: false,
+                error: error instanceof Error ? error.message : String(error),
+            }));
             throw error;
         }
     },

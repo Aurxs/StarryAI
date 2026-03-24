@@ -424,6 +424,9 @@
       "kindRequired": "Secret kind is required.",
       "valueRequired": "Secret value is required.",
       "missingItem": "The selected secret no longer exists. Refresh and try again."
+    },
+    "security": {
+      "providerUnavailable": "No secure secret provider is configured. Enable a system keyring, or explicitly set STARRYAI_SECRET_PROVIDER=encrypted_file together with STARRYAI_SECRET_MASTER_KEY. Create and rotate actions are disabled."
     }
   },
   "nodeTypeDescriptions": {

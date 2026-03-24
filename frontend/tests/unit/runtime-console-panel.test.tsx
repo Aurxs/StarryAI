@@ -202,6 +202,59 @@ describe('RuntimeConsolePanel', () => {
         expect(filters.error_code).toBe('node.execution_failed');
     });
 
+    it('reconnects ws with new filters and resets cursor from zero when filters change', async () => {
+        useRunStore.getState().attachRun('run_t7_ws_filters');
+        useRuntimeConsoleStore.getState().appendEvents([
+            {
+                run_id: 'run_t7_ws_filters',
+                event_id: 'evt_old_1',
+                event_seq: 8,
+                event_type: 'node_started',
+                severity: 'info',
+                component: 'node',
+                ts: 1_700_000_000,
+                node_id: 'n1',
+                edge_key: null,
+                error_code: null,
+                attempt: null,
+                message: null,
+                details: {},
+            },
+        ]);
+        useRuntimeConsoleStore.getState().setCursor(9);
+
+        render(<RuntimeConsolePanel/>);
+        fireEvent.click(screen.getByRole('button', {name: '订阅 WS'}));
+
+        const firstWs = FakeWebSocket.instances[0];
+        expect(firstWs?.url).toContain('since=9');
+        firstWs?.emitOpen();
+
+        fireEvent.change(screen.getByLabelText('filter-node-id'), {
+            target: {value: 'n9'},
+        });
+
+        await waitFor(() => {
+            expect(useRuntimeConsoleStore.getState().events).toHaveLength(0);
+            expect(useRuntimeConsoleStore.getState().lastCursor).toBe(0);
+            expect(FakeWebSocket.instances).toHaveLength(2);
+        });
+        expect(firstWs?.readyState).toBe(3);
+        expect(FakeWebSocket.instances[1]?.url).toContain('since=0');
+        expect(FakeWebSocket.instances[1]?.url).toContain('node_id=n9');
+    });
+
+    it('does not create ws connection when filters change before subscribing', () => {
+        useRunStore.getState().attachRun('run_t7_no_ws');
+        render(<RuntimeConsolePanel/>);
+
+        fireEvent.change(screen.getByLabelText('filter-node-id'), {
+            target: {value: 'n2'},
+        });
+
+        expect(FakeWebSocket.instances).toHaveLength(0);
+    });
+
     it('receives ws events and handles invalid ws payload (edge path)', async () => {
         useRunStore.getState().attachRun('run_t7_ws');
         render(<RuntimeConsolePanel/>);

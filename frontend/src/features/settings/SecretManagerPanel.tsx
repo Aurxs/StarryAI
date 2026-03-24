@@ -91,6 +91,15 @@ const actionsStyle: CSSProperties = {
     gap: 8,
 };
 
+const warningStyle: CSSProperties = {
+    fontSize: 12,
+    color: '#92400e',
+    background: '#fffbeb',
+    border: '1px solid #fcd34d',
+    borderRadius: 10,
+    padding: '8px 10px',
+};
+
 type DialogState =
     | {mode: 'create'; item: null}
     | {mode: 'edit'; item: SecretCatalogEntry}
@@ -119,9 +128,15 @@ export function SecretManagerPanel({listMaxHeight = 340}: SecretManagerPanelProp
     const [dialogState, setDialogState] = useState<DialogState>(null);
     const [requestBusy, setRequestBusy] = useState(false);
     const [panelError, setPanelError] = useState<string | null>(null);
+    const [providerUnavailable, setProviderUnavailable] = useState(false);
+
+    const isProviderUnavailableError = (error: unknown): boolean =>
+        error instanceof ApiClientError && error.status === 503;
 
     useEffect(() => {
-        void loadSecrets().catch(() => undefined);
+        void loadSecrets().catch((error) => {
+            setProviderUnavailable(isProviderUnavailableError(error));
+        });
     }, [loadSecrets]);
 
     const filteredItems = useMemo(() => {
@@ -147,7 +162,9 @@ export function SecretManagerPanel({listMaxHeight = 340}: SecretManagerPanelProp
             await createSecret(request);
             setDialogState(null);
             await loadSecrets();
+            setProviderUnavailable(false);
         } catch (error) {
+            setProviderUnavailable(isProviderUnavailableError(error));
             setPanelError(error instanceof ApiClientError ? error.message : String(error));
             throw error;
         } finally {
@@ -163,7 +180,9 @@ export function SecretManagerPanel({listMaxHeight = 340}: SecretManagerPanelProp
             await updateSecret(secretId, request);
             setDialogState(null);
             await loadSecrets();
+            setProviderUnavailable(false);
         } catch (error) {
+            setProviderUnavailable(isProviderUnavailableError(error));
             setPanelError(error instanceof ApiClientError ? error.message : String(error));
             throw error;
         } finally {
@@ -179,7 +198,9 @@ export function SecretManagerPanel({listMaxHeight = 340}: SecretManagerPanelProp
             await rotateSecret(secretId, {value});
             setDialogState(null);
             await loadSecrets();
+            setProviderUnavailable(false);
         } catch (error) {
+            setProviderUnavailable(isProviderUnavailableError(error));
             setPanelError(error instanceof ApiClientError ? error.message : String(error));
             throw error;
         } finally {
@@ -197,7 +218,9 @@ export function SecretManagerPanel({listMaxHeight = 340}: SecretManagerPanelProp
         try {
             await deleteSecret(item.secret_id);
             await loadSecrets();
+            setProviderUnavailable(false);
         } catch (error) {
+            setProviderUnavailable(isProviderUnavailableError(error));
             setPanelError(error instanceof ApiClientError ? error.message : String(error));
         }
     };
@@ -216,7 +239,12 @@ export function SecretManagerPanel({listMaxHeight = 340}: SecretManagerPanelProp
                     <RefreshCw size={14} aria-hidden="true"/>
                     {loading ? t('secretManager.actions.loading') : t('secretManager.actions.refresh')}
                 </button>
-                <button type="button" style={primaryButtonStyle} onClick={() => setDialogState({mode: 'create', item: null})}>
+                <button
+                    type="button"
+                    style={primaryButtonStyle}
+                    onClick={() => setDialogState({mode: 'create', item: null})}
+                    disabled={providerUnavailable}
+                >
                     <Plus size={14} aria-hidden="true"/>
                     {t('secretManager.actions.create')}
                 </button>
@@ -229,6 +257,12 @@ export function SecretManagerPanel({listMaxHeight = 340}: SecretManagerPanelProp
             {requestErrorMessage && (
                 <div style={{fontSize: 12, color: '#9f1239'}} data-testid="secret-manager-error">
                     {requestErrorMessage}
+                </div>
+            )}
+
+            {providerUnavailable && (
+                <div style={warningStyle} data-testid="secret-manager-provider-warning">
+                    {t('secretManager.security.providerUnavailable')}
                 </div>
             )}
 
@@ -274,7 +308,12 @@ export function SecretManagerPanel({listMaxHeight = 340}: SecretManagerPanelProp
                                     <Pencil size={14} aria-hidden="true"/>
                                     {t('secretManager.actions.edit')}
                                 </button>
-                                <button type="button" style={buttonStyle} onClick={() => setDialogState({mode: 'rotate', item})}>
+                                <button
+                                    type="button"
+                                    style={buttonStyle}
+                                    onClick={() => setDialogState({mode: 'rotate', item})}
+                                    disabled={providerUnavailable}
+                                >
                                     <KeyRound size={14} aria-hidden="true"/>
                                     {t('secretManager.actions.rotate')}
                                 </button>

@@ -120,4 +120,57 @@ describe('SecretManagerPanel', () => {
             expect(screen.getByTestId('secret-manager-error').textContent).toContain('禁止删除');
         });
     });
+
+    it('shows provider warning and disables create/rotate after secure provider failure', async () => {
+        const items = [
+            {
+                secret_id: 'openai-main',
+                label: 'OpenAI Main',
+                kind: 'api_key',
+                description: 'Primary key',
+                provider: 'memory',
+                created_at: 1_700_000_000,
+                updated_at: 1_700_000_000,
+                usage_count: 0,
+                in_use: false,
+            },
+        ];
+
+        server.use(
+            http.get('*/api/v1/secrets', () =>
+                HttpResponse.json({
+                    count: items.length,
+                    items,
+                }),
+            ),
+            http.post('*/api/v1/secrets', () =>
+                HttpResponse.json(
+                    {
+                        detail: {
+                            message: '未检测到可用的安全 Secret provider。',
+                        },
+                    },
+                    {status: 503},
+                ),
+            ),
+        );
+
+        render(<SecretManagerPanel/>);
+        expect(await screen.findByText('OpenAI Main')).toBeTruthy();
+
+        fireEvent.click(screen.getByRole('button', {name: '新建密钥'}));
+        const dialog = screen.getByRole('dialog', {name: '新建密钥'});
+        fireEvent.change(within(dialog).getByLabelText('名称'), {target: {value: 'Blocked Secret'}});
+        fireEvent.change(within(dialog).getByLabelText('密钥值'), {target: {value: 'raw-secret'}});
+        fireEvent.click(within(dialog).getByRole('button', {name: '保存'}));
+
+        await waitFor(() => {
+            expect(screen.getByTestId('secret-manager-provider-warning').textContent).toContain(
+                'STARRYAI_SECRET_MASTER_KEY',
+            );
+        });
+        expect((screen.getByRole('button', {name: '新建密钥'}) as HTMLButtonElement).disabled).toBe(true);
+        const rotateButton = screen.getByRole('button', {name: '轮换值'}) as HTMLButtonElement;
+        expect(rotateButton.disabled).toBe(true);
+    });
 });

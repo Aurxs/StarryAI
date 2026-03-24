@@ -159,7 +159,6 @@ interface NodeConfigSnapshot {
     runtimeConfig: Record<string, unknown>;
     syncFieldDraft: SyncFieldDraft;
     dataWriterLiteralDraft: string;
-    metadata: Record<string, unknown>;
 }
 
 const createDefaultSyncFieldDraft = (): SyncFieldDraft => ({
@@ -226,7 +225,6 @@ export function NodeConfigPanel() {
     const graphMetadata = useGraphStore((state) => state.graph.metadata);
     const patchNode = useGraphStore((state) => state.patchNode);
     const createVariable = useGraphStore((state) => state.createVariable);
-    const setMetadata = useGraphStore((state) => state.setMetadata);
 
     const secrets = useSecretStore((state) => state.items);
     const loadSecrets = useSecretStore((state) => state.loadSecrets);
@@ -372,7 +370,6 @@ export function NodeConfigPanel() {
             runtimeConfig: cloneRecord(runtimeConfig),
             syncFieldDraft: cloneRecord(nextSyncFieldDraft),
             dataWriterLiteralDraft: nextLiteralDraft,
-            metadata: cloneRecord(graphMetadata),
         });
         setTitleDraft(selectedNode.title);
         setRuntimeConfigDraft(runtimeConfig);
@@ -535,7 +532,7 @@ export function NodeConfigPanel() {
         setDataWriterLiteralDraft(initialSnapshot.dataWriterLiteralDraft);
         setShowCreateVariable(false);
         const selectedVariable = findGraphVariable(
-            initialSnapshot.metadata,
+            graphMetadata,
             typeof nextRuntimeConfig.variable_name === 'string' ? nextRuntimeConfig.variable_name : null,
         );
         const formattedInitial = formatVariableInitialValue(selectedVariable);
@@ -548,7 +545,6 @@ export function NodeConfigPanel() {
         });
         setJsonDraftError(null);
         setErrorMessage(null);
-        setMetadata(cloneRecord(initialSnapshot.metadata));
         patchNode(selectedNode.node_id, {
             title: initialSnapshot.title,
             config: cloneRecord(initialSnapshot.rawConfig),

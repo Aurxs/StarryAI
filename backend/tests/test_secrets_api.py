@@ -17,7 +17,13 @@ from app.core.registry import NodeTypeRegistry
 from app.core.spec import NodeMode, NodeSpec
 from app.main import app
 from app.secrets.service import reset_secret_service_for_testing
-from app.secrets.store import InMemorySecretValueProvider, JsonSecretMetadataStore
+from app.secrets.store import (
+    InMemorySecretValueProvider,
+    JsonSecretMetadataStore,
+    KeyringSecretValueProvider,
+    SECRET_PROVIDER_ENV,
+    SECRET_STORE_DIR_ENV,
+)
 from app.services.graph_repository import reset_graph_repository_for_testing
 
 
@@ -255,3 +261,33 @@ def test_graph_validate_and_save_accept_nested_array_secret_refs(
 
         saved = client.put("/api/v1/graphs/graph_array_secret_ref", json=graph_payload)
         assert saved.status_code == 200
+
+
+def test_create_secret_returns_503_when_no_secure_provider_is_available(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv(SECRET_PROVIDER_ENV, "auto")
+    monkeypatch.setenv(SECRET_STORE_DIR_ENV, str(tmp_path / "secrets_unavailable"))
+    monkeypatch.setattr(KeyringSecretValueProvider, "is_available", staticmethod(lambda: False))
+    reset_secret_service_for_testing(metadata_store=None)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/secrets",
+                json={
+                    "label": "Unavailable Secret",
+                    "value": "sk-unavailable",
+                },
+            )
+    finally:
+        reset_secret_service_for_testing(
+            JsonSecretMetadataStore(
+                store_dir=tmp_path / "secrets_restored",
+                provider=InMemorySecretValueProvider(),
+            )
+        )
+
+    assert response.status_code == 503
+    assert "Secret provider" in response.json()["detail"]["message"] or "keyring" in response.json()["detail"]["message"]

@@ -89,6 +89,7 @@ class RunService:
         normalized_stream_id = self._normalize_stream_id(stream_id)
         compiled_graph = self._build_graph_builder().build(graph)
         async with self._lock:
+            self._prune_runs(now=time.time())
             self._ensure_capacity_locked()
             run_id = f"run_{uuid.uuid4().hex[:12]}"
             scheduler = GraphScheduler(
@@ -108,7 +109,6 @@ class RunService:
                 task=task,
             )
             self._runs[run_id] = record
-            self._prune_runs_locked(now=time.time())
         return record
 
     def _build_graph_builder(self) -> GraphBuilder:
@@ -116,6 +116,7 @@ class RunService:
 
     async def stop_run(self, run_id: str, *, timeout_s: float = 3.0) -> RunRecord:
         """请求停止指定运行实例。"""
+        self._prune_runs(now=time.time())
         record = self._get_or_raise(run_id)
         record.scheduler.stop()
 
@@ -129,10 +130,12 @@ class RunService:
 
     def get_run(self, run_id: str) -> RunRecord:
         """获取运行记录。"""
+        self._prune_runs(now=time.time())
         return self._get_or_raise(run_id)
 
     def get_run_snapshot(self, run_id: str) -> dict[str, Any]:
         """获取运行快照。"""
+        self._prune_runs(now=time.time())
         record = self._get_or_raise(run_id)
         runtime = record.scheduler.runtime_state
         if runtime is not None:
@@ -172,6 +175,7 @@ class RunService:
             error_code: str | None = None,
     ) -> tuple[list[RuntimeEvent], int]:
         """查询运行事件。"""
+        self._prune_runs(now=time.time())
         record = self._get_or_raise(run_id)
         return record.scheduler.get_events_filtered(
             since=since,
@@ -282,6 +286,7 @@ class RunService:
 
     def get_service_metrics_snapshot(self) -> dict[str, Any]:
         """返回服务级聚合指标（用于运维采集）。"""
+        self._prune_runs(now=time.time())
         status_counts: dict[str, int] = {
             "running": 0,
             "completed": 0,
@@ -335,6 +340,7 @@ class RunService:
     async def stop_all(self) -> None:
         """停止所有运行实例（主要供测试清理使用）。"""
         async with self._lock:
+            self._prune_runs(now=time.time())
             run_ids = list(self._runs.keys())
         for run_id in run_ids:
             await self.stop_run(run_id)
@@ -345,6 +351,10 @@ class RunService:
         except KeyError as exc:
             raise RunNotFoundError(f"运行实例不存在: {run_id}") from exc
 
+    def _prune_runs(self, *, now: float) -> None:
+        """同步触发运行记录裁剪。"""
+        self._prune_runs_locked(now=now)
+
     def _prune_runs_locked(self, *, now: float) -> None:
         """清理终态且过期/超额的运行记录。"""
         if not self._runs:
@@ -354,7 +364,11 @@ class RunService:
         expired_run_ids = [
             run_id
             for run_id, record in self._runs.items()
-            if record.task.done() and now - record.created_at >= self.retention_ttl_s
+            if (
+                record.task.done()
+                and (terminal_time := self._terminal_reference_time(record)) is not None
+                and now - terminal_time >= self.retention_ttl_s
+            )
         ]
         for run_id in expired_run_ids:
             self._runs.pop(run_id, None)
@@ -411,6 +425,16 @@ class RunService:
     def _count_active_runs(self) -> int:
         """统计当前活跃运行数。"""
         return sum(1 for record in self._runs.values() if not record.task.done())
+
+    @staticmethod
+    def _terminal_reference_time(record: RunRecord) -> float | None:
+        """返回用于 TTL 清理的终态时间。"""
+        if not record.task.done():
+            return None
+        runtime = record.scheduler.runtime_state
+        if runtime is not None and runtime.ended_at is not None:
+            return float(runtime.ended_at)
+        return record.created_at
 
     @staticmethod
     def _normalize_stream_id(raw_value: Any) -> str:

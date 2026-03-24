@@ -17,14 +17,25 @@ from app.secrets.service import (
     SecretStoreError,
     get_secret_service,
 )
+from app.secrets.store import SecretProviderUnavailableError
 from app.services.graph_repository import get_graph_repository
 
 router = APIRouter(prefix='/api/v1/secrets', tags=['secrets'])
 
 
+def _get_secret_service_or_raise():
+    try:
+        return get_secret_service()
+    except SecretProviderUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={'message': str(exc)},
+        ) from exc
+
+
 @router.get('')
 async def list_secrets() -> dict[str, object]:
-    service = get_secret_service()
+    service = _get_secret_service_or_raise()
     repository = get_graph_repository()
     items = service.list_secret_entries(repository=repository)
     return SecretListResponse(count=len(items), items=items).model_dump(mode='json')
@@ -32,11 +43,13 @@ async def list_secrets() -> dict[str, object]:
 
 @router.post('', status_code=status.HTTP_201_CREATED)
 async def create_secret(req: CreateSecretRequest) -> dict[str, object]:
-    service = get_secret_service()
+    service = _get_secret_service_or_raise()
     try:
         metadata = service.create_secret(SecretCreateInput.model_validate(req.model_dump(mode='json')))
     except SecretAlreadyExistsError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={'message': str(exc)}) from exc
+    except SecretProviderUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail={'message': str(exc)}) from exc
     except (SecretStoreError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail={'message': str(exc)}) from exc
     return metadata.model_dump(mode='json')
@@ -44,11 +57,13 @@ async def create_secret(req: CreateSecretRequest) -> dict[str, object]:
 
 @router.patch('/{secret_id}')
 async def update_secret(secret_id: str, req: UpdateSecretRequest) -> dict[str, object]:
-    service = get_secret_service()
+    service = _get_secret_service_or_raise()
     try:
         metadata = service.update_metadata(secret_id, SecretMetadataPatch.model_validate(req.model_dump(mode='json')))
     except SecretNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={'message': str(exc)}) from exc
+    except SecretProviderUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail={'message': str(exc)}) from exc
     except (SecretStoreError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail={'message': str(exc)}) from exc
     return metadata.model_dump(mode='json')
@@ -56,11 +71,13 @@ async def update_secret(secret_id: str, req: UpdateSecretRequest) -> dict[str, o
 
 @router.post('/{secret_id}/rotate')
 async def rotate_secret(secret_id: str, req: RotateSecretRequest) -> dict[str, object]:
-    service = get_secret_service()
+    service = _get_secret_service_or_raise()
     try:
         metadata = service.rotate_secret(secret_id, req.value)
     except SecretNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={'message': str(exc)}) from exc
+    except SecretProviderUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail={'message': str(exc)}) from exc
     except (SecretStoreError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail={'message': str(exc)}) from exc
     return metadata.model_dump(mode='json')
@@ -68,10 +85,12 @@ async def rotate_secret(secret_id: str, req: RotateSecretRequest) -> dict[str, o
 
 @router.get('/{secret_id}/usage')
 async def get_secret_usage(secret_id: str) -> dict[str, object]:
-    service = get_secret_service()
+    service = _get_secret_service_or_raise()
     repository = get_graph_repository()
     try:
         usage = service.get_usage(secret_id, repository=repository)
+    except SecretProviderUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail={'message': str(exc)}) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail={'message': str(exc)}) from exc
     return SecretUsageResponse(**usage.model_dump(mode='json')).model_dump(mode='json')
@@ -79,7 +98,7 @@ async def get_secret_usage(secret_id: str) -> dict[str, object]:
 
 @router.delete('/{secret_id}')
 async def delete_secret(secret_id: str) -> dict[str, object]:
-    service = get_secret_service()
+    service = _get_secret_service_or_raise()
     repository = get_graph_repository()
     try:
         service.delete_secret(secret_id, repository=repository)
@@ -87,6 +106,8 @@ async def delete_secret(secret_id: str) -> dict[str, object]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={'message': str(exc)}) from exc
     except SecretInUseError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={'message': str(exc)}) from exc
+    except SecretProviderUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail={'message': str(exc)}) from exc
     except (SecretStoreError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail={'message': str(exc)}) from exc
     return {'secret_id': secret_id, 'deleted': True}

@@ -84,20 +84,76 @@ export function RuntimeConsolePanel() {
     const clearEvents = useRuntimeConsoleStore((state) => state.clearEvents);
 
     const wsRef = useRef<WebSocket | null>(null);
+    const subscriptionDesiredRef = useRef(false);
     const prevRunIdRef = useRef<string | null>(runId);
+    const prevSubscriptionKeyRef = useRef<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [wsConnected, setWsConnected] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
     const latestEvents = useMemo(() => events.slice(-30).reverse(), [events]);
 
-    const closeWs = useCallback(() => {
-        if (wsRef.current) {
-            wsRef.current.close();
-            wsRef.current = null;
+    const closeWs = useCallback((options?: {preserveSubscription?: boolean}) => {
+        if (!options?.preserveSubscription) {
+            subscriptionDesiredRef.current = false;
+        }
+        const current = wsRef.current;
+        wsRef.current = null;
+        if (current) {
+            current.close();
         }
         setWsConnected(false);
     }, []);
+
+    const openWs = useCallback((since: number) => {
+        if (!runId || wsRef.current) {
+            return;
+        }
+        setErrorMessage(null);
+        const url = apiClient.buildRunEventsWsUrl(runId, {
+            since,
+            event_type: filters.event_type,
+            node_id: filters.node_id,
+            severity: filters.severity,
+            error_code: filters.error_code,
+        });
+        const ws = new WebSocket(url);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+            setWsConnected(true);
+        };
+        ws.onerror = () => {
+            setErrorMessage(t('runtimeConsole.errors.wsConnectFailed'));
+        };
+        ws.onclose = () => {
+            setWsConnected(false);
+            if (wsRef.current === ws) {
+                wsRef.current = null;
+            }
+        };
+        ws.onmessage = (event) => {
+            try {
+                const payload = JSON.parse(event.data as string) as unknown;
+                if (!isRuntimeEvent(payload)) {
+                    return;
+                }
+                appendEvents([payload]);
+                setCursor(payload.event_seq + 1);
+            } catch {
+                setErrorMessage(t('runtimeConsole.errors.wsParseFailed'));
+            }
+        };
+    }, [
+        appendEvents,
+        filters.error_code,
+        filters.event_type,
+        filters.node_id,
+        filters.severity,
+        runId,
+        setCursor,
+        t,
+    ]);
 
     useEffect(() => {
         return () => {
@@ -117,6 +173,36 @@ export function RuntimeConsolePanel() {
         setErrorMessage(null);
         setIsLoading(false);
     }, [runId, closeWs, clearEvents]);
+
+    useEffect(() => {
+        const nextKey = runId
+            ? JSON.stringify({
+                runId,
+                event_type: filters.event_type ?? null,
+                node_id: filters.node_id ?? null,
+                severity: filters.severity ?? null,
+                error_code: filters.error_code ?? null,
+            })
+            : null;
+        const prevKey = prevSubscriptionKeyRef.current;
+        prevSubscriptionKeyRef.current = nextKey;
+        if (prevKey === null || prevKey === nextKey || !nextKey) {
+            return;
+        }
+        if (!subscriptionDesiredRef.current) {
+            return;
+        }
+        closeWs({preserveSubscription: true});
+        openWs(0);
+    }, [
+        closeWs,
+        filters.error_code,
+        filters.event_type,
+        filters.node_id,
+        filters.severity,
+        openWs,
+        runId,
+    ]);
 
     const loadEvents = async (): Promise<void> => {
         if (!runId) {
@@ -146,39 +232,8 @@ export function RuntimeConsolePanel() {
         if (!runId || wsRef.current) {
             return;
         }
-        setErrorMessage(null);
-        const url = apiClient.buildRunEventsWsUrl(runId, {
-            since: lastCursor,
-            event_type: filters.event_type,
-            node_id: filters.node_id,
-            severity: filters.severity,
-            error_code: filters.error_code,
-        });
-        const ws = new WebSocket(url);
-        wsRef.current = ws;
-
-        ws.onopen = () => {
-            setWsConnected(true);
-        };
-        ws.onerror = () => {
-            setErrorMessage(t('runtimeConsole.errors.wsConnectFailed'));
-        };
-        ws.onclose = () => {
-            setWsConnected(false);
-            wsRef.current = null;
-        };
-        ws.onmessage = (event) => {
-            try {
-                const payload = JSON.parse(event.data as string) as unknown;
-                if (!isRuntimeEvent(payload)) {
-                    return;
-                }
-                appendEvents([payload]);
-                setCursor(payload.event_seq + 1);
-            } catch {
-                setErrorMessage(t('runtimeConsole.errors.wsParseFailed'));
-            }
-        };
+        subscriptionDesiredRef.current = true;
+        openWs(lastCursor);
     };
 
     return (
@@ -266,7 +321,7 @@ export function RuntimeConsolePanel() {
                 <button
                     type="button"
                     style={buttonStyle}
-                    onClick={closeWs}
+                    onClick={() => closeWs()}
                     disabled={!wsConnected}
                 >
                     {t('runtimeConsole.actions.unsubscribeWs')}
