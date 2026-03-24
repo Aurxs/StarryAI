@@ -18,7 +18,7 @@ It is well suited for building and validating AI workflow prototypes, especially
 
 - Visual graph editing: create nodes on a canvas, connect them, adjust layouts, and maintain workflow structure
 - Node configuration panel: edit node parameters through forms or structured configuration
-- Graph validation: verify graph structure, port connections, and configuration before saving or running
+- Graph validation: supports pre-save validation and enforces full validation before running, covering graph structure, port connections, and configuration
 - Run control: start, stop, and track a workflow run directly from the workbench
 - Runtime inspection: review event streams, runtime metrics, and diagnostics to help troubleshoot issues
 - Secret management: manage sensitive configuration centrally and reference it from node settings
@@ -44,7 +44,7 @@ The system runs locally by starting both the backend service and the frontend wo
 
 ### Requirements
 
-- Python `3.12`
+- Python `3.12.x` (recommended; the backend currently declares support for `>=3.12,<3.13`)
 - Node.js and `npm`
 
 ### Recommended: one-command startup
@@ -54,6 +54,8 @@ Run this from the repository root:
 ```bash
 python main.py
 ```
+
+If your current `python` is not Python `3.12.x`, it is recommended to switch to the matching interpreter or virtual environment first; otherwise you may hit dependency or compatibility issues.
 
 This starts both the backend and frontend development environment together. By default:
 
@@ -82,8 +84,10 @@ If you want to control the backend and frontend processes separately, use the st
 Install Python dependencies from the repository root:
 
 ```bash
-python3.12 -m pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
+
+If your current `python` is not Python `3.12.x`, it is recommended to switch to the matching interpreter or virtual environment before installing dependencies.
 
 Install frontend dependencies:
 
@@ -96,7 +100,7 @@ npm install
 
 ```bash
 cd backend
-python3.12 -m uvicorn app.main:app --reload
+python -m uvicorn app.main:app --reload
 ```
 
 Default backend address:
@@ -139,4 +143,3 @@ StarryAI/
 - Graph data is stored under the `saved_graphs/` directory by default
 - The current workbench experience is mainly intended for local desktop browsers
 - The Chinese document is also available at [`README.md`](./README.md)
-
