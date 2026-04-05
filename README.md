@@ -143,3 +143,7 @@ StarryAI/
 - 图数据默认保存在仓库下的 `saved_graphs/` 目录
 - 工作台当前主要面向本地桌面浏览器使用场景
 - 根目录还保留一份英文说明 [`README_EN.md`](./README_EN.md)，但本次中文文档为主
+
+## 许可证
+
+本项目采用 `GNU Affero General Public License v3.0`，详见仓库根目录中的 `LICENSE` 文件。
