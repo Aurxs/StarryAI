@@ -442,6 +442,8 @@
     "data_writer": "按配置的副作用规则写入被动数据容器。",
     "llm_chat": "统一聊天式 LLM 节点，内置服务预设并输出归一化结果。",
     "llm_openai_compatible": "真实 LLM 节点，兼容 OpenAI Chat Completions 接口。",
+    "loop_start": "for 循环开始节点，按配置输出当前循环项。",
+    "loop_end": "for 循环结束节点，决定继续回到开始节点或退出循环。",
     "mock_input": "模拟输入节点，产出完整文本。",
     "mock_llm": "模拟 LLM 节点，输入完整文本并输出完整回复。",
     "mock_motion": "模拟动作规划节点，输出完整动作轨迹。",
@@ -457,6 +459,15 @@
       "in": "被条件判断的输入载荷。",
       "true": "条件成立时输出的载荷。",
       "false": "条件不成立时输出的载荷。"
+    },
+    "loop_start": {
+      "continue": "来自循环结束节点的继续状态。",
+      "item": "当前循环项和循环元数据。"
+    },
+    "loop_end": {
+      "in": "循环体输出载荷。",
+      "continue": "回到循环开始节点的继续状态。",
+      "done": "循环退出时输出的最终载荷。"
     },
     "data_requester": {
       "source": "到源数据容器的引用绑定。",

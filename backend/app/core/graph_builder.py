@@ -189,9 +189,14 @@ class GraphBuilder:
         outgoing, incoming, _attempted = self._collect_edges(graph, node_specs, issues)
         runtime_edges = self._filter_runtime_edges(graph=graph, node_specs=node_specs)
         runtime_outgoing, runtime_incoming = self._index_edges(runtime_edges)
+        topo_edges = [
+            edge for edge in runtime_edges
+            if not self._is_loop_back_edge(edge=edge, node_specs=node_specs)
+        ]
+        topo_outgoing, _topo_incoming = self._index_edges(topo_edges)
         topo_order = self._topological_sort(
             self._runtime_node_ids(node_specs),
-            runtime_outgoing,
+            topo_outgoing,
         )
         variables_by_name = self._collect_variables_by_name(graph, [])
         data_node_bindings = self._build_data_node_bindings(
@@ -808,6 +813,7 @@ class GraphBuilder:
             node_id: [
                 edge for edge in edges
                 if not self._is_reference_edge(edge=edge, node_specs=node_specs)
+                and not self._is_loop_back_edge(edge=edge, node_specs=node_specs)
             ]
             for node_id, edges in outgoing.items()
         }
@@ -1215,6 +1221,18 @@ class GraphBuilder:
         if target_port is None:
             return False
         return target_port.input_behavior == InputBehavior.REFERENCE
+
+    def _is_loop_back_edge(self, *, edge: EdgeSpec, node_specs: dict[str, NodeSpec]) -> bool:
+        source_spec = node_specs.get(edge.source_node)
+        target_spec = node_specs.get(edge.target_node)
+        if source_spec is None or target_spec is None:
+            return False
+        return (
+            self._has_tag(source_spec, "loop_end")
+            and self._has_tag(target_spec, "loop_start")
+            and edge.source_port == "continue"
+            and edge.target_port == "continue"
+        )
 
     def _is_internal_trigger_entry_port(self, *, spec: NodeSpec, port_name: str) -> bool:
         return self._has_tag(spec, "trigger_entry") and port_name == "trigger"

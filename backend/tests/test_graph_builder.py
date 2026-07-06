@@ -286,6 +286,34 @@ def test_graph_validation_rejects_trigger_entry_group_without_emitter() -> None:
     assert any(issue.code == "trigger.entry_group_without_emitter" for issue in report.issues)
 
 
+def test_graph_builder_allows_loop_continue_back_edge() -> None:
+    """验证：loop.end.continue -> loop.start.continue 受控回边允许通过。"""
+    graph = GraphSpec(
+        graph_id="g_loop_back_edge",
+        nodes=[
+            NodeInstanceSpec(
+                node_id="n1",
+                type_name="loop.start",
+                config={"start_index": 0, "end_index": 3, "step": 1},
+            ),
+            NodeInstanceSpec(
+                node_id="n2",
+                type_name="loop.end",
+                config={"start_index": 0, "end_index": 3, "step": 1},
+            ),
+            NodeInstanceSpec(node_id="n3", type_name="mock.output"),
+        ],
+        edges=[
+            EdgeSpec(source_node="n1", source_port="item", target_node="n2", target_port="in"),
+            EdgeSpec(source_node="n2", source_port="continue", target_node="n1", target_port="continue"),
+            EdgeSpec(source_node="n2", source_port="done", target_node="n3", target_port="in"),
+        ],
+    )
+
+    compiled = GraphBuilder(create_default_registry()).build(graph)
+    assert compiled.topo_order == ["n1", "n2", "n3"]
+
+
 def test_graph_validation_rejects_missing_sync_group_on_initiator_and_executor() -> None:
     """验证：发起器与执行节点缺少 sync_group 时应报错。"""
     graph = GraphSpec(

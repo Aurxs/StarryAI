@@ -1065,6 +1065,14 @@ const GraphEditorInner = () => {
                             operator: 'truthy',
                             compare_value: null,
                         };
+                    case 'loop.start':
+                    case 'loop.end':
+                        return {
+                            start_index: 0,
+                            end_index: 3,
+                            step: 1,
+                            include_end: false,
+                        };
                     case 'data.ref':
                         return {variable_name: ''};
                     case 'data.writer':

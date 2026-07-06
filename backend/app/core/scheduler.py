@@ -431,7 +431,7 @@ class GraphScheduler:
             for port in spec.inputs
             if port.required and port.input_behavior.value != "reference"
         }
-        repeatable = bool(required_ports)
+        repeatable = bool(required_ports) or self._has_node_tag(spec, "loop_start")
         processed_count = 0
 
         try:
@@ -439,8 +439,22 @@ class GraphScheduler:
                 while not self._stop_event.is_set():
                     # current_inputs: 当前已收到的输入缓存快照引用。
                     current_inputs = self._node_inputs[node_id]
-                    if required_ports.issubset(current_inputs):
+                    if self._node_ready_for_activation(
+                        node_id=node_id,
+                        spec=spec,
+                        required_ports=required_ports,
+                        processed_count=processed_count,
+                    ):
                         break
+                    if self._loop_start_continue_unavailable(
+                        node_id=node_id,
+                        spec=spec,
+                        processed_count=processed_count,
+                    ):
+                        node_state.status = "finished"
+                        node_state.finished_at = time.time()
+                        self._notify_downstream_waiters(node_id)
+                        return
                     if self._required_inputs_unavailable(node_id, required_ports):
                         if processed_count > 0 or self._can_finish_without_activation(
                             node_id=node_id,
@@ -541,6 +555,10 @@ class GraphScheduler:
                 node_metrics = outputs.pop("__node_metrics", None)
                 if isinstance(node_metrics, dict):
                     node_state.metrics.update(node_metrics)
+                finish_after_activation = self._node_finishes_after_activation(
+                    spec=spec,
+                    outputs=outputs,
+                )
 
                 if self._stop_event.is_set():
                     node_state.status = "stopped"
@@ -581,7 +599,7 @@ class GraphScheduler:
                     spec=spec,
                     activation_versions=activation_versions,
                 )
-                if not repeatable:
+                if finish_after_activation or not repeatable:
                     node_state.status = "finished"
                     self._notify_downstream_waiters(node_id)
                     return
@@ -626,6 +644,46 @@ class GraphScheduler:
             self._complete_writer_barrier(node_id)
             self._fail_run(f"节点 {node_id} 执行失败: {exc}")
             self.stop()
+
+    def _node_ready_for_activation(
+        self,
+        *,
+        node_id: str,
+        spec: NodeSpec,
+        required_ports: set[str],
+        processed_count: int,
+    ) -> bool:
+        current_inputs = self._node_inputs[node_id]
+        if self._has_node_tag(spec, "loop_start"):
+            if processed_count == 0:
+                return True
+            return "continue" in current_inputs
+        return required_ports.issubset(current_inputs)
+
+    def _loop_start_continue_unavailable(
+        self,
+        *,
+        node_id: str,
+        spec: NodeSpec,
+        processed_count: int,
+    ) -> bool:
+        if not self._has_node_tag(spec, "loop_start") or processed_count == 0:
+            return False
+        if "continue" in self._node_inputs.get(node_id, {}):
+            return False
+        assert self._compiled_graph is not None
+        provider_edges = [
+            edge for edge in self._compiled_graph.incoming_edges.get(node_id, [])
+            if edge.target_port == "continue"
+        ]
+        if not provider_edges:
+            return True
+        return all(self._provider_edge_skipped_and_closed(edge) for edge in provider_edges)
+
+    def _node_finishes_after_activation(self, *, spec: NodeSpec, outputs: dict[str, Any]) -> bool:
+        if self._has_node_tag(spec, "loop_end") and "done" in outputs:
+            return True
+        return False
 
     async def _broadcast_trigger_if_needed(self, *, node_id: str) -> None:
         """如果当前节点是 trigger.emit，则向同组 trigger.entry 写入内部触发。"""

@@ -251,6 +251,40 @@ def test_scheduler_routes_only_selected_branch_output() -> None:
     asyncio.run(_run())
 
 
+def test_scheduler_runs_loop_start_end_until_done() -> None:
+    """loop.start / loop.end 应通过受控回边执行完整 for 循环。"""
+
+    async def _run() -> None:
+        CAPTURED_VALUES.clear()
+        loop_config = {"start_index": 0, "end_index": 3, "step": 1, "include_end": False}
+        graph = GraphSpec(
+            graph_id="g_scheduler_loop",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="loop.start", config=loop_config),
+                NodeInstanceSpec(node_id="n2", type_name="loop.end", config=loop_config),
+                NodeInstanceSpec(node_id="n3", type_name="test.capture"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="item", target_node="n2", target_port="in"),
+                EdgeSpec(source_node="n2", source_port="continue", target_node="n1", target_port="continue"),
+                EdgeSpec(source_node="n2", source_port="done", target_node="n3", target_port="in"),
+            ],
+        )
+        compiled = _build_registry_with_custom_nodes().build(graph)
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+
+        state = await scheduler.run(compiled, run_id="run_scheduler_loop")
+
+        assert state.status == "completed"
+        assert state.node_states["n1"].metrics["processed_count"] == 3
+        assert state.node_states["n2"].metrics["processed_count"] == 3
+        assert len(CAPTURED_VALUES) == 1
+        assert CAPTURED_VALUES[0]["index"] == 2
+        assert CAPTURED_VALUES[0]["_loop"]["next_index"] == 3
+
+    asyncio.run(_run())
+
+
 def test_scheduler_fails_when_node_omits_connected_output() -> None:
     """节点未输出已连接端口的数据时，运行应失败而非死锁。"""
 
