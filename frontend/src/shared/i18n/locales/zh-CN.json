@@ -444,6 +444,7 @@
     "llm_openai_compatible": "真实 LLM 节点，兼容 OpenAI Chat Completions 接口。",
     "loop_start": "for 循环开始节点，按配置输出当前循环项。",
     "loop_end": "for 循环结束节点，决定继续回到开始节点或退出循环。",
+    "function_expression": "自定义表达式函数节点，对输入执行安全表达式并输出结果。",
     "mock_input": "模拟输入节点，产出完整文本。",
     "mock_llm": "模拟 LLM 节点，输入完整文本并输出完整回复。",
     "mock_motion": "模拟动作规划节点，输出完整动作轨迹。",
@@ -468,6 +469,10 @@
       "in": "循环体输出载荷。",
       "continue": "回到循环开始节点的继续状态。",
       "done": "循环退出时输出的最终载荷。"
+    },
+    "function_expression": {
+      "in": "表达式中的 input 输入载荷。",
+      "out": "表达式计算结果。"
     },
     "data_requester": {
       "source": "到源数据容器的引用绑定。",

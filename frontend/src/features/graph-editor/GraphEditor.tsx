@@ -1073,6 +1073,8 @@ const GraphEditorInner = () => {
                             step: 1,
                             include_end: false,
                         };
+                    case 'function.expression':
+                        return {expression: 'input'};
                     case 'data.ref':
                         return {variable_name: ''};
                     case 'data.writer':

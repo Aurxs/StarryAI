@@ -444,6 +444,7 @@
     "llm_openai_compatible": "Real LLM node compatible with the OpenAI Chat Completions API.",
     "loop_start": "For-loop start node that emits the current loop item.",
     "loop_end": "For-loop end node that continues back to start or exits the loop.",
+    "function_expression": "Custom expression function node that safely computes a result from input.",
     "mock_input": "Mock input node that emits complete text payloads.",
     "mock_llm": "Mock LLM node that consumes complete text and returns a complete reply.",
     "mock_motion": "Mock motion planning node that outputs a full motion timeline.",
@@ -468,6 +469,10 @@
       "in": "Payload emitted by the loop body.",
       "continue": "Continuation state routed back to the loop start node.",
       "done": "Final payload emitted when the loop exits."
+    },
+    "function_expression": {
+      "in": "Input payload available as input in the expression.",
+      "out": "Expression result."
     },
     "data_requester": {
       "source": "Reference binding to the source data container.",

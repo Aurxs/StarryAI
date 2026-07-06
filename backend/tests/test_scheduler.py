@@ -285,6 +285,69 @@ def test_scheduler_runs_loop_start_end_until_done() -> None:
     asyncio.run(_run())
 
 
+def test_scheduler_runs_function_expression_node() -> None:
+    """自定义表达式函数节点应能转换输入并输出结果。"""
+
+    async def _run() -> None:
+        CAPTURED_VALUES.clear()
+        graph = GraphSpec(
+            graph_id="g_scheduler_function_expression",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="mock.input", config={"content": "hello"}),
+                NodeInstanceSpec(
+                    node_id="n2",
+                    type_name="function.expression",
+                    config={"expression": "input + ' world'"},
+                ),
+                NodeInstanceSpec(node_id="n3", type_name="test.capture"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="in"),
+                EdgeSpec(source_node="n2", source_port="out", target_node="n3", target_port="in"),
+            ],
+        )
+        compiled = _build_registry_with_custom_nodes().build(graph)
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+
+        state = await scheduler.run(compiled, run_id="run_scheduler_function_expression")
+
+        assert state.status == "completed"
+        assert CAPTURED_VALUES == ["hello world"]
+        assert state.node_states["n2"].metrics["function_evaluations"] == 1
+
+    asyncio.run(_run())
+
+
+def test_scheduler_rejects_unsafe_function_expression() -> None:
+    """自定义表达式不允许调用白名单外函数。"""
+
+    async def _run() -> None:
+        graph = GraphSpec(
+            graph_id="g_scheduler_function_expression_unsafe",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="mock.input", config={"content": "hello"}),
+                NodeInstanceSpec(
+                    node_id="n2",
+                    type_name="function.expression",
+                    config={"expression": "__import__('os').system('echo bad')"},
+                ),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="in"),
+            ],
+        )
+        compiled = _build_registry_with_custom_nodes().build(graph)
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+
+        state = await scheduler.run(compiled, run_id="run_scheduler_function_expression_unsafe")
+
+        assert state.status == "failed"
+        assert state.node_states["n2"].status == "failed"
+        assert "允许" in (state.node_states["n2"].last_error or "")
+
+    asyncio.run(_run())
+
+
 def test_scheduler_fails_when_node_omits_connected_output() -> None:
     """节点未输出已连接端口的数据时，运行应失败而非死锁。"""
 
