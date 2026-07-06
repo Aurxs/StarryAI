@@ -1,4 +1,4 @@
-import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 import {VariableManagerDrawer} from '../../src/features/variable-manager/VariableManagerDrawer';
@@ -38,6 +38,46 @@ describe('VariableManagerDrawer', () => {
         expect(item.textContent).toContain('1');
         expect(screen.queryByTestId('variable-manager-edit-panel')).toBeNull();
         expect(screen.queryByTestId('variable-manager-edit-overlay')).toBeNull();
+    });
+
+    it('shows the empty list state before users choose to create', async () => {
+        render(<VariableManagerDrawer open onClose={() => undefined}/>);
+
+        expect(screen.getByTestId('variable-manager-empty')).toBeTruthy();
+        expect(screen.queryByTestId('variable-manager-create-overlay')).toBeNull();
+
+        act(() => {
+            useGraphStore.getState().createVariable({
+                name: 'counter',
+                value_kind: 'scalar.int',
+                initial_value: 1,
+            });
+        });
+
+        await waitFor(() => {
+            expect(screen.queryByTestId('variable-manager-create-overlay')).toBeNull();
+            expect(screen.getByTestId('variable-manager-item-counter')).toBeTruthy();
+        });
+    });
+
+    it('reopens to the current list after closing a manual create panel', async () => {
+        useGraphStore.getState().createVariable({
+            name: 'counter',
+            value_kind: 'scalar.int',
+            initial_value: 1,
+        });
+        const {rerender} = render(<VariableManagerDrawer open onClose={() => undefined}/>);
+
+        fireEvent.click(screen.getByTestId('variable-manager-new-button'));
+        expect(screen.getByTestId('variable-manager-create-overlay')).toBeTruthy();
+
+        rerender(<VariableManagerDrawer open={false} onClose={() => undefined}/>);
+        rerender(<VariableManagerDrawer open onClose={() => undefined}/>);
+
+        await waitFor(() => {
+            expect(screen.queryByTestId('variable-manager-create-overlay')).toBeNull();
+            expect(screen.getByTestId('variable-manager-item-counter')).toBeTruthy();
+        });
     });
 
     it('keeps the list order stable, expands its editor, and collapses on second click', async () => {
@@ -127,6 +167,9 @@ describe('VariableManagerDrawer', () => {
     it('creates constants and renders them as readonly details', async () => {
         render(<VariableManagerDrawer open onClose={() => undefined}/>);
 
+        expect(screen.getByTestId('variable-manager-empty')).toBeTruthy();
+        expect(screen.queryByTestId('variable-manager-create-overlay')).toBeNull();
+        fireEvent.click(screen.getByTestId('variable-manager-new-button'));
         expect(screen.getByTestId('variable-manager-create-overlay')).toBeTruthy();
 
         fireEvent.change(screen.getByTestId('variable-manager-name-input'), {
@@ -160,7 +203,7 @@ describe('VariableManagerDrawer', () => {
         expect(screen.queryByTestId('variable-manager-delete-button')).toBeNull();
     });
 
-    it('warns before deleting a referenced variable, keeps stale references, and returns to create overlay when empty', async () => {
+    it('warns before deleting a referenced variable, keeps stale references, and returns to empty state', async () => {
         const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
         useGraphStore.getState().createVariable({
             name: 'counter',
@@ -184,7 +227,8 @@ describe('VariableManagerDrawer', () => {
         expect(confirmSpy).toHaveBeenCalledTimes(1);
         expect(useGraphStore.getState().graph.metadata.data_registry?.variables).toEqual([]);
         expect(useGraphStore.getState().graph.nodes[0]?.config.variable_name).toBe('counter');
-        expect(screen.getByTestId('variable-manager-create-overlay')).toBeTruthy();
+        expect(screen.getByTestId('variable-manager-empty')).toBeTruthy();
+        expect(screen.queryByTestId('variable-manager-create-overlay')).toBeNull();
 
         confirmSpy.mockRestore();
     });

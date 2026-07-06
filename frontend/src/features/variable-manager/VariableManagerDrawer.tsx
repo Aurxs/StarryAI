@@ -240,7 +240,6 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
     const [overlayEntered, setOverlayEntered] = useState(false);
     const [floatingCardStartTop, setFloatingCardStartTop] = useState(0);
-
     const selectedVariable = useMemo(
         () => variables.find((variable) => variable.name === selectedVariableName) ?? null,
         [selectedVariableName, variables],
@@ -282,22 +281,19 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
 
     useEffect(() => {
         if (!open) {
-            return;
-        }
-        if (isCreating) {
-            return;
-        }
-        if (variables.length === 0) {
-            setIsCreating(true);
-            setSelectedVariableName(null);
-            setDraft(createDefaultVariableDraft());
+            if (isCreating) {
+                setIsCreating(false);
+                setSelectedVariableName(null);
+                setDraft(createDefaultVariableDraft());
+                clearFeedback();
+            }
             return;
         }
         if (selectedVariableName && !selectedVariable) {
             setSelectedVariableName(null);
             setDraft(createDefaultVariableDraft());
         }
-    }, [isCreating, open, selectedVariable, selectedVariableName, variables]);
+    }, [isCreating, open, selectedVariable, selectedVariableName]);
 
     useEffect(() => {
         if (!activeOverlayMode) {
@@ -496,7 +492,7 @@ export function VariableManagerDrawer({open, onClose}: VariableManagerDrawerProp
         } else {
             setSelectedVariableName(null);
             setDraft(createDefaultVariableDraft());
-            setIsCreating(true);
+            setIsCreating(false);
         }
         setSuccessMessage(
             t('variableManager.success.deleted', {

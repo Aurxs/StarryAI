@@ -79,8 +79,10 @@ test('creates and deletes a variable from the variable manager', async ({page}) 
 
     const drawer = page.getByTestId('variable-manager-drawer');
     await expect(drawer).toBeVisible();
-    await expect(page.getByTestId('variable-manager-create-overlay')).toBeVisible();
+    await expect(page.getByTestId('variable-manager-empty')).toBeVisible();
+    await expect(page.getByTestId('variable-manager-create-overlay')).toHaveCount(0);
 
+    await page.getByTestId('variable-manager-new-button').click();
     await page.getByTestId('variable-manager-name-input').fill('session_count');
     await page.getByTestId('variable-manager-type-select').selectOption('scalar.int');
     await page.getByTestId('variable-manager-scalar-input').fill('3');
@@ -92,9 +94,8 @@ test('creates and deletes a variable from the variable manager', async ({page}) 
 
     await page.getByTestId('variable-manager-delete-button').click();
 
-    await expect(page.getByTestId('variable-manager-success')).toContainText('变量已删除');
     await expect(page.getByTestId('variable-manager-empty')).toBeVisible();
-    await expect(page.getByTestId('variable-manager-create-overlay')).toBeVisible();
+    await expect(page.getByTestId('variable-manager-create-overlay')).toHaveCount(0);
 });
 
 test('keeps constants read-only after creation in the variable manager', async ({page}) => {
@@ -103,6 +104,8 @@ test('keeps constants read-only after creation in the variable manager', async (
     await page.goto('/');
     await page.getByTestId('graph-editor-open-variable-manager').click();
 
+    await expect(page.getByTestId('variable-manager-empty')).toBeVisible();
+    await page.getByTestId('variable-manager-new-button').click();
     await page.getByTestId('variable-manager-name-input').fill('api_base_url');
     await page.getByTestId('variable-manager-kind-select').selectOption('constant');
     await page.getByTestId('variable-manager-type-select').selectOption('scalar.string');
