@@ -437,8 +437,6 @@ class GraphScheduler:
         try:
             while not self._stop_event.is_set():
                 while not self._stop_event.is_set():
-                    # current_inputs: 当前已收到的输入缓存快照引用。
-                    current_inputs = self._node_inputs[node_id]
                     if self._node_ready_for_activation(
                         node_id=node_id,
                         spec=spec,
