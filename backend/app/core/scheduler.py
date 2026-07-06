@@ -36,7 +36,7 @@ from .graph_runtime import GraphRuntimeState, RuntimeEdgeState, RuntimeNodeState
 from .node_base import BaseNode, NodeContext
 from .node_factory import NodeFactory, create_default_node_factory
 from .runtime_data import RuntimeDataStore
-from .spec import EdgeSpec, InputBehavior, NodeMode, NodeSpec, is_sync_schema
+from .spec import EdgeSpec, InputBehavior, NodeMode, NodeSpec, PortSpec, is_sync_schema
 from .sync_coordinator import SyncCoordinator
 
 # 边唯一键：(source_node, source_port, target_node, target_port)
@@ -117,6 +117,8 @@ class GraphScheduler:
         self._edge_queues: dict[EdgeKey, asyncio.Queue[Frame]] = {}
         # _edge_state_map: 边 -> 运行态边状态（queue_size、forwarded_frames）。
         self._edge_state_map: dict[EdgeKey, RuntimeEdgeState] = {}
+        # _skipped_edges: 可选输出未命中的边，源节点终止后这些边会自然关闭。
+        self._skipped_edges: set[EdgeKey] = set()
 
         # _node_inputs: 节点 -> 当前输入端口缓存（target_port -> value）。
         self._node_inputs: dict[str, dict[str, Any]] = {}
@@ -253,6 +255,7 @@ class GraphScheduler:
         self._edge_tasks.clear()
         self._edge_queues.clear()
         self._edge_state_map.clear()
+        self._skipped_edges.clear()
         self._node_inputs.clear()
         self._node_input_metadata.clear()
         self._node_input_versions.clear()
@@ -710,10 +713,18 @@ class GraphScheduler:
         }
         if not missing_ports:
             return False
-        return all(
-            self._is_internal_trigger_entry_port(spec=spec, port_name=port)
-            for port in missing_ports
-        )
+        incoming_edges = self._compiled_graph.incoming_edges.get(node_id, [])
+        for port in missing_ports:
+            if self._is_internal_trigger_entry_port(spec=spec, port_name=port):
+                continue
+            provider_edges = [
+                edge for edge in incoming_edges if edge.target_port == port
+            ]
+            if not provider_edges or not all(
+                self._provider_edge_skipped_and_closed(edge) for edge in provider_edges
+            ):
+                return False
+        return True
 
     async def _route_outputs(self, node_id: str, outputs: dict[str, Any]) -> None:
         """将节点输出按边路由到下游队列。"""
@@ -724,16 +735,38 @@ class GraphScheduler:
         trigger_tokens_by_port: dict[str, str] = {
             edge.source_port: uuid.uuid4().hex for edge in edges
         }
+        node_spec = self._compiled_graph.node_specs[node_id]
         for edge in edges:
             trigger_token = trigger_tokens_by_port[edge.source_port]
             self._register_pending_variable_write(edge.target_node, trigger_token)
 
         for edge in edges:
             if edge.source_port not in outputs:
+                # edge_key: 当前出边唯一键。
+                edge_key = self._edge_key(edge)
+                output_port = self._find_output_port(node_spec, edge.source_port)
+                if output_port is not None and not output_port.required:
+                    self._skipped_edges.add(edge_key)
+                    target_event = self._node_input_events.get(edge.target_node)
+                    if target_event is not None:
+                        target_event.set()
+                    self._emit_event(
+                        RuntimeEventType.FRAME_EMITTED,
+                        node_id=node_id,
+                        message=f"Optional output skipped for {edge.target_node}.{edge.target_port}",
+                        component=RuntimeEventComponent.EDGE,
+                        edge_key=self._format_edge_key(edge),
+                        details={
+                            "kind": "optional_output_skipped",
+                            "source_port": edge.source_port,
+                        },
+                    )
+                    continue
                 raise RuntimeError(f"节点 {node_id} 未输出已连接端口 {edge.source_port} 的数据")
 
             # edge_key: 当前出边唯一键。
             edge_key = self._edge_key(edge)
+            self._skipped_edges.discard(edge_key)
             # queue: 当前边对应的帧队列。
             queue = self._edge_queues[edge_key]
             # edge_state: 当前边可观测运行态。
@@ -1030,6 +1063,14 @@ class GraphScheduler:
         """构造边唯一键。"""
         return edge.source_node, edge.source_port, edge.target_node, edge.target_port
 
+    @staticmethod
+    def _find_output_port(spec: NodeSpec, port_name: str) -> PortSpec | None:
+        """在节点输出端口中查找指定端口。"""
+        for port in spec.outputs:
+            if port.name == port_name:
+                return port
+        return None
+
     @classmethod
     def _format_edge_key(cls, edge: EdgeSpec) -> str:
         """构造对外可读边键。"""
@@ -1263,8 +1304,16 @@ class GraphScheduler:
         source_state = self.runtime_state.node_states[edge.source_node].status
         if source_state not in {"finished", "failed", "stopped"}:
             return False
+        if self._edge_key(edge) in self._skipped_edges:
+            return True
         queue = self._edge_queues.get(self._edge_key(edge))
         return queue is None or queue.empty()
+
+    def _provider_edge_skipped_and_closed(self, edge: EdgeSpec) -> bool:
+        """判断某条输入边是否因可选输出未命中而自然关闭。"""
+        if self._edge_key(edge) not in self._skipped_edges:
+            return False
+        return self._provider_edge_closed(edge)
 
     def _trigger_emitters_closed_for_entry(self, entry_node_id: str) -> bool:
         """判断入口节点所在触发组是否不会再收到广播。"""

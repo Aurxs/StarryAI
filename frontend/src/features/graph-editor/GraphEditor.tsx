@@ -1059,6 +1059,12 @@ const GraphEditorInner = () => {
                     return buildInitiatorDefaultConfig(graph.nodes);
                 }
                 switch (spec.type_name) {
+                    case 'branch.if':
+                        return {
+                            field_path: '<root>',
+                            operator: 'truthy',
+                            compare_value: null,
+                        };
                     case 'data.ref':
                         return {variable_name: ''};
                     case 'data.writer':

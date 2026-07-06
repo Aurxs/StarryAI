@@ -209,6 +209,48 @@ def test_scheduler_reactivates_trigger_entry_within_same_run() -> None:
     asyncio.run(_run())
 
 
+def test_scheduler_routes_only_selected_branch_output() -> None:
+    """条件分支应只激活命中的输出分支，未命中分支自然收尾。"""
+
+    async def _run() -> None:
+        CAPTURED_VALUES.clear()
+        graph = GraphSpec(
+            graph_id="g_scheduler_branch_if",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="mock.input", config={"content": "hello"}),
+                NodeInstanceSpec(
+                    node_id="n2",
+                    type_name="branch.if",
+                    config={
+                        "field_path": "<root>",
+                        "operator": "equals",
+                        "compare_value": "hello",
+                    },
+                ),
+                NodeInstanceSpec(node_id="n3", type_name="test.capture"),
+                NodeInstanceSpec(node_id="n4", type_name="test.capture"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="in"),
+                EdgeSpec(source_node="n2", source_port="true", target_node="n3", target_port="in"),
+                EdgeSpec(source_node="n2", source_port="false", target_node="n4", target_port="in"),
+            ],
+        )
+        compiled = _build_registry_with_custom_nodes().build(graph)
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+
+        state = await scheduler.run(compiled, run_id="run_scheduler_branch_if")
+
+        assert state.status == "completed"
+        assert CAPTURED_VALUES == ["hello"]
+        assert state.node_states["n2"].metrics["branch_true"] == 1
+        assert state.node_states["n3"].metrics["processed_count"] == 1
+        assert state.node_states["n4"].metrics.get("processed_count", 0) == 0
+        assert state.node_states["n4"].status == "finished"
+
+    asyncio.run(_run())
+
+
 def test_scheduler_fails_when_node_omits_connected_output() -> None:
     """节点未输出已连接端口的数据时，运行应失败而非死锁。"""
 

@@ -430,6 +430,7 @@
     }
   },
   "nodeTypeDescriptions": {
+    "branch_if": "条件分支节点，根据配置把输入发送到 true 或 false 输出。",
     "audio_play_base": "基础音频执行节点，收到输入后立即执行。",
     "audio_play_sync": "同步音频执行节点，由协调器统一提交后执行。",
     "data_constant": "被动标量常量容器。",
@@ -452,6 +453,11 @@
     "trigger_entry": "触发入口节点，被同组广播激活时释放已缓存输入。"
   },
   "nodePortDescriptions": {
+    "branch_if": {
+      "in": "被条件判断的输入载荷。",
+      "true": "条件成立时输出的载荷。",
+      "false": "条件不成立时输出的载荷。"
+    },
     "data_requester": {
       "source": "到源数据容器的引用绑定。",
       "trigger": "用于请求容器数据的触发输入。",

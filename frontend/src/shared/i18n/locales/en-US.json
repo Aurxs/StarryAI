@@ -430,6 +430,7 @@
     }
   },
   "nodeTypeDescriptions": {
+    "branch_if": "Conditional branch node that routes input to true or false output.",
     "audio_play_base": "Base audio executor node that runs immediately when it receives input.",
     "audio_play_sync": "Synchronous audio executor node that runs after a coordinated commit.",
     "data_constant": "Passive scalar constant container.",
@@ -452,6 +453,11 @@
     "trigger_entry": "Trigger entry that releases cached input when its group is activated."
   },
   "nodePortDescriptions": {
+    "branch_if": {
+      "in": "Payload evaluated by the condition.",
+      "true": "Payload emitted when the condition matches.",
+      "false": "Payload emitted when the condition does not match."
+    },
     "data_requester": {
       "source": "Reference binding to the source data container.",
       "trigger": "Trigger input used to request container data.",
