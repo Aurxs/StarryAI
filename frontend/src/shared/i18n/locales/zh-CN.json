@@ -447,7 +447,9 @@
     "mock_output": "模拟输出节点。",
     "mock_tts": "模拟 TTS 节点，输入文本并输出完整音频元信息。",
     "motion_play_sync": "同步动作执行节点，由协调器统一提交后执行。",
-    "sync_initiator_dual": "同步发起器，将双路输入封装为双路同步任务包。"
+    "sync_initiator_dual": "同步发起器，将双路输入封装为双路同步任务包。",
+    "trigger_emit": "触发广播节点，向同一触发组的入口发送激活信号。",
+    "trigger_entry": "触发入口节点，被同组广播激活时释放已缓存输入。"
   },
   "nodePortDescriptions": {
     "data_requester": {
@@ -460,6 +462,15 @@
     },
     "mock_input": {
       "text": "完整文本输出。"
+    },
+    "trigger_emit": {
+      "in": "激活广播节点的普通输入。",
+      "out": "可选的普通透传输出。"
+    },
+    "trigger_entry": {
+      "in": "被触发时释放的普通输入缓存。",
+      "trigger": "来自同一触发组的内部触发信号。",
+      "out": "触发时释放的缓存载荷。"
     }
   },
   "graphValidation": {

@@ -447,7 +447,9 @@
     "mock_output": "Mock output node.",
     "mock_tts": "Mock TTS node that consumes text and outputs complete audio metadata.",
     "motion_play_sync": "Synchronous motion executor node that runs after a coordinated commit.",
-    "sync_initiator_dual": "Sync initiator that packages dual inputs into paired sync tasks."
+    "sync_initiator_dual": "Sync initiator that packages dual inputs into paired sync tasks.",
+    "trigger_emit": "Trigger emitter that activates entries in the same trigger group.",
+    "trigger_entry": "Trigger entry that releases cached input when its group is activated."
   },
   "nodePortDescriptions": {
     "data_requester": {
@@ -460,6 +462,15 @@
     },
     "mock_input": {
       "text": "Complete text output."
+    },
+    "trigger_emit": {
+      "in": "Normal input that activates this emitter.",
+      "out": "Optional pass-through output for ordinary edges."
+    },
+    "trigger_entry": {
+      "in": "Normal input cache released on trigger.",
+      "trigger": "Internal trigger signal from the same group.",
+      "out": "Cached payload released when triggered."
     }
   },
   "graphValidation": {

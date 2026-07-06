@@ -70,6 +70,8 @@ class CompiledGraph:
     - writer_targets: 写入节点 -> 目标真实变量名。
     - data_node_bindings: 数据引用节点 -> 绑定真实变量名。
     - variables_by_name: 图级真实变量索引。
+    - trigger_emitters_by_group: trigger_group -> 触发广播节点 ID 列表。
+    - trigger_entries_by_group: trigger_group -> 触发入口节点 ID 列表。
     """
 
     graph: GraphSpec
@@ -85,6 +87,8 @@ class CompiledGraph:
     writer_targets: dict[str, str]
     data_node_bindings: dict[str, str | None]
     variables_by_name: dict[str, GraphDataVariable]
+    trigger_emitters_by_group: dict[str, list[str]]
+    trigger_entries_by_group: dict[str, list[str]]
 
 
 class GraphBuilder:
@@ -147,6 +151,7 @@ class GraphBuilder:
                 data_node_bindings=data_node_bindings,
                 issues=issues,
             )
+            self._validate_trigger_nodes(graph=graph, node_specs=node_specs, issues=issues)
             self._validate_acyclic(node_specs, outgoing, issues)
             if not any(issue.code == "graph.cycle_detected" for issue in issues):
                 resolved_inputs, resolved_outputs = self._resolve_port_schemas(
@@ -209,6 +214,10 @@ class GraphBuilder:
         )
         reference_bindings = self._build_reference_bindings(graph=graph, node_specs=node_specs)
         writer_targets = self._build_writer_targets(graph=graph, node_specs=node_specs)
+        trigger_emitters_by_group, trigger_entries_by_group = self._build_trigger_groups(
+            graph=graph,
+            node_specs=node_specs,
+        )
 
         return CompiledGraph(
             graph=graph,
@@ -224,6 +233,8 @@ class GraphBuilder:
             writer_targets=writer_targets,
             data_node_bindings=data_node_bindings,
             variables_by_name=variables_by_name,
+            trigger_emitters_by_group=trigger_emitters_by_group,
+            trigger_entries_by_group=trigger_entries_by_group,
         )
 
     def _collect_node_specs(
@@ -420,6 +431,8 @@ class GraphBuilder:
                 if spec.mode == NodeMode.PASSIVE:
                     continue
                 if port.input_behavior == InputBehavior.REFERENCE:
+                    continue
+                if self._is_internal_trigger_entry_port(spec=spec, port_name=port.name):
                     continue
                 if port.required and port.name not in incoming_ports:
                     if (node_id, port.name) in attempted_targets:
@@ -696,6 +709,48 @@ class GraphBuilder:
                             message=f"数据写入器 {node_id} 不允许有输出连线",
                         )
                     )
+
+    def _validate_trigger_nodes(
+        self,
+        *,
+        graph: GraphSpec,
+        node_specs: dict[str, NodeSpec],
+        issues: list[ValidationIssue],
+    ) -> None:
+        """校验 trigger.emit / trigger.entry 的组配置。"""
+        node_instances = {node.node_id: node for node in graph.nodes}
+        emitters_by_group, entries_by_group = self._build_trigger_groups(
+            graph=graph,
+            node_specs=node_specs,
+        )
+
+        for node_id, spec in node_specs.items():
+            if not self._has_tag(spec, "trigger_emit") and not self._has_tag(spec, "trigger_entry"):
+                continue
+            instance = node_instances.get(node_id)
+            raw_group = instance.config.get("trigger_group") if instance is not None else None
+            if not isinstance(raw_group, str) or not raw_group.strip():
+                issues.append(
+                    ValidationIssue(
+                        level="error",
+                        code="trigger.group_missing",
+                        message=f"触发节点 {node_id} 缺少 trigger_group 配置",
+                    )
+                )
+
+        for group_name, entry_ids in entries_by_group.items():
+            if emitters_by_group.get(group_name):
+                continue
+            issues.append(
+                ValidationIssue(
+                    level="error",
+                    code="trigger.entry_group_without_emitter",
+                    message=(
+                        f"触发组 {group_name} 存在入口节点但没有广播节点: "
+                        f"{', '.join(entry_ids)}"
+                    ),
+                )
+            )
 
     def _validate_sync_group_alignment(
         self,
@@ -1067,6 +1122,32 @@ class GraphBuilder:
                 targets[node.node_id] = raw_target.strip()
         return targets
 
+    def _build_trigger_groups(
+        self,
+        *,
+        graph: GraphSpec,
+        node_specs: dict[str, NodeSpec],
+    ) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+        """构建触发广播节点与触发入口节点的组索引。"""
+        emitters: dict[str, list[str]] = defaultdict(list)
+        entries: dict[str, list[str]] = defaultdict(list)
+        for node in graph.nodes:
+            spec = node_specs.get(node.node_id)
+            if spec is None:
+                continue
+            raw_group = node.config.get("trigger_group")
+            if not isinstance(raw_group, str) or not raw_group.strip():
+                continue
+            group_name = raw_group.strip()
+            if self._has_tag(spec, "trigger_emit"):
+                emitters[group_name].append(node.node_id)
+            if self._has_tag(spec, "trigger_entry"):
+                entries[group_name].append(node.node_id)
+        return (
+            {group: sorted(node_ids) for group, node_ids in emitters.items()},
+            {group: sorted(node_ids) for group, node_ids in entries.items()},
+        )
+
     def _collect_variables_by_name(
         self,
         graph: GraphSpec,
@@ -1134,6 +1215,9 @@ class GraphBuilder:
         if target_port is None:
             return False
         return target_port.input_behavior == InputBehavior.REFERENCE
+
+    def _is_internal_trigger_entry_port(self, *, spec: NodeSpec, port_name: str) -> bool:
+        return self._has_tag(spec, "trigger_entry") and port_name == "trigger"
 
     @staticmethod
     def _has_tag(spec: NodeSpec, tag: str) -> bool:

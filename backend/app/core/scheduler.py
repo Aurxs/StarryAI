@@ -36,7 +36,7 @@ from .graph_runtime import GraphRuntimeState, RuntimeEdgeState, RuntimeNodeState
 from .node_base import BaseNode, NodeContext
 from .node_factory import NodeFactory, create_default_node_factory
 from .runtime_data import RuntimeDataStore
-from .spec import EdgeSpec, NodeMode, is_sync_schema
+from .spec import EdgeSpec, InputBehavior, NodeMode, NodeSpec, is_sync_schema
 from .sync_coordinator import SyncCoordinator
 
 # 边唯一键：(source_node, source_port, target_node, target_port)
@@ -122,6 +122,8 @@ class GraphScheduler:
         self._node_inputs: dict[str, dict[str, Any]] = {}
         # _node_input_metadata: 节点 -> 输入端口附带元信息（trigger_token/source 等）。
         self._node_input_metadata: dict[str, dict[str, dict[str, Any]]] = {}
+        # _node_input_versions: 节点 -> 输入端口版本号，用于安全消费重复激活输入。
+        self._node_input_versions: dict[str, dict[str, int]] = {}
         # _node_input_events: 节点 -> 输入到达事件，用于唤醒等待输入的节点任务。
         self._node_input_events: dict[str, asyncio.Event] = {}
         # _node_policies: 节点 -> 执行策略（超时、重试、错误传播）。
@@ -253,6 +255,7 @@ class GraphScheduler:
         self._edge_state_map.clear()
         self._node_inputs.clear()
         self._node_input_metadata.clear()
+        self._node_input_versions.clear()
         self._node_input_events.clear()
         self._node_policies.clear()
         self._sync_coordinator = SyncCoordinator()
@@ -363,6 +366,7 @@ class GraphScheduler:
             # 每个节点先给一个空输入缓存。
             self._node_inputs[node_id] = {}
             self._node_input_metadata[node_id] = {}
+            self._node_input_versions[node_id] = {}
             # 每个节点一个输入事件；边任务写入输入后会 set 它。
             self._node_input_events[node_id] = asyncio.Event()
 
@@ -399,6 +403,13 @@ class GraphScheduler:
             event = self._node_input_events.get(edge.target_node)
             if event is not None:
                 event.set()
+        group_name = self._node_trigger_group(source_node_id)
+        if not group_name:
+            return
+        for entry_id in self._compiled_graph.trigger_entries_by_group.get(group_name, []):
+            event = self._node_input_events.get(entry_id)
+            if event is not None:
+                event.set()
 
     async def _node_worker(self, node_id: str, node: BaseNode) -> None:
         """单节点执行任务。"""
@@ -417,138 +428,163 @@ class GraphScheduler:
             for port in spec.inputs
             if port.required and port.input_behavior.value != "reference"
         }
+        repeatable = bool(required_ports)
+        processed_count = 0
 
         try:
             while not self._stop_event.is_set():
-                # current_inputs: 当前已收到的输入缓存快照引用。
-                current_inputs = self._node_inputs[node_id]
-                if required_ports.issubset(current_inputs):
-                    break
-                if self._required_inputs_unavailable(node_id, required_ports):
-                    message = f"节点 {node_id} 必需输入已不可达"
-                    node_state.status = "failed"
-                    node_state.finished_at = time.time()
-                    node_state.last_error = message
-                    node_state.metrics["failed_count"] = int(
-                        node_state.metrics.get("failed_count", 0)
-                    ) + 1
-                    node_state.metrics["last_error_code"] = ErrorCode.NODE_INPUT_UNAVAILABLE.value
-                    node_state.metrics["last_error_retryable"] = False
-                    self._emit_event(
-                        RuntimeEventType.NODE_FAILED,
-                        node_id=node_id,
-                        message=message,
-                        severity=RuntimeEventSeverity.ERROR,
-                        component=RuntimeEventComponent.NODE,
-                        error_code=ErrorCode.NODE_INPUT_UNAVAILABLE.value,
-                        details={"required_ports": sorted(required_ports)},
-                    )
-                    if policy.continue_on_error and not policy.critical:
-                        node_state.metrics["continued_on_error"] = True
+                while not self._stop_event.is_set():
+                    # current_inputs: 当前已收到的输入缓存快照引用。
+                    current_inputs = self._node_inputs[node_id]
+                    if required_ports.issubset(current_inputs):
+                        break
+                    if self._required_inputs_unavailable(node_id, required_ports):
+                        if processed_count > 0 or self._can_finish_without_activation(
+                            node_id=node_id,
+                            required_ports=required_ports,
+                        ):
+                            node_state.status = "finished"
+                            node_state.finished_at = time.time()
+                            self._notify_downstream_waiters(node_id)
+                            return
+                        message = f"节点 {node_id} 必需输入已不可达"
+                        node_state.status = "failed"
+                        node_state.finished_at = time.time()
+                        node_state.last_error = message
+                        node_state.metrics["failed_count"] = int(
+                            node_state.metrics.get("failed_count", 0)
+                        ) + 1
+                        node_state.metrics["last_error_code"] = ErrorCode.NODE_INPUT_UNAVAILABLE.value
+                        node_state.metrics["last_error_retryable"] = False
+                        self._emit_event(
+                            RuntimeEventType.NODE_FAILED,
+                            node_id=node_id,
+                            message=message,
+                            severity=RuntimeEventSeverity.ERROR,
+                            component=RuntimeEventComponent.NODE,
+                            error_code=ErrorCode.NODE_INPUT_UNAVAILABLE.value,
+                            details={"required_ports": sorted(required_ports)},
+                        )
+                        if policy.continue_on_error and not policy.critical:
+                            node_state.metrics["continued_on_error"] = True
+                            self._complete_writer_barrier(node_id)
+                            self._notify_downstream_waiters(node_id)
+                            return
+                        await self._sync_coordinator.abort_by_node(
+                            node_id=node_id,
+                            reason="input_unavailable",
+                        )
                         self._complete_writer_barrier(node_id)
-                        self._notify_downstream_waiters(node_id)
+                        self._fail_run(message)
+                        self.stop()
                         return
-                    await self._sync_coordinator.abort_by_node(
-                        node_id=node_id,
-                        reason="input_unavailable",
-                    )
-                    self._complete_writer_barrier(node_id)
-                    self._fail_run(message)
-                    self.stop()
+
+                    # event: 当前节点的输入到达事件；等待下游边任务唤醒。
+                    event = self._node_input_events[node_id]
+                    await event.wait()
+                    event.clear()
+
+                if self._stop_event.is_set():
+                    node_state.status = "stopped"
                     return
 
-                # event: 当前节点的输入到达事件；等待下游边任务唤醒。
-                event = self._node_input_events[node_id]
-                await event.wait()
-                event.clear()
-
-            if self._stop_event.is_set():
-                node_state.status = "stopped"
-                return
-
-            node_state.status = "running"
-            node_state.started_at = time.time()
-            self._emit_event(
-                RuntimeEventType.NODE_STARTED,
-                node_id=node_id,
-                message="Node started",
-                component=RuntimeEventComponent.NODE,
-            )
-
-            # context: 传给节点 process 的运行上下文。
-            context = NodeContext(
-                run_id=self._run_id,
-                node_id=node_id,
-                metadata={
-                    "stream_id": self._stream_id,
-                    "seq": 0,
-                    "graph_id": self.runtime_state.graph_id,
-                    "node_mode": spec.mode.value,
-                    "sync_coordinator": self._sync_coordinator,
-                    "sync_group_participants": self._compiled_graph.sync_group_participants,
-                    "data_store": self._data_store,
-                    "variables_by_name": self._compiled_graph.variables_by_name,
-                    "reference_bindings": self._compiled_graph.reference_bindings,
-                    "writer_targets": self._compiled_graph.writer_targets,
-                    "data_node_bindings": self._compiled_graph.data_node_bindings,
-                    "input_metadata": deepcopy(self._node_input_metadata.get(node_id, {})),
-                    "trigger_token": self._resolve_trigger_token(node_id),
-                    "await_container_writes": self._await_container_writes,
-                },
-            )
-            # inputs: 传入节点 process 的输入副本，避免节点修改共享缓存。
-            inputs = dict(self._node_inputs[node_id])
-            # outputs: 节点 process 返回的输出端口数据映射。
-            outputs = await self._execute_node_with_policy(
-                node_id=node_id,
-                node=node,
-                inputs=inputs,
-                context=context,
-                node_state=node_state,
-                policy=policy,
-            )
-
-            if not isinstance(outputs, dict):
-                raise TypeError(f"节点 {node_id} 输出必须是 dict，实际: {type(outputs)}")
-
-            # 同步节点可通过保留键上报额外指标，不参与端口路由。
-            node_metrics = outputs.pop("__node_metrics", None)
-            if isinstance(node_metrics, dict):
-                node_state.metrics.update(node_metrics)
-
-            if self._stop_event.is_set():
-                node_state.status = "stopped"
-                self._complete_writer_barrier(node_id)
-                return
-
-            await self._route_outputs(node_id=node_id, outputs=outputs)
-
-            node_state.status = "finished"
-            node_state.finished_at = time.time()
-            node_state.metrics["processed_count"] = node_state.metrics.get("processed_count", 0) + 1
-            if node_state.started_at is not None:
-                node_state.metrics["duration_ms"] = int(
-                    (node_state.finished_at - node_state.started_at) * 1000
+                activation_versions = dict(self._node_input_versions.get(node_id, {}))
+                node_state.status = "running"
+                node_state.started_at = time.time()
+                self._emit_event(
+                    RuntimeEventType.NODE_STARTED,
+                    node_id=node_id,
+                    message="Node started",
+                    component=RuntimeEventComponent.NODE,
                 )
 
-            self._emit_event(
-                RuntimeEventType.NODE_FINISHED,
-                node_id=node_id,
-                message="Node finished",
-                component=RuntimeEventComponent.NODE,
-            )
-            if node_state.started_at is not None and node_state.finished_at is not None:
-                elapsed_s = max(node_state.finished_at - node_state.started_at, 0.0)
-                if elapsed_s > 0:
-                    node_state.metrics["throughput_fps"] = round(
-                        float(node_state.metrics.get("processed_count", 0)) / elapsed_s, 3
+                # context: 传给节点 process 的运行上下文。
+                context = NodeContext(
+                    run_id=self._run_id,
+                    node_id=node_id,
+                    metadata={
+                        "stream_id": self._stream_id,
+                        "seq": processed_count,
+                        "graph_id": self.runtime_state.graph_id,
+                        "node_mode": spec.mode.value,
+                        "sync_coordinator": self._sync_coordinator,
+                        "sync_group_participants": self._compiled_graph.sync_group_participants,
+                        "data_store": self._data_store,
+                        "variables_by_name": self._compiled_graph.variables_by_name,
+                        "reference_bindings": self._compiled_graph.reference_bindings,
+                        "writer_targets": self._compiled_graph.writer_targets,
+                        "data_node_bindings": self._compiled_graph.data_node_bindings,
+                        "input_metadata": deepcopy(self._node_input_metadata.get(node_id, {})),
+                        "trigger_token": self._resolve_trigger_token(node_id),
+                        "await_container_writes": self._await_container_writes,
+                    },
+                )
+                # inputs: 传入节点 process 的输入副本，避免节点修改共享缓存。
+                inputs = dict(self._node_inputs[node_id])
+                # outputs: 节点 process 返回的输出端口数据映射。
+                outputs = await self._execute_node_with_policy(
+                    node_id=node_id,
+                    node=node,
+                    inputs=inputs,
+                    context=context,
+                    node_state=node_state,
+                    policy=policy,
+                )
+
+                if not isinstance(outputs, dict):
+                    raise TypeError(f"节点 {node_id} 输出必须是 dict，实际: {type(outputs)}")
+
+                # 同步节点可通过保留键上报额外指标，不参与端口路由。
+                node_metrics = outputs.pop("__node_metrics", None)
+                if isinstance(node_metrics, dict):
+                    node_state.metrics.update(node_metrics)
+
+                if self._stop_event.is_set():
+                    node_state.status = "stopped"
+                    self._complete_writer_barrier(node_id)
+                    return
+
+                await self._route_outputs(node_id=node_id, outputs=outputs)
+                await self._broadcast_trigger_if_needed(node_id=node_id)
+
+                node_state.finished_at = time.time()
+                processed_count += 1
+                node_state.metrics["processed_count"] = processed_count
+                if node_state.started_at is not None:
+                    node_state.metrics["duration_ms"] = int(
+                        (node_state.finished_at - node_state.started_at) * 1000
                     )
 
-            if self.runtime_state is not None:
-                self.runtime_state.metrics["node_finished"] = (
-                        int(self.runtime_state.metrics.get("node_finished", 0)) + 1
+                self._emit_event(
+                    RuntimeEventType.NODE_FINISHED,
+                    node_id=node_id,
+                    message="Node finished",
+                    component=RuntimeEventComponent.NODE,
                 )
-            self._complete_writer_barrier(node_id)
+                if node_state.started_at is not None and node_state.finished_at is not None:
+                    elapsed_s = max(node_state.finished_at - node_state.started_at, 0.0)
+                    if elapsed_s > 0:
+                        node_state.metrics["throughput_fps"] = round(
+                            float(node_state.metrics.get("processed_count", 0)) / elapsed_s, 3
+                        )
+
+                if self.runtime_state is not None:
+                    self.runtime_state.metrics["node_finished"] = (
+                            int(self.runtime_state.metrics.get("node_finished", 0)) + 1
+                    )
+                self._complete_writer_barrier(node_id)
+                self._consume_activation_inputs(
+                    node_id=node_id,
+                    spec=spec,
+                    activation_versions=activation_versions,
+                )
+                if not repeatable:
+                    node_state.status = "finished"
+                    self._notify_downstream_waiters(node_id)
+                    return
+                node_state.status = "idle"
+
+            node_state.status = "stopped"
         except asyncio.CancelledError:
             node_state.status = "stopped"
             node_state.finished_at = time.time()
@@ -587,6 +623,97 @@ class GraphScheduler:
             self._complete_writer_barrier(node_id)
             self._fail_run(f"节点 {node_id} 执行失败: {exc}")
             self.stop()
+
+    async def _broadcast_trigger_if_needed(self, *, node_id: str) -> None:
+        """如果当前节点是 trigger.emit，则向同组 trigger.entry 写入内部触发。"""
+        assert self._compiled_graph is not None
+        assert self._run_id is not None
+        spec = self._compiled_graph.node_specs[node_id]
+        if not self._has_node_tag(spec, "trigger_emit"):
+            return
+
+        group_name = self._node_trigger_group(node_id)
+        if not group_name:
+            return
+        entry_ids = self._compiled_graph.trigger_entries_by_group.get(group_name, [])
+        if not entry_ids:
+            return
+
+        trigger_token = uuid.uuid4().hex
+        for entry_id in entry_ids:
+            if entry_id not in self._node_inputs:
+                continue
+            self._node_inputs[entry_id]["trigger"] = {
+                "trigger_group": group_name,
+                "source_node": node_id,
+            }
+            self._node_input_versions[entry_id]["trigger"] = (
+                self._node_input_versions[entry_id].get("trigger", 0) + 1
+            )
+            self._node_input_metadata[entry_id]["trigger"] = {
+                "trigger_token": trigger_token,
+                "source_node": node_id,
+                "source_port": "trigger",
+                "stream_id": self._stream_id,
+                "seq": 0,
+                "trigger_group": group_name,
+            }
+            self._node_input_events[entry_id].set()
+            if self.runtime_state is not None:
+                self.runtime_state.metrics["trigger_broadcasts"] = (
+                    int(self.runtime_state.metrics.get("trigger_broadcasts", 0)) + 1
+                )
+            event_edge_key = f"{node_id}.trigger->{entry_id}.trigger"
+            self._emit_event(
+                RuntimeEventType.FRAME_EMITTED,
+                node_id=node_id,
+                message=f"Trigger broadcast to {entry_id}",
+                component=RuntimeEventComponent.SCHEDULER,
+                edge_key=event_edge_key,
+                details={
+                    "kind": "trigger_broadcast",
+                    "trigger_group": group_name,
+                    "target_node": entry_id,
+                    "trigger_token": trigger_token,
+                },
+            )
+
+    def _consume_activation_inputs(
+        self,
+        *,
+        node_id: str,
+        spec: NodeSpec,
+        activation_versions: dict[str, int],
+    ) -> None:
+        """消费本次激活用到的输入，保留 trigger.entry 的普通缓存输入。"""
+        current_versions = self._node_input_versions.get(node_id, {})
+        for port in spec.inputs:
+            if port.input_behavior == InputBehavior.REFERENCE:
+                continue
+            if self._is_trigger_entry_cache_port(spec=spec, port_name=port.name):
+                continue
+            consumed_version = activation_versions.get(port.name)
+            if consumed_version is None:
+                continue
+            if current_versions.get(port.name) != consumed_version:
+                continue
+            self._node_inputs[node_id].pop(port.name, None)
+            self._node_input_metadata[node_id].pop(port.name, None)
+            current_versions.pop(port.name, None)
+
+    def _can_finish_without_activation(self, *, node_id: str, required_ports: set[str]) -> bool:
+        """判断缺少输入时是否可以自然收尾而不是报错。"""
+        assert self._compiled_graph is not None
+        spec = self._compiled_graph.node_specs[node_id]
+        missing_ports = {
+            port for port in required_ports if port not in self._node_inputs.get(node_id, {})
+        }
+        if not missing_ports:
+            return False
+        return all(
+            self._is_internal_trigger_entry_port(spec=spec, port_name=port)
+            for port in missing_ports
+        )
 
     async def _route_outputs(self, node_id: str, outputs: dict[str, Any]) -> None:
         """将节点输出按边路由到下游队列。"""
@@ -746,6 +873,9 @@ class GraphScheduler:
                     continue
 
                 self._node_inputs[edge.target_node][edge.target_port] = frame.payload.get("value")
+                self._node_input_versions[edge.target_node][edge.target_port] = (
+                    self._node_input_versions[edge.target_node].get(edge.target_port, 0) + 1
+                )
                 self._node_input_metadata[edge.target_node][edge.target_port] = {
                     "trigger_token": frame.metadata.get("trigger_token"),
                     "source_node": frame.source_node,
@@ -923,6 +1053,7 @@ class GraphScheduler:
             "node_timeout_total": 0,
             "edge_forwarded_frames": 0,
             "edge_queue_peak_max": 0,
+            "trigger_broadcasts": 0,
             "sync_decisions": {},
         }
 
@@ -1103,23 +1234,73 @@ class GraphScheduler:
             return False
 
         incoming_edges = self._compiled_graph.incoming_edges.get(node_id, [])
-        # 仅当某必需端口的所有上游都处于失败/停止态时，才判定不可达。
-        # 注意：finished 并不代表输入已被下游消费，队列中仍可能有待转发帧。
-        blocking_statuses = {"failed", "stopped"}
+        spec = self._compiled_graph.node_specs[node_id]
         for port in missing_ports:
+            if self._is_internal_trigger_entry_port(spec=spec, port_name=port):
+                if self._trigger_emitters_closed_for_entry(node_id):
+                    return True
+                continue
             provider_nodes = [
                 edge.source_node for edge in incoming_edges if edge.target_port == port
             ]
             if not provider_nodes:
                 return True
-            # 当前端口所有上游均失败/停止，端口不可达。
+            provider_edges = [
+                edge for edge in incoming_edges if edge.target_port == port
+            ]
+            # 当前端口所有上游均已终止，且边队列没有待转发帧，端口不可达。
             if all(
-                    self.runtime_state.node_states[src].status in blocking_statuses
-                    for src in provider_nodes
+                    self._provider_edge_closed(edge)
+                    for edge in provider_edges
             ):
                 return True
         # 所有缺失端口都仍有可用上游，暂不判定不可达。
         return False
+
+    def _provider_edge_closed(self, edge: EdgeSpec) -> bool:
+        """判断某条输入边是否不会再提供帧。"""
+        assert self.runtime_state is not None
+        source_state = self.runtime_state.node_states[edge.source_node].status
+        if source_state not in {"finished", "failed", "stopped"}:
+            return False
+        queue = self._edge_queues.get(self._edge_key(edge))
+        return queue is None or queue.empty()
+
+    def _trigger_emitters_closed_for_entry(self, entry_node_id: str) -> bool:
+        """判断入口节点所在触发组是否不会再收到广播。"""
+        assert self._compiled_graph is not None
+        assert self.runtime_state is not None
+        group_name = self._node_trigger_group(entry_node_id)
+        if not group_name:
+            return True
+        emitter_ids = self._compiled_graph.trigger_emitters_by_group.get(group_name, [])
+        if not emitter_ids:
+            return True
+        return all(
+            self.runtime_state.node_states[emitter_id].status in {"finished", "failed", "stopped"}
+            for emitter_id in emitter_ids
+        )
+
+    def _node_trigger_group(self, node_id: str) -> str | None:
+        assert self._compiled_graph is not None
+        for node in self._compiled_graph.graph.nodes:
+            if node.node_id != node_id:
+                continue
+            raw_group = node.config.get("trigger_group")
+            if isinstance(raw_group, str) and raw_group.strip():
+                return raw_group.strip()
+            return None
+        return None
+
+    @staticmethod
+    def _has_node_tag(spec: NodeSpec, tag: str) -> bool:
+        return tag in spec.tags
+
+    def _is_internal_trigger_entry_port(self, *, spec: NodeSpec, port_name: str) -> bool:
+        return self._has_node_tag(spec, "trigger_entry") and port_name == "trigger"
+
+    def _is_trigger_entry_cache_port(self, *, spec: NodeSpec, port_name: str) -> bool:
+        return self._has_node_tag(spec, "trigger_entry") and port_name != "trigger"
 
     @staticmethod
     def _build_node_policy(config: dict[str, Any]) -> NodeExecutionPolicy:

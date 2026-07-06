@@ -246,6 +246,46 @@ def test_graph_builder_compiles_sync_group_participants() -> None:
     assert compiled.sync_group_participants["g1"] == ["n5", "n6"]
 
 
+def test_graph_builder_compiles_trigger_groups_without_trigger_edge() -> None:
+    """验证：触发入口的内部 trigger 口不需要普通连线。"""
+    graph = GraphSpec(
+        graph_id="g_trigger_group_compile",
+        nodes=[
+            NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+            NodeInstanceSpec(node_id="n2", type_name="trigger.emit", config={"trigger_group": "g1"}),
+            NodeInstanceSpec(node_id="n3", type_name="trigger.entry", config={"trigger_group": "g1"}),
+            NodeInstanceSpec(node_id="n4", type_name="mock.output"),
+        ],
+        edges=[
+            EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="in"),
+            EdgeSpec(source_node="n1", source_port="text", target_node="n3", target_port="in"),
+            EdgeSpec(source_node="n3", source_port="out", target_node="n4", target_port="in"),
+        ],
+    )
+
+    compiled = GraphBuilder(create_default_registry()).build(graph)
+    assert compiled.trigger_emitters_by_group["g1"] == ["n2"]
+    assert compiled.trigger_entries_by_group["g1"] == ["n3"]
+
+
+def test_graph_validation_rejects_trigger_entry_group_without_emitter() -> None:
+    """验证：触发入口必须能找到同组广播节点。"""
+    graph = GraphSpec(
+        graph_id="g_trigger_group_missing_emitter",
+        nodes=[
+            NodeInstanceSpec(node_id="n1", type_name="mock.input"),
+            NodeInstanceSpec(node_id="n2", type_name="trigger.entry", config={"trigger_group": "missing"}),
+        ],
+        edges=[
+            EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="in"),
+        ],
+    )
+
+    report = GraphBuilder(create_default_registry()).validate(graph)
+    assert report.valid is False
+    assert any(issue.code == "trigger.entry_group_without_emitter" for issue in report.issues)
+
+
 def test_graph_validation_rejects_missing_sync_group_on_initiator_and_executor() -> None:
     """验证：发起器与执行节点缺少 sync_group 时应报错。"""
     graph = GraphSpec(
@@ -515,4 +555,3 @@ def test_graph_validation_rejects_numeric_target_with_string_operand_variable() 
     report = GraphBuilder(create_default_registry()).validate(graph)
     assert report.valid is False
     assert any(issue.code == "data.writer_operand_variable_incompatible" for issue in report.issues)
-

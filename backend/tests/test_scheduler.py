@@ -43,6 +43,15 @@ class SlowSyncConsumerNode(AsyncNode):
         return {}
 
 
+class DelayNode(AsyncNode):
+    """延迟透传节点，用于构造稳定的触发顺序。"""
+
+    async def process(self, inputs: dict[str, Any], context: NodeContext) -> dict[str, Any]:
+        _ = context
+        await asyncio.sleep(float(self.config.get("delay_s", 0.01)))
+        return {"out": inputs.get("in")}
+
+
 CAPTURED_VALUES: list[Any] = []
 
 
@@ -91,6 +100,22 @@ def _build_registry_with_custom_nodes() -> GraphBuilder:
     )
     registry.register(
         NodeSpec(
+            type_name="test.delay",
+            mode=NodeMode.ASYNC,
+            inputs=[PortSpec(name="in", frame_schema="any", required=True)],
+            outputs=[
+                PortSpec(
+                    name="out",
+                    frame_schema="any",
+                    required=True,
+                    derived_from_input="in",
+                )
+            ],
+            description="delayed pass-through",
+        )
+    )
+    registry.register(
+        NodeSpec(
             type_name="test.capture",
             mode=NodeMode.ASYNC,
             inputs=[PortSpec(name="in", frame_schema="any", required=True)],
@@ -106,6 +131,7 @@ def _build_factory_with_custom_nodes() -> NodeFactory:
     factory.register("test.incomplete_output", IncompleteOutputNode)
     factory.register("test.bad_sync_envelope", BadSyncEnvelopeNode)
     factory.register("test.slow_sync_consumer", SlowSyncConsumerNode)
+    factory.register("test.delay", DelayNode)
     factory.register("test.capture", CaptureNode)
     return factory
 
@@ -140,6 +166,45 @@ def test_scheduler_runs_basic_chain() -> None:
         assert RuntimeEventType.RUN_STARTED in event_types
         assert RuntimeEventType.NODE_FINISHED in event_types
         assert RuntimeEventType.RUN_STOPPED in event_types
+
+    asyncio.run(_run())
+
+
+def test_scheduler_reactivates_trigger_entry_within_same_run() -> None:
+    """同一 run 内多次触发应重复激活入口和下游节点。"""
+
+    async def _run() -> None:
+        CAPTURED_VALUES.clear()
+        graph = GraphSpec(
+            graph_id="g_scheduler_trigger_repeat",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="mock.input", config={"content": "cached"}),
+                NodeInstanceSpec(node_id="n2", type_name="test.delay", config={"delay_s": 0.01}),
+                NodeInstanceSpec(node_id="n3", type_name="test.delay", config={"delay_s": 0.02}),
+                NodeInstanceSpec(node_id="n4", type_name="trigger.emit", config={"trigger_group": "g_repeat"}),
+                NodeInstanceSpec(node_id="n5", type_name="trigger.emit", config={"trigger_group": "g_repeat"}),
+                NodeInstanceSpec(node_id="n6", type_name="trigger.entry", config={"trigger_group": "g_repeat"}),
+                NodeInstanceSpec(node_id="n7", type_name="test.capture"),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="text", target_node="n6", target_port="in"),
+                EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="in"),
+                EdgeSpec(source_node="n1", source_port="text", target_node="n3", target_port="in"),
+                EdgeSpec(source_node="n2", source_port="out", target_node="n4", target_port="in"),
+                EdgeSpec(source_node="n3", source_port="out", target_node="n5", target_port="in"),
+                EdgeSpec(source_node="n6", source_port="out", target_node="n7", target_port="in"),
+            ],
+        )
+        compiled = _build_registry_with_custom_nodes().build(graph)
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+
+        state = await scheduler.run(compiled, run_id="run_scheduler_trigger_repeat")
+
+        assert state.status == "completed"
+        assert CAPTURED_VALUES == ["cached", "cached"]
+        assert state.node_states["n6"].metrics["processed_count"] == 2
+        assert state.node_states["n7"].metrics["processed_count"] == 2
+        assert state.metrics["trigger_broadcasts"] == 2
 
     asyncio.run(_run())
 

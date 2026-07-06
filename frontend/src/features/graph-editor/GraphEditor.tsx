@@ -1068,6 +1068,9 @@ const GraphEditorInner = () => {
                             operand_mode: 'literal',
                             literal_value: 0,
                         };
+                    case 'trigger.emit':
+                    case 'trigger.entry':
+                        return {trigger_group: 'default'};
                     default:
                         return {};
                 }
