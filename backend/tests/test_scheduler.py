@@ -209,6 +209,60 @@ def test_scheduler_reactivates_trigger_entry_within_same_run() -> None:
     asyncio.run(_run())
 
 
+def test_scheduler_queues_bursty_trigger_entry_activations() -> None:
+    """同一调度轮次的多个广播不能覆盖彼此。"""
+
+    async def _run() -> None:
+        CAPTURED_VALUES.clear()
+        graph = GraphSpec(
+            graph_id="g_scheduler_trigger_burst",
+            nodes=[
+                NodeInstanceSpec(node_id="cache", type_name="mock.input", config={"content": "cached"}),
+                *[
+                    NodeInstanceSpec(node_id=f"source_{index}", type_name="mock.input")
+                    for index in range(4)
+                ],
+                *[
+                    NodeInstanceSpec(
+                        node_id=f"emitter_{index}",
+                        type_name="trigger.emit",
+                        config={"trigger_group": "g_burst"},
+                    )
+                    for index in range(4)
+                ],
+                NodeInstanceSpec(
+                    node_id="entry",
+                    type_name="trigger.entry",
+                    config={"trigger_group": "g_burst"},
+                ),
+                NodeInstanceSpec(node_id="capture", type_name="test.capture"),
+            ],
+            edges=[
+                EdgeSpec(source_node="cache", source_port="text", target_node="entry", target_port="in"),
+                *[
+                    EdgeSpec(
+                        source_node=f"source_{index}",
+                        source_port="text",
+                        target_node=f"emitter_{index}",
+                        target_port="in",
+                    )
+                    for index in range(4)
+                ],
+                EdgeSpec(source_node="entry", source_port="out", target_node="capture", target_port="in"),
+            ],
+        )
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+        state = await scheduler.run(_build_registry_with_custom_nodes().build(graph))
+
+        assert state.status == "completed"
+        assert state.metrics["trigger_broadcasts"] == 4
+        assert state.node_states["entry"].metrics["processed_count"] == 4
+        assert state.node_states["capture"].metrics["processed_count"] == 4
+        assert CAPTURED_VALUES == ["cached"] * 4
+
+    asyncio.run(_run())
+
+
 def test_scheduler_routes_only_selected_branch_output() -> None:
     """条件分支应只激活命中的输出分支，未命中分支自然收尾。"""
 
@@ -251,6 +305,51 @@ def test_scheduler_routes_only_selected_branch_output() -> None:
     asyncio.run(_run())
 
 
+def test_scheduler_does_not_register_writes_for_skipped_optional_output() -> None:
+    """分支未命中的 writer 边不应留下永不完成的写入屏障。"""
+
+    async def _run() -> None:
+        graph = GraphSpec(
+            graph_id="g_scheduler_skipped_writer",
+            metadata={
+                "data_registry": {
+                    "variables": [
+                        {"name": "counter", "value_kind": "scalar.int", "initial_value": 0}
+                    ]
+                }
+            },
+            nodes=[
+                NodeInstanceSpec(node_id="input", type_name="mock.input", config={"content": "no"}),
+                NodeInstanceSpec(
+                    node_id="branch",
+                    type_name="branch.if",
+                    config={"operator": "equals", "compare_value": "yes"},
+                ),
+                NodeInstanceSpec(
+                    node_id="writer",
+                    type_name="data.writer",
+                    config={
+                        "target_variable_name": "counter",
+                        "operation": "set_from_input",
+                    },
+                ),
+            ],
+            edges=[
+                EdgeSpec(source_node="input", source_port="text", target_node="branch", target_port="in"),
+                EdgeSpec(source_node="branch", source_port="true", target_node="writer", target_port="in"),
+            ],
+        )
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+        state = await scheduler.run(_build_registry_with_custom_nodes().build(graph))
+
+        assert state.status == "completed"
+        assert state.node_states["writer"].metrics.get("processed_count", 0) == 0
+        assert scheduler._pending_variable_writes == {}
+        assert scheduler._pending_variable_events == {}
+
+    asyncio.run(_run())
+
+
 def test_scheduler_runs_loop_start_end_until_done() -> None:
     """loop.start / loop.end 应通过受控回边执行完整 for 循环。"""
 
@@ -281,6 +380,40 @@ def test_scheduler_runs_loop_start_end_until_done() -> None:
         assert len(CAPTURED_VALUES) == 1
         assert CAPTURED_VALUES[0]["index"] == 2
         assert CAPTURED_VALUES[0]["_loop"]["next_index"] == 3
+
+    asyncio.run(_run())
+
+
+def test_scheduler_finishes_an_empty_loop_without_hanging() -> None:
+    """范围为空时，循环及其 done 下游应自然收尾。"""
+
+    async def _run() -> None:
+        CAPTURED_VALUES.clear()
+        loop_config = {"start_index": 3, "end_index": 3, "step": 1, "include_end": False}
+        graph = GraphSpec(
+            graph_id="g_scheduler_empty_loop",
+            nodes=[
+                NodeInstanceSpec(node_id="start", type_name="loop.start", config=loop_config),
+                NodeInstanceSpec(node_id="end", type_name="loop.end", config=loop_config),
+                NodeInstanceSpec(node_id="capture", type_name="test.capture"),
+            ],
+            edges=[
+                EdgeSpec(source_node="start", source_port="item", target_node="end", target_port="in"),
+                EdgeSpec(source_node="end", source_port="continue", target_node="start", target_port="continue"),
+                EdgeSpec(source_node="end", source_port="done", target_node="capture", target_port="in"),
+            ],
+        )
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+        state = await asyncio.wait_for(
+            scheduler.run(_build_registry_with_custom_nodes().build(graph)),
+            timeout=0.5,
+        )
+
+        assert state.status == "completed"
+        assert state.node_states["start"].status == "finished"
+        assert state.node_states["end"].status == "finished"
+        assert state.node_states["capture"].status == "finished"
+        assert CAPTURED_VALUES == []
 
     asyncio.run(_run())
 
@@ -344,6 +477,33 @@ def test_scheduler_rejects_unsafe_function_expression() -> None:
         assert state.status == "failed"
         assert state.node_states["n2"].status == "failed"
         assert "允许" in (state.node_states["n2"].last_error or "")
+
+    asyncio.run(_run())
+
+
+def test_scheduler_rejects_resource_exhausting_function_expression() -> None:
+    """幂运算可能构造超大整数，必须在求值前被拒绝。"""
+
+    async def _run() -> None:
+        graph = GraphSpec(
+            graph_id="g_scheduler_function_expression_resource_limit",
+            nodes=[
+                NodeInstanceSpec(node_id="n1", type_name="mock.input", config={"content": "hello"}),
+                NodeInstanceSpec(
+                    node_id="n2",
+                    type_name="function.expression",
+                    config={"expression": "10 ** 1000000000"},
+                ),
+            ],
+            edges=[
+                EdgeSpec(source_node="n1", source_port="text", target_node="n2", target_port="in"),
+            ],
+        )
+        scheduler = GraphScheduler(node_factory=_build_factory_with_custom_nodes())
+        state = await scheduler.run(_build_registry_with_custom_nodes().build(graph))
+
+        assert state.status == "failed"
+        assert "幂运算" in (state.node_states["n2"].last_error or "")
 
     asyncio.run(_run())
 

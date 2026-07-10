@@ -25,10 +25,21 @@ _ALLOWED_FUNCTIONS = {
     "str": str,
     "sum": sum,
 }
+_MAX_EXPRESSION_LENGTH = 1_000
+_MAX_AST_NODES = 128
+_MAX_LITERAL_STRING_LENGTH = 1_000
+_MAX_LITERAL_NUMBER = 10_000
 _ALLOWED_MATH_NAMES = {
     name: getattr(math, name)
-    for name in dir(math)
-    if not name.startswith("_")
+    for name in {
+        "acos", "acosh", "asin", "asinh", "atan", "atan2", "atanh",
+        "ceil", "copysign", "cos", "cosh", "degrees", "dist", "erf", "erfc",
+        "exp", "expm1", "fabs", "floor", "fmod", "frexp", "fsum", "gamma",
+        "hypot", "isclose", "isfinite", "isinf", "isnan", "ldexp", "lgamma",
+        "log", "log10", "log1p", "log2", "modf", "nextafter", "radians",
+        "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "ulp",
+        "pi", "e", "tau", "inf", "nan",
+    }
 }
 _ALLOWED_NAMES = {"input", "inputs", "config", "math", *_ALLOWED_FUNCTIONS.keys()}
 _ALLOWED_NODE_TYPES = (
@@ -84,10 +95,16 @@ class FunctionExpressionConfig(CommonNodeConfig):
 class _ExpressionValidator(ast.NodeVisitor):
     """校验表达式只包含安全节点和允许的函数调用。"""
 
-    def generic_visit(self, node: ast.AST) -> None:
+    def __init__(self) -> None:
+        self._node_count = 0
+
+    def visit(self, node: ast.AST) -> Any:  # type: ignore[override]
         if not isinstance(node, _ALLOWED_NODE_TYPES):
             raise ValueError(f"不支持的表达式语法: {type(node).__name__}")
-        super().generic_visit(node)
+        self._node_count += 1
+        if self._node_count > _MAX_AST_NODES:
+            raise ValueError(f"表达式过于复杂，最多允许 {_MAX_AST_NODES} 个语法节点")
+        return super().visit(node)
 
     def visit_Name(self, node: ast.Name) -> None:  # noqa: N802 - ast visitor API
         if node.id not in _ALLOWED_NAMES:
@@ -98,6 +115,23 @@ class _ExpressionValidator(ast.NodeVisitor):
             raise ValueError("仅允许访问 math.<name>")
         if node.attr not in _ALLOWED_MATH_NAMES:
             raise ValueError(f"不允许的 math 名称: {node.attr}")
+
+    def visit_Constant(self, node: ast.Constant) -> None:  # noqa: N802 - ast visitor API
+        value = node.value
+        if isinstance(value, str) and len(value) > _MAX_LITERAL_STRING_LENGTH:
+            raise ValueError(f"字符串字面量过长，最多允许 {_MAX_LITERAL_STRING_LENGTH} 个字符")
+        if isinstance(value, int) and not isinstance(value, bool):
+            if abs(value) > _MAX_LITERAL_NUMBER:
+                raise ValueError(f"数值字面量超出允许范围: ±{_MAX_LITERAL_NUMBER}")
+        if isinstance(value, float):
+            if not math.isfinite(value) or abs(value) > _MAX_LITERAL_NUMBER:
+                raise ValueError(f"数值字面量超出允许范围: ±{_MAX_LITERAL_NUMBER}")
+
+    def visit_BinOp(self, node: ast.BinOp) -> None:  # noqa: N802 - ast visitor API
+        if isinstance(node.op, ast.Pow):
+            raise ValueError("不允许幂运算；请使用受限的 math 函数")
+        self.visit(node.left)
+        self.visit(node.right)
 
     def visit_Call(self, node: ast.Call) -> None:  # noqa: N802 - ast visitor API
         if isinstance(node.func, ast.Name):
@@ -124,6 +158,8 @@ class FunctionExpressionNode(AsyncNode):
         expression = cfg.expression.strip()
         if not expression:
             raise ValueError("expression 不能为空")
+        if len(expression) > _MAX_EXPRESSION_LENGTH:
+            raise ValueError(f"expression 过长，最多允许 {_MAX_EXPRESSION_LENGTH} 个字符")
         tree = ast.parse(expression, mode="eval")
         _ExpressionValidator().visit(tree)
         compiled = compile(tree, filename="<function.expression>", mode="eval")

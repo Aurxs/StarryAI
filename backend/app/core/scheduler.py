@@ -12,6 +12,7 @@ import asyncio
 import math
 import time
 import uuid
+from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
@@ -117,6 +118,8 @@ class GraphScheduler:
         self._edge_queues: dict[EdgeKey, asyncio.Queue[Frame]] = {}
         # _edge_state_map: 边 -> 运行态边状态（queue_size、forwarded_frames）。
         self._edge_state_map: dict[EdgeKey, RuntimeEdgeState] = {}
+        # _edge_in_flight: 已从边队列取出、尚未写入下游输入槽位的帧。
+        self._edge_in_flight: set[EdgeKey] = set()
         # _skipped_edges: 可选输出未命中的边，源节点终止后这些边会自然关闭。
         self._skipped_edges: set[EdgeKey] = set()
 
@@ -126,6 +129,10 @@ class GraphScheduler:
         self._node_input_metadata: dict[str, dict[str, dict[str, Any]]] = {}
         # _node_input_versions: 节点 -> 输入端口版本号，用于安全消费重复激活输入。
         self._node_input_versions: dict[str, dict[str, int]] = {}
+        # _node_trigger_queues: trigger.entry 的内部触发队列。Event 只负责唤醒，不能承担计数。
+        self._node_trigger_queues: dict[str, deque[tuple[dict[str, Any], dict[str, Any]]]] = {}
+        # _node_input_queues: 节点输入端口的待消费帧；每次激活各端口消费一帧。
+        self._node_input_queues: dict[str, dict[str, deque[tuple[Any, dict[str, Any]]]]] = {}
         # _node_input_events: 节点 -> 输入到达事件，用于唤醒等待输入的节点任务。
         self._node_input_events: dict[str, asyncio.Event] = {}
         # _node_policies: 节点 -> 执行策略（超时、重试、错误传播）。
@@ -255,10 +262,13 @@ class GraphScheduler:
         self._edge_tasks.clear()
         self._edge_queues.clear()
         self._edge_state_map.clear()
+        self._edge_in_flight.clear()
         self._skipped_edges.clear()
         self._node_inputs.clear()
         self._node_input_metadata.clear()
         self._node_input_versions.clear()
+        self._node_trigger_queues.clear()
+        self._node_input_queues.clear()
         self._node_input_events.clear()
         self._node_policies.clear()
         self._sync_coordinator = SyncCoordinator()
@@ -370,6 +380,11 @@ class GraphScheduler:
             self._node_inputs[node_id] = {}
             self._node_input_metadata[node_id] = {}
             self._node_input_versions[node_id] = {}
+            self._node_trigger_queues[node_id] = deque()
+            self._node_input_queues[node_id] = {}
+            for port in spec.inputs:
+                if port.input_behavior != InputBehavior.REFERENCE:
+                    self._node_input_queues[node_id][port.name] = deque()
             # 每个节点一个输入事件；边任务写入输入后会 set 它。
             self._node_input_events[node_id] = asyncio.Event()
 
@@ -454,10 +469,13 @@ class GraphScheduler:
                         self._notify_downstream_waiters(node_id)
                         return
                     if self._required_inputs_unavailable(node_id, required_ports):
-                        if processed_count > 0 or self._can_finish_without_activation(
+                        can_finish_without_activation = self._can_finish_without_activation(
                             node_id=node_id,
                             required_ports=required_ports,
-                        ):
+                        )
+                        if processed_count > 0 or can_finish_without_activation:
+                            if can_finish_without_activation:
+                                self._skip_outgoing_edges(node_id)
                             node_state.status = "finished"
                             node_state.finished_at = time.time()
                             self._notify_downstream_waiters(node_id)
@@ -503,6 +521,8 @@ class GraphScheduler:
                     node_state.status = "stopped"
                     return
 
+                self._prepare_queued_input_activation(node_id=node_id, spec=spec)
+                self._prepare_trigger_entry_activation(node_id=node_id, spec=spec)
                 activation_versions = dict(self._node_input_versions.get(node_id, {}))
                 node_state.status = "running"
                 node_state.started_at = time.time()
@@ -652,11 +672,17 @@ class GraphScheduler:
         processed_count: int,
     ) -> bool:
         current_inputs = self._node_inputs[node_id]
+        if self._has_node_tag(spec, "trigger_entry"):
+            if not self._node_trigger_queues.get(node_id):
+                return False
+            if self._trigger_entry_requires_cached_input(node_id) and "in" not in current_inputs:
+                return False
+            return True
         if self._has_node_tag(spec, "loop_start"):
             if processed_count == 0:
                 return True
-            return "continue" in current_inputs
-        return required_ports.issubset(current_inputs)
+            return bool(self._node_input_queues.get(node_id, {}).get("continue"))
+        return all(self._node_input_queues.get(node_id, {}).get(port) for port in required_ports)
 
     def _loop_start_continue_unavailable(
         self,
@@ -667,7 +693,7 @@ class GraphScheduler:
     ) -> bool:
         if not self._has_node_tag(spec, "loop_start") or processed_count == 0:
             return False
-        if "continue" in self._node_inputs.get(node_id, {}):
+        if self._node_input_queues.get(node_id, {}).get("continue"):
             return False
         assert self._compiled_graph is not None
         provider_edges = [
@@ -680,6 +706,8 @@ class GraphScheduler:
 
     def _node_finishes_after_activation(self, *, spec: NodeSpec, outputs: dict[str, Any]) -> bool:
         if self._has_node_tag(spec, "loop_end") and "done" in outputs:
+            return True
+        if self._has_node_tag(spec, "loop_start") and "item" not in outputs:
             return True
         return False
 
@@ -702,14 +730,11 @@ class GraphScheduler:
         for entry_id in entry_ids:
             if entry_id not in self._node_inputs:
                 continue
-            self._node_inputs[entry_id]["trigger"] = {
+            trigger_payload = {
                 "trigger_group": group_name,
                 "source_node": node_id,
             }
-            self._node_input_versions[entry_id]["trigger"] = (
-                self._node_input_versions[entry_id].get("trigger", 0) + 1
-            )
-            self._node_input_metadata[entry_id]["trigger"] = {
+            trigger_metadata = {
                 "trigger_token": trigger_token,
                 "source_node": node_id,
                 "source_port": "trigger",
@@ -717,6 +742,7 @@ class GraphScheduler:
                 "seq": 0,
                 "trigger_group": group_name,
             }
+            self._node_trigger_queues[entry_id].append((trigger_payload, trigger_metadata))
             self._node_input_events[entry_id].set()
             if self.runtime_state is not None:
                 self.runtime_state.metrics["trigger_broadcasts"] = (
@@ -765,7 +791,7 @@ class GraphScheduler:
         assert self._compiled_graph is not None
         spec = self._compiled_graph.node_specs[node_id]
         missing_ports = {
-            port for port in required_ports if port not in self._node_inputs.get(node_id, {})
+            port for port in required_ports if not self._input_available(node_id, spec, port)
         }
         if not missing_ports:
             return False
@@ -782,6 +808,63 @@ class GraphScheduler:
                 return False
         return True
 
+    def _prepare_trigger_entry_activation(self, *, node_id: str, spec: NodeSpec) -> None:
+        """从入口触发队列取出一个信号，写入本次激活的输入快照。"""
+        if not self._has_node_tag(spec, "trigger_entry"):
+            return
+        queue = self._node_trigger_queues.get(node_id)
+        if not queue:
+            raise RuntimeError(f"触发入口 {node_id} 在没有触发信号时被激活")
+        payload, metadata = queue.popleft()
+        self._node_inputs[node_id]["trigger"] = payload
+        self._node_input_versions[node_id]["trigger"] = (
+            self._node_input_versions[node_id].get("trigger", 0) + 1
+        )
+        self._node_input_metadata[node_id]["trigger"] = metadata
+
+    def _prepare_queued_input_activation(self, *, node_id: str, spec: NodeSpec) -> None:
+        """为一次节点激活从每个普通输入端口取出一帧。"""
+        queues_by_port = self._node_input_queues.get(node_id, {})
+        for port in spec.inputs:
+            if port.input_behavior == InputBehavior.REFERENCE:
+                continue
+            if self._is_trigger_entry_cache_port(spec=spec, port_name=port.name):
+                continue
+            queue = queues_by_port.get(port.name)
+            if not queue:
+                continue
+            value, metadata = queue.popleft()
+            self._node_inputs[node_id][port.name] = value
+            self._node_input_versions[node_id][port.name] = (
+                self._node_input_versions[node_id].get(port.name, 0) + 1
+            )
+            self._node_input_metadata[node_id][port.name] = metadata
+
+    def _input_available(self, node_id: str, spec: NodeSpec, port_name: str) -> bool:
+        if self._is_internal_trigger_entry_port(spec=spec, port_name=port_name):
+            return bool(self._node_trigger_queues.get(node_id))
+        if self._is_trigger_entry_cache_port(spec=spec, port_name=port_name):
+            return port_name in self._node_inputs.get(node_id, {})
+        return bool(self._node_input_queues.get(node_id, {}).get(port_name))
+
+    def _trigger_entry_requires_cached_input(self, node_id: str) -> bool:
+        """读取 trigger.entry 的缓存输入策略，缺省值与节点配置保持一致。"""
+        assert self._compiled_graph is not None
+        for node in self._compiled_graph.graph.nodes:
+            if node.node_id == node_id:
+                return self._parse_bool_flag(node.config.get("require_cached_input"), default=True)
+        return True
+
+    def _skip_outgoing_edges(self, node_id: str) -> None:
+        """将因上游可选分支未激活而不可达的下游边标记为关闭。"""
+        assert self._compiled_graph is not None
+        for edge in self._compiled_graph.outgoing_edges.get(node_id, []):
+            edge_key = self._edge_key(edge)
+            self._skipped_edges.add(edge_key)
+            event = self._node_input_events.get(edge.target_node)
+            if event is not None:
+                event.set()
+
     async def _route_outputs(self, node_id: str, outputs: dict[str, Any]) -> None:
         """将节点输出按边路由到下游队列。"""
         assert self._compiled_graph is not None
@@ -792,10 +875,6 @@ class GraphScheduler:
             edge.source_port: uuid.uuid4().hex for edge in edges
         }
         node_spec = self._compiled_graph.node_specs[node_id]
-        for edge in edges:
-            trigger_token = trigger_tokens_by_port[edge.source_port]
-            self._register_pending_variable_write(edge.target_node, trigger_token)
-
         for edge in edges:
             if edge.source_port not in outputs:
                 # edge_key: 当前出边唯一键。
@@ -823,6 +902,10 @@ class GraphScheduler:
             # edge_key: 当前出边唯一键。
             edge_key = self._edge_key(edge)
             self._skipped_edges.discard(edge_key)
+            self._register_pending_variable_write(
+                edge.target_node,
+                trigger_tokens_by_port[edge.source_port],
+            )
             # queue: 当前边对应的帧队列。
             queue = self._edge_queues[edge_key]
             # edge_state: 当前边可观测运行态。
@@ -961,20 +1044,33 @@ class GraphScheduler:
                 except asyncio.TimeoutError:
                     continue
 
-                self._node_inputs[edge.target_node][edge.target_port] = frame.payload.get("value")
-                self._node_input_versions[edge.target_node][edge.target_port] = (
-                    self._node_input_versions[edge.target_node].get(edge.target_port, 0) + 1
-                )
-                self._node_input_metadata[edge.target_node][edge.target_port] = {
+                self._edge_in_flight.add(edge_key)
+                input_metadata = {
                     "trigger_token": frame.metadata.get("trigger_token"),
                     "source_node": frame.source_node,
                     "source_port": frame.source_port,
                     "stream_id": frame.stream_id,
                     "seq": frame.seq,
                 }
+                assert self._compiled_graph is not None
+                target_spec = self._compiled_graph.node_specs[edge.target_node]
+                if self._is_trigger_entry_cache_port(
+                    spec=target_spec,
+                    port_name=edge.target_port,
+                ):
+                    self._node_inputs[edge.target_node][edge.target_port] = frame.payload.get("value")
+                    self._node_input_versions[edge.target_node][edge.target_port] = (
+                        self._node_input_versions[edge.target_node].get(edge.target_port, 0) + 1
+                    )
+                    self._node_input_metadata[edge.target_node][edge.target_port] = input_metadata
+                else:
+                    self._node_input_queues[edge.target_node][edge.target_port].append(
+                        (frame.payload.get("value"), input_metadata)
+                    )
                 self._node_input_events[edge.target_node].set()
 
                 queue.task_done()
+                self._edge_in_flight.discard(edge_key)
                 edge_state.forwarded_frames += 1
                 edge_state.queue_size = queue.qsize()
                 if self.runtime_state is not None:
@@ -982,6 +1078,7 @@ class GraphScheduler:
                             int(self.runtime_state.metrics.get("edge_forwarded_frames", 0)) + 1
                     )
         except asyncio.CancelledError:
+            self._edge_in_flight.discard(edge_key)
             raise
 
     async def _shutdown_edge_tasks(self) -> None:
@@ -1324,14 +1421,14 @@ class GraphScheduler:
         assert self._compiled_graph is not None
         assert self.runtime_state is not None
 
+        spec = self._compiled_graph.node_specs[node_id]
         missing_ports = [
-            port for port in required_ports if port not in self._node_inputs.get(node_id, {})
+            port for port in required_ports if not self._input_available(node_id, spec, port)
         ]
         if not missing_ports:
             return False
 
         incoming_edges = self._compiled_graph.incoming_edges.get(node_id, [])
-        spec = self._compiled_graph.node_specs[node_id]
         for port in missing_ports:
             if self._is_internal_trigger_entry_port(spec=spec, port_name=port):
                 if self._trigger_emitters_closed_for_entry(node_id):
@@ -1362,6 +1459,8 @@ class GraphScheduler:
             return False
         if self._edge_key(edge) in self._skipped_edges:
             return True
+        if self._edge_key(edge) in self._edge_in_flight:
+            return False
         queue = self._edge_queues.get(self._edge_key(edge))
         return queue is None or queue.empty()
 
